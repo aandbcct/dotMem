@@ -1,8 +1,13 @@
 # -*- coding: utf-8 -*-
-"""Loopback-first MemHub Core: bearer HTTP, durable evidence and one writer."""
+"""Loopback-first MemHub Core: bearer HTTP, durable evidence, one writer per store.
+
+Recall always reads this device's store. With a sync target in ``hub.json`` the
+Core also replicates the store's change log (``memhub.sync``); other devices'
+Cores can sync against this one through ``/v1/hub/log/*``."""
 
 from __future__ import annotations
 
+import asyncio
 import fcntl
 import os
 import secrets
@@ -22,13 +27,16 @@ from dual_mem.client import MemoryClient
 from dual_mem.config import Settings
 from dual_mem.errors import IdempotencyConflictError
 from dual_mem.memhub.config import (
+    SyncConfig,
     hub_root,
     hub_settings,
     load_or_create_runtime_token,
+    load_sync_config,
     publish_runtime,
     unpublish_runtime,
 )
 from dual_mem.memhub.queue import HubWriteQueue
+from dual_mem.memhub.sync import HubSyncer, SyncBackend, project_received
 from dual_mem.sdk_models import SearchMemories
 from dual_mem.types import Layer, MemoryStatus
 from dual_mem.isolation import build_filter
@@ -56,6 +64,15 @@ class HubRecallRequest(BaseModel):
     raw_limit: int = 5
     # MemHub serves coding CLIs: engineering experience is recalled by default.
     procedure_limit: int = 3
+
+
+class HubLogExport(BaseModel):
+    after: dict[str, int] = {}
+    limit: int = 200
+
+
+class HubLogImport(BaseModel):
+    entries: list[dict]
 
 
 class HubProcessLock:
@@ -135,6 +152,10 @@ def create_hub_app(
     published_base_url: str = "http://127.0.0.1:8765",
     queue_retry_seconds: float = 30.0,
     digest_min_hours: float = 24.0,
+    sync: SyncConfig | None = None,
+    sync_backend: SyncBackend | None = None,
+    sync_interval_seconds: float = 300.0,
+    sync_pull_seconds: float = 60.0,
 ) -> FastAPI:
     """Create the personal Hub Core; one process owns one local store.
 
@@ -146,8 +167,13 @@ def create_hub_app(
     when pending System 2 evidence exists and the last successful auto-digest
     was at least ``digest_min_hours`` ago. ``digest_min_hours <= 0`` turns that
     off. The stamp is ``digest-at`` in the Hub root; a failed run does not write it.
+
+    ``sync`` (default: ``hub.json``) replicates this store. Only one store of a
+    replica set digests: the remote Core for ``http`` / ``ssh``, the first device
+    to sync for ``dir`` / ``git``. The others receive its schemas.
     """
     root = hub_root(hub_dir)
+    sync_cfg = sync if sync is not None else load_sync_config(root)
     lock = HubProcessLock(root / "hub.lock")
     owns_client = client is None
 
@@ -156,6 +182,8 @@ def create_hub_app(
         lock.acquire()
         core_client: MemoryClient | None = None
         queue: HubWriteQueue | None = None
+        syncer: HubSyncer | None = None
+        app.state.syncer = None
         try:
             resolved_key = load_or_create_runtime_token(root, token=api_key)
             app.state.api_key = resolved_key
@@ -169,6 +197,26 @@ def create_hub_app(
                 settings=settings or hub_settings(root)
             )
             app.state.client = core_client
+
+            async def configure_sync(cfg: SyncConfig | None, backend=None) -> None:
+                """(Re)start replication for ``cfg``; None stops it."""
+                nonlocal syncer
+                if syncer is not None:
+                    await syncer.close()
+                syncer = None
+                if cfg is not None and cfg.kind:
+                    syncer = HubSyncer(
+                        core_client,
+                        cfg,
+                        hub_dir=root,
+                        backend=backend,
+                        interval_seconds=sync_interval_seconds,
+                        pull_seconds=sync_pull_seconds,
+                    )
+                app.state.syncer = syncer
+
+            await configure_sync(sync_cfg, sync_backend)
+            app.state.configure_sync = configure_sync
 
             async def process(payload: dict[str, Any]) -> dict[str, Any]:
                 kwargs = {
@@ -189,6 +237,8 @@ def create_hub_app(
                         workspace_id=payload.get("workspace_id"),
                         branch=payload.get("branch"),
                     )
+                if syncer is not None:
+                    syncer.kick()
                 return result.to_dict()
 
             async def digest() -> None:
@@ -196,11 +246,15 @@ def create_hub_app(
                 # decide whether this spends a model call.
                 if not last_digest_due(root, min_hours=digest_min_hours):
                     return
+                if syncer is not None and not syncer.digests_here():
+                    return
                 if not core_client.factory.cache.list_pending_s2_scopes():
                     return
                 result = await core_client.digest()
                 if result.processed > 0:
                     write_last_digest_at(root, time.time())
+                    if syncer is not None:
+                        syncer.kick()
 
             auto_digest = core_client.settings.mode == "dual" and digest_min_hours > 0
             queue = HubWriteQueue(
@@ -212,8 +266,12 @@ def create_hub_app(
             )
             app.state.queue = queue
             queue.start()
+            if syncer is not None:
+                syncer.start()
             yield
         finally:
+            if syncer is not None:
+                await syncer.close()
             if queue is not None:
                 await queue.close()
             if owns_client and core_client is not None:
@@ -303,6 +361,9 @@ def create_hub_app(
     @app.post("/v1/hub/recall", dependencies=[Depends(verify)])
     async def recall(body: HubRecallRequest):
         core_client: MemoryClient = app.state.client
+        if app.state.syncer is not None:
+            # Answer from the local store now; newer memories arrive for the next one.
+            app.state.syncer.pull_if_stale()
         memories = SearchMemories()
         conversations = SearchMemories()
         if body.limit > 0 or body.procedure_limit > 0:
@@ -328,6 +389,62 @@ def create_hub_app(
             "memories": memories.to_dict(),
             "conversations": [item.to_dict() for item in conversations.normal],
         }
+
+    def embed_identity() -> dict[str, Any]:
+        resolved = app.state.client.settings
+        return {"model": resolved.embed_model, "dim": resolved.embed_dim}
+
+    @app.get("/v1/hub/log/heads", dependencies=[Depends(verify)])
+    async def log_heads():
+        vector = app.state.client.factory.vector
+        return {
+            "origin": vector.origin,
+            "embed": embed_identity(),
+            "heads": await asyncio.to_thread(vector.log_heads),
+        }
+
+    @app.post("/v1/hub/log/export", dependencies=[Depends(verify)])
+    async def log_export(body: HubLogExport):
+        vector = app.state.client.factory.vector
+        entries = await asyncio.to_thread(
+            vector.export_log, body.after, limit=min(body.limit, 1000)
+        )
+        return {"entries": entries}
+
+    @app.post("/v1/hub/log/import", dependencies=[Depends(verify)])
+    async def log_import(body: HubLogImport):
+        """Another device's changes; this Core relays them and digests for it."""
+        core_client: MemoryClient = app.state.client
+        result = await asyncio.to_thread(core_client.factory.vector.import_log, body.entries)
+        await project_received(core_client)
+        syncer = app.state.syncer
+        if core_client.settings.mode == "dual" and (syncer is None or syncer.digests_here()):
+            for app_id, user_id, agent_id in result["scopes"]:
+                core_client.factory.cache.enqueue_s2_task(
+                    user_id=user_id, app_id=app_id, agent_id=agent_id
+                )
+        if result["applied"]:
+            app.state.queue.wake()
+        return {k: v for k, v in result.items() if k != "scopes"}
+
+    @app.post("/v1/hub/sync/reload", dependencies=[Depends(verify)])
+    async def sync_reload():
+        """Pick up ``hub.json`` after ``hub connect`` / ``hub disconnect``."""
+        await app.state.configure_sync(load_sync_config(root))
+        if app.state.syncer is not None:
+            app.state.syncer.start()
+        return {"sync": app.state.syncer.status() if app.state.syncer else None}
+
+    @app.post("/v1/hub/sync", dependencies=[Depends(verify)])
+    async def sync_now():
+        if app.state.syncer is None:
+            raise HTTPException(
+                status_code=400, detail="no sync target; run `dual-mem hub connect`"
+            )
+        try:
+            return await app.state.syncer.run_once()
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     @app.get("/v1/hub/status", dependencies=[Depends(verify)])
     async def status():
@@ -364,6 +481,7 @@ def create_hub_app(
                 "last_at": read_last_digest_at(root),
                 "last_error": app.state.queue.last_idle_error,
             },
+            "sync": app.state.syncer.status() if app.state.syncer is not None else None,
         }
 
     return app

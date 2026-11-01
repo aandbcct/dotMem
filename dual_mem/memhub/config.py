@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
 """
 @author:XuMing(xuming624@qq.com)
-@description: MemHub home (~/.dual-mem): Core connection, local scan cursors and
-the Core-owned memory store.
+@description: MemHub home (~/.dual-mem): the local Core's receipt, the sync
+target, local scan cursors and the Core-owned memory store.
 
-CLI hosts never open the store. They read local transcripts and send them to one
-Hub Core over loopback HTTP. The Core is the only MemoryClient writer.
+CLI hosts never open the store. They read local transcripts and send them to the
+Core on this machine over loopback HTTP. The Core is the only writer of this
+device's store and replicates it to the sync target in ``hub.json``.
 """
 from __future__ import annotations
 
@@ -18,7 +19,7 @@ import sqlite3
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -29,18 +30,27 @@ DEFAULT_HUB_DIR = Path.home() / ".dual-mem"
 
 @dataclass
 class HubConfig:
-    """Optional remote Core attachment persisted as ``<hub>/hub.json``."""
+    """Endpoint of the Core on this machine (from ``runtime.json``)."""
 
     base_url: str = ""
     api_key: str = ""
-    # Set by ``hub connect``: the SSH target whose Core the local tunnel reaches.
-    ssh_target: str = ""
 
-    def resolved_base_url(self) -> str:
-        return (os.environ.get("DUAL_MEM_HUB_BASE_URL") or self.base_url).rstrip("/")
 
-    def resolved_api_key(self) -> str:
-        return os.environ.get("DUAL_MEM_HUB_API_KEY") or self.api_key
+@dataclass
+class SyncConfig:
+    """Where this device replicates its memory, persisted as ``<hub>/hub.json``.
+
+    ``kind`` is ``dir`` (a synced folder), ``git`` (a repository URL), ``http``
+    (another Core over HTTPS) or ``ssh`` (another Core through one ``ssh``
+    command per sync).
+    """
+
+    kind: str = ""
+    target: str = ""
+    api_key: str = ""
+    ssh_args: list[str] = field(default_factory=list)
+    # How the server runs dual-mem when reached over ssh.
+    remote_command: str = "dual-mem"
 
     def public_dict(self) -> dict[str, Any]:
         data = asdict(self)
@@ -72,19 +82,19 @@ def _token_path(hub_dir: str | Path | None) -> Path:
     return hub_root(hub_dir) / "runtime-token"
 
 
-def save_hub_config(cfg: HubConfig, hub_dir: str | Path | None = None) -> Path:
+def save_sync_config(cfg: SyncConfig, hub_dir: str | Path | None = None) -> Path:
     path = _config_path(hub_dir)
     tmp = path.with_suffix(".tmp")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
-        json.dump(asdict(cfg), fh, ensure_ascii=False, indent=2)
+        json.dump({"sync": asdict(cfg)}, fh, ensure_ascii=False, indent=2)
         fh.write("\n")
     os.replace(tmp, path)
     return path
 
 
-def clear_hub_config(hub_dir: str | Path | None = None) -> bool:
-    """Remove a remote attachment so clients resume local auto-discovery."""
+def clear_sync_config(hub_dir: str | Path | None = None) -> bool:
+    """Stop replicating; the local store stays as it is."""
     path = _config_path(hub_dir)
     if not path.is_file():
         return False
@@ -92,12 +102,11 @@ def clear_hub_config(hub_dir: str | Path | None = None) -> bool:
     return True
 
 
-def load_hub_config(hub_dir: str | Path | None = None) -> HubConfig:
-    """Read an explicit remote attachment, returning empty defaults if absent."""
+def load_sync_config(hub_dir: str | Path | None = None) -> SyncConfig | None:
     path = _config_path(hub_dir)
     if not path.is_file():
-        return HubConfig()
-    return HubConfig(**json.loads(path.read_text(encoding="utf-8")))
+        return None
+    return SyncConfig(**json.loads(path.read_text(encoding="utf-8"))["sync"])
 
 
 def load_or_create_runtime_token(
@@ -156,21 +165,13 @@ def unpublish_runtime(
 
 
 def resolve_hub_config(hub_dir: str | Path | None = None) -> HubConfig:
-    """Explicit remote attachment, env pair, or local runtime discovery."""
-    configured = load_hub_config(hub_dir)
-    base_url = configured.resolved_base_url()
-    api_key = configured.resolved_api_key()
-    if bool(base_url) != bool(api_key):
-        raise ValueError("Hub base_url and api_key must be configured together")
-    if base_url:
-        return HubConfig(base_url=base_url, api_key=api_key)
-
+    """The Core running on this machine, from its published runtime receipt."""
     runtime_path = _runtime_path(hub_dir)
     token_path = _token_path(hub_dir)
     if not runtime_path.is_file() or not token_path.is_file():
         raise RuntimeError(
             "local Hub Core is not running; start `dual-mem hub serve` "
-            "or configure `dual-mem hub attach`"
+            "or `dual-mem hub install-service`"
         )
     runtime = json.loads(runtime_path.read_text(encoding="utf-8"))
     return HubConfig(

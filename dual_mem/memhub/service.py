@@ -1,11 +1,10 @@
 # -*- coding: utf-8 -*-
-"""Login services: the MemHub Core, and the SSH tunnel to a Core on another host.
+"""Login service for the MemHub Core.
 
-macOS uses LaunchAgents, Linux systemd user units. Both start at login and
-restart on failure. No credentials are copied into a service file: like any
+macOS uses a LaunchAgent, Linux a systemd user unit. It starts at login and
+restarts on failure. No credentials are copied into the service file: like any
 dual-mem process, the Core reads model keys from ``~/.dual-mem/config.yaml``
-(a login service does not see variables exported in a shell profile), and the
-tunnel authenticates with the user's own SSH keys / ``~/.ssh/config``.
+(a login service does not see variables exported in a shell profile).
 """
 
 from __future__ import annotations
@@ -24,8 +23,6 @@ from dual_mem.memhub.config import hub_root
 
 LABEL = "com.dual-mem.hub"
 SYSTEMD_UNIT = "dual-mem-hub.service"
-TUNNEL_LABEL = "com.dual-mem.hub-tunnel"
-TUNNEL_SYSTEMD_UNIT = "dual-mem-hub-tunnel.service"
 
 Runner = Callable[[list[str]], dict[str, Any]]
 
@@ -36,14 +33,9 @@ class _Service:
     unit: str
     description: str
     log_name: str
-    # The Core exits 0 only when asked to stop; ssh exits whenever the link drops.
-    restart_always: bool
 
 
-CORE = _Service(LABEL, SYSTEMD_UNIT, "dual-mem MemHub Core", "serve.log", False)
-TUNNEL = _Service(
-    TUNNEL_LABEL, TUNNEL_SYSTEMD_UNIT, "dual-mem MemHub SSH tunnel", "tunnel.log", True
-)
+CORE = _Service(LABEL, SYSTEMD_UNIT, "dual-mem MemHub Core", "serve.log")
 
 
 def _argv(hub_dir: Path, host: str, port: int) -> list[str]:
@@ -62,27 +54,6 @@ def _argv(hub_dir: Path, host: str, port: int) -> list[str]:
     ]
 
 
-def tunnel_argv(
-    target: str, *, local_port: int, remote_port: int, ssh_args: list[str] | None = None
-) -> list[str]:
-    """``ssh -N`` forwarding local loopback to the remote Core's loopback.
-
-    BatchMode never prompts (a service has no terminal); ExitOnForwardFailure and
-    keep-alives make a broken link exit, so the service manager restarts it.
-    """
-    return [
-        "ssh",
-        "-N",
-        "-o", "BatchMode=yes",
-        "-o", "ExitOnForwardFailure=yes",
-        "-o", "ServerAliveInterval=30",
-        "-o", "ServerAliveCountMax=3",
-        *(ssh_args or []),
-        "-L", f"127.0.0.1:{local_port}:127.0.0.1:{remote_port}",
-        target,
-    ]
-
-
 def launchd_plist_path(label: str = LABEL) -> Path:
     return Path.home() / "Library" / "LaunchAgents" / f"{label}.plist"
 
@@ -98,7 +69,8 @@ def _plist(service: _Service, argv: list[str], workdir: Path, logs: Path) -> byt
             "Label": service.label,
             "ProgramArguments": argv,
             "RunAtLoad": True,
-            "KeepAlive": True if service.restart_always else {"SuccessfulExit": False},
+            # The Core exits 0 only when asked to stop.
+            "KeepAlive": {"SuccessfulExit": False},
             # launchd throttles respawns to this interval (seconds).
             "ThrottleInterval": 10,
             "WorkingDirectory": str(workdir),
@@ -119,8 +91,8 @@ def _unit(service: _Service, argv: list[str], workdir: Path, logs: Path) -> str:
             "Type=simple",
             f"WorkingDirectory={workdir}",
             f"ExecStart={shlex.join(argv)}",
-            f"Restart={'always' if service.restart_always else 'on-failure'}",
-            f"RestartSec={10 if service.restart_always else 5}",
+            "Restart=on-failure",
+            "RestartSec=5",
             f"StandardOutput=append:{logs / service.log_name}",
             f"StandardError=append:{logs / service.log_name}",
             "",
@@ -165,7 +137,7 @@ def _install(service: _Service, argv: list[str], root: Path, runner: Runner) -> 
         path.write_text(_unit(service, argv, root, logs), encoding="utf-8")
         actions = [
             runner(["systemctl", "--user", "daemon-reload"]),
-            # restart: a re-run of connect must pick up a changed port or target.
+            # restart: a re-run must pick up a changed port.
             runner(["systemctl", "--user", "enable", service.unit]),
             runner(["systemctl", "--user", "restart", service.unit]),
         ]
@@ -207,23 +179,3 @@ def install_service(
 
 def uninstall_service(*, runner: Runner = _run) -> dict[str, Any]:
     return _uninstall(CORE, runner)
-
-
-def install_tunnel(
-    target: str,
-    *,
-    local_port: int,
-    remote_port: int,
-    ssh_args: list[str] | None = None,
-    hub_dir: str | Path | None = None,
-    runner: Runner = _run,
-) -> dict[str, Any]:
-    """Keep ``ssh -N -L`` to a remote Core running across logins and dropped links."""
-    argv = tunnel_argv(
-        target, local_port=local_port, remote_port=remote_port, ssh_args=ssh_args
-    )
-    return _install(TUNNEL, argv, hub_root(hub_dir), runner)
-
-
-def uninstall_tunnel(*, runner: Runner = _run) -> dict[str, Any]:
-    return _uninstall(TUNNEL, runner)

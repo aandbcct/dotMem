@@ -8,7 +8,7 @@ from typing import Any
 
 import httpx
 
-from dual_mem.memhub.config import HubConfig, resolve_hub_config
+from dual_mem.memhub.config import resolve_hub_config
 
 
 class HubClient:
@@ -24,8 +24,7 @@ class HubClient:
     ) -> None:
         if not api_key:
             raise ValueError(
-                "Hub API key missing: start local `dual-mem hub serve` or run "
-                "`dual-mem hub attach --base-url ... --api-key ...`"
+                "Hub API key missing: start local `dual-mem hub serve`"
             )
         self.base_url = base_url.rstrip("/")
         self._http = httpx.AsyncClient(
@@ -43,11 +42,7 @@ class HubClient:
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> HubClient:
         cfg = resolve_hub_config(hub_dir)
-        return cls(
-            base_url=cfg.resolved_base_url(),
-            api_key=cfg.resolved_api_key(),
-            transport=transport,
-        )
+        return cls(base_url=cfg.base_url, api_key=cfg.api_key, transport=transport)
 
     async def __aenter__(self) -> HubClient:
         return self
@@ -126,10 +121,14 @@ class HubClient:
     async def status(self) -> dict[str, Any]:
         return await self._request("GET", "/v1/hub/status")
 
+    async def sync(self) -> dict[str, Any]:
+        """Replicate with the sync target now and return the cycle's counts."""
+        return await self._request("POST", "/v1/hub/sync")
+
+    async def relay(self, method: str, path: str, body: Any = None) -> Any:
+        """Forward one Core API call (``hub relay``: sync over ssh)."""
+        return await self._request(method, path, json=body)
+
     async def aclose(self) -> None:
         await self._http.aclose()
 
-
-def hub_client_config(hub_dir: str | Path | None = None) -> HubConfig:
-    """Public helper for callers that need the resolved attachment metadata."""
-    return resolve_hub_config(hub_dir)

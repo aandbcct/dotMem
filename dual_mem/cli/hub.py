@@ -1,16 +1,13 @@
 # -*- coding: utf-8 -*-
-"""`dual-mem hub`: attach hosts to one loopback-first single-writer Core."""
+"""`dual-mem hub`: one loopback Core per device, replicated through a sync target."""
 
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
-import shlex
-import socket
 import subprocess
 import sys
-import time
 from collections import Counter
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -23,21 +20,22 @@ import typer
 
 from dual_mem.memhub import hosts as hub_hosts
 from dual_mem.memhub import service as hub_service
+from dual_mem.memhub import sync as hub_sync
 from dual_mem.memhub.client import HubClient
 from dual_mem.memhub.config import (
     CursorStore,
-    HubConfig,
-    clear_hub_config,
+    SyncConfig,
+    clear_sync_config,
     hub_root,
     hub_settings,
-    load_hub_config,
+    load_sync_config,
     runtime_status,
-    save_hub_config,
+    save_sync_config,
 )
 from dual_mem.memhub.sources import SOURCES, locate_transcript, scan_file, scan_sources
 from dual_mem.retrieval.formatter import format_memories
 
-hub_app = typer.Typer(help="MemHub：本地单 Core、跨 CLI 共享个人记忆")
+hub_app = typer.Typer(help="MemHub：每台设备一个本地 Core，跨 CLI 共享个人记忆，可跨设备同步")
 HubDir = typer.Option(None, "--hub-dir", help="Hub 根目录（默认 ~/.dual-mem）")
 LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
 
@@ -94,169 +92,153 @@ def _validate_base_url(base_url: str) -> str:
     value = base_url.rstrip("/")
     parsed = urlparse(value)
     if parsed.scheme not in ("http", "https") or not parsed.hostname:
-        raise typer.BadParameter("base_url must be an absolute http(s) URL")
-    loopback = parsed.hostname in LOOPBACK_HOSTS
-    if parsed.scheme != "https" and not loopback:
+        raise typer.BadParameter("URL must be an absolute http(s) URL")
+    if parsed.scheme != "https" and parsed.hostname not in LOOPBACK_HOSTS:
         raise typer.BadParameter(
-            "non-loopback Hub connections require HTTPS; use an SSH/Tailscale "
-            "tunnel and a 127.0.0.1 URL"
+            "a remote Core must be reached over HTTPS; use `connect ssh` otherwise"
         )
     return value
 
 
-@hub_app.command("attach")
-def hub_attach(
-    base_url: str = typer.Option(..., "--base-url", help="Hub Core URL"),
-    api_key: str = typer.Option(..., "--api-key", help="Hub Core Bearer API key"),
-    hub_dir: str | None = HubDir,
-) -> None:
-    """显式连接隧道/远程 Core；本地 Core 无需执行此命令。"""
-    normalized = _validate_base_url(base_url)
-
-    async def attach() -> dict[str, Any]:
-        async with HubClient(base_url=normalized, api_key=api_key) as client:
-            return await client.identity()
-
-    identity = asyncio.run(attach())
-    cfg = HubConfig(base_url=normalized, api_key=api_key)
-    save_hub_config(cfg, hub_dir)
-    _echo(
-        {
-            "hub_dir": str(hub_root(hub_dir)),
-            "config": cfg.public_dict(),
-            "identity": identity,
-        }
-    )
+SYNC_KINDS = ("dir", "git", "http", "ssh")
 
 
-@hub_app.command("detach")
-def hub_detach(hub_dir: str | None = HubDir) -> None:
-    """移除远程连接（含 connect 建立的 SSH 隧道服务），恢复本机 Core 自动发现。"""
-    tunnel = (
-        hub_service.uninstall_tunnel()
-        if load_hub_config(hub_dir).ssh_target
-        else None
-    )
-    _echo(
-        {
-            "hub_dir": str(hub_root(hub_dir)),
-            "detached": clear_hub_config(hub_dir),
-            "tunnel": tunnel,
-        }
-    )
-
-
-def _remote_path(path: str) -> str:
-    """Quote a remote path for the remote shell, keeping a leading ``~/`` expandable."""
-    if path == "~":
-        return "~"
-    if path.startswith("~/"):
-        return "~/" + shlex.quote(path[2:])
-    return shlex.quote(path)
-
-
-def read_remote_core(
-    target: str, *, remote_hub_dir: str, ssh_args: list[str]
-) -> tuple[str, int]:
-    """Bearer token and loopback port of the Core running on ``target``.
-
-    One ``ssh`` call reads the server's ``runtime-token`` and ``runtime.json``
-    (published by a running Core), so nothing is copied by hand.
-    """
-    root = _remote_path(remote_hub_dir.rstrip("/") or "~")
-    result = subprocess.run(
-        [
-            "ssh",
-            "-o",
-            "BatchMode=yes",
-            *ssh_args,
-            target,
-            f"cat {root}/runtime-token && cat {root}/runtime.json",
-        ],
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
-    if result.returncode != 0:
-        raise typer.BadParameter(
-            f"cannot read the Core on {target}: {result.stderr.strip()}. "
-            "Is `dual-mem hub install-service` running there, and does "
-            "`ssh` reach it without a password prompt?"
+def _sync_config(
+    kind: str, target: str, *, api_key: str, ssh_arg: list[str], remote_command: str
+) -> SyncConfig:
+    if kind == "dir":
+        path = Path(target).expanduser().resolve()
+        return SyncConfig(kind="dir", target=str(path))
+    if kind == "git":
+        return SyncConfig(kind="git", target=target)
+    if kind == "http":
+        if not api_key:
+            raise typer.BadParameter("connect http needs --api-key (the server's runtime-token)")
+        return SyncConfig(kind="http", target=_validate_base_url(target), api_key=api_key)
+    if kind == "ssh":
+        return SyncConfig(
+            kind="ssh", target=target, ssh_args=list(ssh_arg), remote_command=remote_command
         )
-    token, _, runtime = result.stdout.partition("\n")
-    port = urlparse(json.loads(runtime)["base_url"]).port
-    if not token.strip() or port is None:
-        raise typer.BadParameter(f"incomplete Core runtime on {target}")
-    return token.strip(), port
+    raise typer.BadParameter(f"unknown kind {kind!r}; choose from {', '.join(SYNC_KINDS)}")
 
 
-def free_local_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
+def _check_target(cfg: SyncConfig, hub_dir: str | None) -> None:
+    """Reach the target once before saving it, so a typo fails here, not silently later."""
+    if cfg.kind == "dir":
+        Path(cfg.target).mkdir(parents=True, exist_ok=True)
+        return
+    if cfg.kind == "git":
+        result = subprocess.run(
+            ["git", "ls-remote", cfg.target], capture_output=True, text=True, timeout=120
+        )
+        if result.returncode != 0:
+            raise typer.BadParameter(f"cannot reach {cfg.target}: {result.stderr.strip()}")
+        return
+    settings = hub_settings(hub_dir)
+    try:
+        hub_sync.make_backend(cfg, hub_dir).open(
+            {"model": settings.embed_model, "dim": settings.embed_dim}, ""
+        )
+    except hub_sync.SyncError as exc:
+        hint = (
+            " Is `dual-mem hub install-service` running there, and does `ssh` "
+            "reach it without a password prompt?"
+            if cfg.kind == "ssh"
+            else ""
+        )
+        raise typer.BadParameter(f"{exc}.{hint}") from exc
 
 
-async def _wait_identity(
-    base_url: str, api_key: str, *, timeout: float
-) -> dict[str, Any]:
-    deadline = time.monotonic() + timeout
-    async with HubClient(base_url=base_url, api_key=api_key) as client:
-        while True:
-            try:
-                return await client.identity()
-            except httpx.TransportError:
-                # The tunnel service is still starting; give up only at the deadline.
-                # An HTTP error (wrong token, not a Hub) is final and raises at once.
-                if time.monotonic() >= deadline:
-                    raise
-                await asyncio.sleep(0.5)
+async def _local_core(hub_dir: str | None, method: str, path: str) -> dict[str, Any] | None:
+    """Call the Core on this machine; None when it is not running."""
+    try:
+        async with make_client(hub_dir) as client:
+            return await client.relay(method, path)
+    except (RuntimeError, httpx.TransportError):
+        return None
 
 
 @hub_app.command("connect")
 def hub_connect(
-    target: str = typer.Argument(..., help="SSH 目标，如 user@server 或 ~/.ssh/config 里的 Host"),
-    local_port: int = typer.Option(0, "--local-port", help="本机隧道端口，0 = 自动选空闲端口"),
-    remote_hub_dir: str = typer.Option("~/.dual-mem", "--remote-hub-dir", help="服务器上的 Hub 根目录"),
-    ssh_arg: list[str] = typer.Option(
-        [], "--ssh-arg", help="透传给 ssh 的参数，可重复，如 --ssh-arg=-p --ssh-arg=2222"
+    kind: str = typer.Argument(..., help="dir | git | http | ssh"),
+    target: str = typer.Argument(
+        ...,
+        help="dir: 同步文件夹（iCloud Drive / Dropbox / Syncthing / NAS）；"
+        "git: 仓库地址；http: 远端 Core 的 https URL；ssh: user@server 或 ~/.ssh/config 的 Host",
     ),
-    timeout: float = typer.Option(20.0, "--timeout", help="等待隧道连通的秒数"),
+    api_key: str = typer.Option("", "--api-key", help="http：远端 Core 的 runtime-token"),
+    ssh_arg: list[str] = typer.Option(
+        [], "--ssh-arg", help="ssh：透传给 ssh 的参数，可重复，如 --ssh-arg=-p --ssh-arg=2222"
+    ),
+    remote_command: str = typer.Option(
+        "dual-mem", "--remote-command", help="ssh：服务器上运行 dual-mem 的命令"
+    ),
     hub_dir: str | None = HubDir,
 ) -> None:
-    """一条命令连上服务器的 Core：读 token、建常驻 SSH 隧道、写本机 hub.json。
+    """让本机记忆与其它设备同步。记忆始终在本机检索；同步只交换变更日志。"""
+    cfg = _sync_config(
+        kind, target, api_key=api_key, ssh_arg=ssh_arg, remote_command=remote_command
+    )
+    _check_target(cfg, hub_dir)
+    save_sync_config(cfg, hub_dir)
 
-    Core 仍只监听服务器的 127.0.0.1；隧道作为登录服务运行，断线自动重连。
-    """
-    token, remote_port = read_remote_core(
-        target, remote_hub_dir=remote_hub_dir, ssh_args=ssh_arg
-    )
-    port = local_port or free_local_port()
-    tunnel = hub_service.install_tunnel(
-        target,
-        local_port=port,
-        remote_port=remote_port,
-        ssh_args=ssh_arg,
-        hub_dir=hub_dir,
-    )
-    base_url = f"http://127.0.0.1:{port}"
-    try:
-        identity = asyncio.run(_wait_identity(base_url, token, timeout=timeout))
-    except httpx.HTTPError as exc:
-        hub_service.uninstall_tunnel()
-        raise typer.BadParameter(
-            f"Hub Core on {target} not reachable through the tunnel ({exc}); "
-            f"see {tunnel['log']}"
-        ) from exc
-    cfg = HubConfig(base_url=base_url, api_key=token, ssh_target=target)
-    save_hub_config(cfg, hub_dir)
+    async def apply() -> dict[str, Any] | None:
+        if await _local_core(hub_dir, "POST", "/v1/hub/sync/reload") is None:
+            return None
+        try:
+            async with make_client(hub_dir) as client:
+                return await client.sync()
+        except httpx.HTTPStatusError as exc:
+            return {"error": exc.response.text}
+
+    first = asyncio.run(apply())
     _echo(
         {
             "hub_dir": str(hub_root(hub_dir)),
-            "config": cfg.public_dict(),
-            "tunnel": tunnel["service_file"],
-            "identity": identity,
+            "sync": cfg.public_dict(),
+            "first_sync": first
+            if first is not None
+            else "local Core not running; it syncs when `hub serve` starts",
         }
     )
+
+
+@hub_app.command("disconnect")
+def hub_disconnect(hub_dir: str | None = HubDir) -> None:
+    """停止同步。本机记忆保持不变，同步目标上的数据也不删除。"""
+    removed = clear_sync_config(hub_dir)
+    asyncio.run(_local_core(hub_dir, "POST", "/v1/hub/sync/reload"))
+    _echo({"hub_dir": str(hub_root(hub_dir)), "disconnected": removed})
+
+
+@hub_app.command("sync")
+def hub_sync_now(hub_dir: str | None = HubDir) -> None:
+    """立刻与同步目标交换一次变更（Core 平时会自动同步）。"""
+
+    async def run() -> dict[str, Any]:
+        async with make_client(hub_dir) as client:
+            return await client.sync()
+
+    _echo(asyncio.run(run()))
+
+
+@hub_app.command("relay", hidden=True)
+def hub_relay(
+    method: str = typer.Argument(...),
+    path: str = typer.Argument(...),
+    hub_dir: str | None = HubDir,
+) -> None:
+    """`connect ssh` 的服务端入口：把 stdin 的 JSON 请求转给本机 Core。"""
+    if not path.startswith("/v1/hub/log/"):
+        raise typer.BadParameter("relay only serves /v1/hub/log/*")
+    raw = sys.stdin.read()
+    body = json.loads(raw) if raw.strip() else None
+
+    async def run() -> Any:
+        async with make_client(hub_dir) as client:
+            return await client.relay(method, path, body)
+
+    typer.echo(json.dumps(asyncio.run(run()), ensure_ascii=False))
 
 
 @hub_app.command("serve")
@@ -277,16 +259,16 @@ def hub_serve(
     ),
     hub_dir: str | None = HubDir,
 ) -> None:
-    """启动唯一 Hub Core；记忆与 Evidence 均留在本机 Hub 根目录。"""
+    """启动本机 Hub Core；记忆与 Evidence 留在本机 Hub 根目录，按 hub.json 同步。"""
     import uvicorn
 
     from dual_mem.memhub.server import create_hub_app
 
     if host not in LOOPBACK_HOSTS:
-        # The bearer token travels in plain HTTP; remote clients use a tunnel.
+        # The bearer token travels in plain HTTP; remote access goes through ssh / TLS.
         raise typer.BadParameter(
-            "Hub Core listens on loopback only; reach it from other machines "
-            "through an SSH/Tailscale tunnel"
+            "Hub Core listens on loopback only; other devices sync with "
+            "`hub connect ssh` or through your own HTTPS reverse proxy"
         )
     url_host = f"[{host}]" if ":" in host else host
     app = create_hub_app(
@@ -351,14 +333,11 @@ def hub_status(hub_dir: str | None = HubDir) -> None:
         scanned = Counter()
         for cursor in cursors.all():
             scanned[cursor.source] += cursor.turns
-    attachment = load_hub_config(hub_dir)
+    configured = load_sync_config(hub_dir)
     data.update(
         {
-            "connection": (
-                attachment.public_dict()
-                if attachment.base_url
-                else {"mode": "local", "runtime": runtime_status(hub_dir)}
-            ),
+            "runtime": runtime_status(hub_dir),
+            "sync_config": configured.public_dict() if configured else None,
             "turns_scanned": dict(scanned),
             "hosts": hub_hosts.hosts_status(),
         }

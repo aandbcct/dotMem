@@ -280,6 +280,7 @@ class DualMemWorkspace:
         *,
         source: str = "verified",
         evidence_refs: Optional[List[str]] = None,
+        origin_work_dir: Optional[str] = None,
     ) -> str:
         """Persist an entry through dual_mem while keeping the native Workspace signature.
 
@@ -291,7 +292,7 @@ class DualMemWorkspace:
         bookkeeping, and injecting raw evidence text into the stored memory would pollute
         the fact layer it exists to feed.
         """
-        del source, evidence_refs
+        del source, evidence_refs, origin_work_dir
         res = await self._backend.add(
             content=content,
             user_id=self.user_id,
@@ -441,6 +442,18 @@ class DualMemWorkspace:
 
     def memory_index_path(self):
         return self._ws.memory_index_path()
+
+    def get_user_memory_dir(self):
+        return self._ws.get_user_memory_dir()
+
+    async def read_memory_entry(self, filename: str) -> tuple[str, str]:
+        return await self._ws.read_memory_entry(filename)
+
+    async def read_memory_body(self, filename: str) -> str:
+        return await self._ws.read_memory_body(filename)
+
+    async def delete_memory_entry(self, filename: str) -> bool:
+        return await self._ws.delete_memory_entry(filename)
 
     def read_user_agents_md(self) -> str:
         return self._ws.read_user_agents_md()

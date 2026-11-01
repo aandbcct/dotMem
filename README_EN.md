@@ -53,13 +53,15 @@ dual-mem hub recall "what technical choices have I made before"
 
 Tools discover the local service with no URL to paste. A conversation is saved and acknowledged immediately; organizing happens in the background. When a turn ends, the host's hook hands the new messages to the Core, and the next prompt you type gets the relevant memories injected; agents can also query through MCP. Coding sessions arrive with their tool calls and become reusable engineering experience.
 
-To share one memory across computers, run the only Core on your server and connect each computer with one command:
+To share one memory across computers, every computer keeps a full local copy and recalls from it (offline too); the computers exchange a change log. Use a synced folder such as iCloud Drive or Dropbox, a private git repository, or the Core on your own server:
 
 ```bash
-dual-mem hub connect user@your-server   # builds the SSH tunnel, reads the server token, writes local hub.json
+dual-mem hub connect dir "~/Library/Mobile Documents/com~apple~CloudDocs/dual-mem"
+dual-mem hub connect git git@github.com:you/my-memory.git
+dual-mem hub connect ssh user@your-server
 ```
 
-The Core still listens only on the server's `127.0.0.1`, so no port is exposed; the tunnel runs as a login service and reconnects on its own. There is always exactly one store — no push / pull merging. See [server setup](https://github.com/shibing624/dual-mem/blob/main/docs/memhub-server.md) and the [MemHub docs](https://github.com/shibing624/dual-mem/blob/main/docs/memhub.md).
+What travels is adjudicated memory with its vectors, so a receiving computer calls no model. See [multi-device sync](https://github.com/shibing624/dual-mem/blob/main/docs/memhub-server.md) and the [MemHub docs](https://github.com/shibing624/dual-mem/blob/main/docs/memhub.md).
 
 ### 4. Debugging sessions stay useful
 
@@ -171,13 +173,12 @@ Two worth opening: [`examples/02_dual.py`](https://github.com/shibing624/dual-me
 - [x] dual / System 2: explicit `digest()` builds L3
 - [x] Dedicated decision model guarding writes
 - [x] MemHub: 5 AI tools share memory, history import, background organizing
-- [x] Single-instance server mode: several computers `hub connect` to one memory
+- [x] Multi-device sync: local recall on every computer, works offline, exchanges changes via a synced folder / git / a server
 - [x] Chat and coding unified: coding sessions yield procedure experience, and `dual` induces engineering habits too
 - [x] Leads head-to-head on LoCoMo / LongMemEval / PersonaMem-v2
 - [ ] MemHub for more tools: OpenCode, WorkBuddy, Gemini CLI, Windsurf, Trae and others — 10+ in total
 - [ ] Cloud HTTP MCP: remote agents connect to hosted memory directly
 - [ ] Better retrieval for multi-hop questions (LoCoMo multi-hop still has headroom)
-- [ ] Multi-device sync: works offline, merges automatically when online
 - [ ] Visual memory management: view, edit and delete your memories
 - [ ] Privacy tiers: sensitive memories stay on this machine
 - [ ] More public benchmarks (CodeMemoryBench and others, once their data is released)

@@ -3,21 +3,23 @@
 @author:XuMing(xuming624@qq.com)
 @description: MemHub — one local Core and one personal memory shared by every CLI.
 
-- ``config``: Core attachment, Core-owned store paths and local scan cursors.
+- ``config``: the local Core's receipt, the sync target, store paths and scan cursors.
 - ``client``: bearer HTTP client used by CLI hosts and MCP.
 - ``sources``: read Agentica / Claude Code / Codex / Cursor / Hermes transcripts
   into turns and submit them incrementally.
 - ``hosts``: install the MCP server, recall skill and capture hooks into each CLI.
 - ``service``: run the Core as a login service (launchd / systemd --user).
+- ``sync``: replicate the store's change log through a folder, git, or another Core.
 """
 from dual_mem.memhub.client import HubClient
 from dual_mem.memhub.config import (
     CursorStore,
     HubConfig,
+    SyncConfig,
     hub_root,
     hub_store_dir,
-    load_hub_config,
-    save_hub_config,
+    load_sync_config,
+    save_sync_config,
 )
 from dual_mem.memhub.hosts import HOSTS, hosts_status, install_host, uninstall_host
 from dual_mem.memhub.sources import (
@@ -35,15 +37,16 @@ __all__ = [
     "CursorStore",
     "HubClient",
     "HubConfig",
+    "SyncConfig",
     "build_turns",
     "default_source_roots",
     "hosts_status",
     "hub_root",
     "hub_store_dir",
     "install_host",
-    "load_hub_config",
+    "load_sync_config",
     "locate_transcript",
-    "save_hub_config",
+    "save_sync_config",
     "scan_file",
     "scan_sources",
     "uninstall_host",

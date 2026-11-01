@@ -237,7 +237,7 @@ class System2Agent:
             "evidence_added": 0, "rejected_drafts": 0, "core_groups": 0, "created_core": 0,
             "catalog_entries": 0,
         }
-        await self._recover_projections(scope)
+        await self.project_committed(scope)
         facts = self.current_facts(scope)
         own = [f for f in facts if f.owner != "assistant"]
         fresh = [f for f in own if not f.s2_evidence_count]
@@ -371,10 +371,7 @@ class System2Agent:
             current = set((schema.custom or {}).get("source_ids", []))
             edges.extend((schema.node_id, by_mid[m].node_id) for m in sorted(mids)
                          if by_mid[m].node_id not in current)
-        await self._commit(new_nodes, cluster, scope)
-        if edges and self.factory.graph is not None:
-            for schema_id, fact_id in edges:
-                self.factory.graph.add_evidence(schema_id=schema_id, fact_id=fact_id)
+        await self._commit(new_nodes, cluster, scope, edges=edges)
         schemas.extend(new_nodes)
         return {"created_schemas": len(new_nodes), "evidence_added": len(edges), "rejected_drafts": rejected}
 
@@ -510,7 +507,7 @@ class System2Agent:
 
     async def _commit(
         self, nodes: list[MemoryNode], batch: list[MemoryNode], scope: tuple[str, str, str],
-        *, retire: list[MemoryNode] | None = None,
+        *, retire: list[MemoryNode] | None = None, edges: list[tuple[str, str]] | None = None,
     ) -> None:
         async with self.factory.commit_locks.get("decision::" + "::".join(scope)):
             ok = await asyncio.to_thread(
@@ -525,20 +522,23 @@ class System2Agent:
                 request_key="s2:" + ":".join(sorted([*(f.node_id for f in batch), *(n.node_id for n in nodes)])
                                              or ["empty"]),
                 processed_evidence=sorted(f.node_id for f in batch),
+                edges=edges,
             )
         if not ok:
             raise DecisionContextError("System2 commit raced with a concurrent write")
-        await self._recover_projections(scope)
+        await self.project_committed(scope)
 
-    async def _recover_projections(self, scope: tuple[str, str, str]) -> None:
+    async def project_committed(self, scope: tuple[str, str, str]) -> None:
         """Project every committed L3 plan of ``scope`` not yet in the graph."""
         if self.factory.graph is None:
             return
-        for plan_id, node_ids in self.factory.vector.pending_projections(scope):
+        for plan_id, node_ids, edges in self.factory.vector.pending_projections(scope):
             nodes = self.factory.vector.get_by_ids(node_ids)
             if set(nodes) != set(node_ids):
                 raise DecisionContextError("committed projection is missing a version")
             self._project(list(nodes.values()))
+            for schema_id, fact_id in edges:
+                self.factory.graph.add_evidence(schema_id=schema_id, fact_id=fact_id)
             self.factory.vector.acknowledge_projection(plan_id)
 
     def _project(self, nodes: list[MemoryNode]) -> None:

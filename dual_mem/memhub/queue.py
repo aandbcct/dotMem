@@ -77,11 +77,19 @@ class HubWriteQueue:
         self.last_idle_error: str | None = None
         self._wake = asyncio.Event()
         self._closed = False
+        # Work left by a previous process (an undigested scope) is handled once.
+        self._dirty = on_idle is not None
         self._task: asyncio.Task[None] | None = None
 
     def start(self) -> None:
         self._task = asyncio.create_task(self._run(), name="dual-mem-hub-writer")
         self._wake.set()
+
+    def wake(self) -> None:
+        """Re-run the idle hook: work arrived outside the queue (replicated facts)."""
+        if self._on_idle is not None:
+            self._dirty = True
+            self._wake.set()
 
     def submit(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Store a write once; resubmitting requeues a failed row or upgrades raw to full."""
@@ -260,13 +268,11 @@ class HubWriteQueue:
             self.last_idle_error = None
 
     async def _run(self) -> None:
-        # Work left by a previous process (an undigested scope) is handled once.
-        dirty = self._on_idle is not None
         while not self._closed:
             item = self._take()
             if not isinstance(item, tuple):
                 self._wake.clear()
-                idle_due = item is None and dirty
+                idle_due = item is None and self._dirty
                 if item is None:
                     timeout = self._idle_seconds if idle_due else None
                 else:
@@ -275,7 +281,7 @@ class HubWriteQueue:
                     await asyncio.wait_for(self._wake.wait(), timeout)
                 except TimeoutError:
                     if idle_due and not self._closed:
-                        dirty = False
+                        self._dirty = False
                         await self._idle()
                 continue
             request_id, payload = item
@@ -285,7 +291,7 @@ class HubWriteQueue:
                 self._finish_error(request_id, exc)
             else:
                 self._finish_ok(request_id, raw_only=payload["raw_only"], result=result)
-            dirty = self._on_idle is not None
+            self._dirty = self._on_idle is not None
 
     async def close(self) -> None:
         self._closed = True

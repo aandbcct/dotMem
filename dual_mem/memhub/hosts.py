@@ -53,7 +53,7 @@ AGENTICA_CAPTURE_EVENTS = ("run.completed", "session.ended")
 
 @dataclass(frozen=True)
 class Launch:
-    """Host commands use this interpreter and read one 0600 Hub attachment."""
+    """Host commands use this interpreter and the Core on this machine."""
 
     host: str
     hub_dir: Path

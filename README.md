@@ -53,13 +53,15 @@ dual-mem hub recall "我之前做过哪些技术选择"
 
 零配置发现本机服务，对话先存下来立刻返回，整理在后台进行。一轮对话结束时宿主的 Hook 把新增内容交给 Core，你下一次输入提示词时相关记忆自动注入；Agent 也能通过 MCP 主动查。写代码的会话会连同工具调用一起送达，沉淀成工程经验。
 
-多台电脑共用一份记忆：在你的服务器上跑唯一一个 Core，每台电脑一条命令连上——
+多台电脑共用一份记忆：每台电脑都留一份完整的本地记忆，检索只查本机（断网照常），各台之间同步变更日志。普通人用 iCloud / Dropbox 之类的同步文件夹，开发者用一个私有 git 仓库，有服务器的连服务器上的 Core——
 
 ```bash
-dual-mem hub connect user@your-server   # 自动建 SSH 隧道、读服务器 token、写好本机 hub.json
+dual-mem hub connect dir "~/Library/Mobile Documents/com~apple~CloudDocs/dual-mem"
+dual-mem hub connect git git@github.com:you/my-memory.git
+dual-mem hub connect ssh user@your-server
 ```
 
-Core 只监听服务器的 `127.0.0.1`，不需要开放端口；隧道装成登录服务，断线自动重连。始终只有一份库，没有 push / pull 合并。见 [服务器搭建](https://github.com/shibing624/dual-mem/blob/main/docs/memhub-server.md) 与 [MemHub 文档](https://github.com/shibing624/dual-mem/blob/main/docs/memhub.md)。
+同步交换的是已经裁决好的记忆和向量，接收方不调任何模型。见 [多设备同步](https://github.com/shibing624/dual-mem/blob/main/docs/memhub-server.md) 与 [MemHub 文档](https://github.com/shibing624/dual-mem/blob/main/docs/memhub.md)。
 
 ### 4. 🛠️ 工程排障也能留下来
 
@@ -171,13 +173,12 @@ with SyncMemoryClient() as memory:
 - [x] dual / System 2：显式 `digest()` 归纳 L3
 - [x] 专用决策模型把关写入
 - [x] MemHub：5 个 AI 工具共享记忆、历史会话导入、后台整理
-- [x] 云主机单实例：多台电脑 `hub connect` 连同一份记忆
+- [x] 多设备同步：每台本地检索、离线可用，经同步文件夹 / git / 服务器交换变更
 - [x] chat 与 coding 统一：工程会话沉淀 procedure 经验，`dual` 也归纳工程习惯
 - [x] LoCoMo / LongMemEval / PersonaMem-v2 同场评测领先
 - [ ] MemHub 接入更多工具：OpenCode、WorkBuddy、Gemini CLI、Windsurf、Trae 等，目标 10+ 种
 - [ ] 云端 HTTP MCP：远程 Agent 直接连接托管记忆
 - [ ] 多跳推理类问题的检索增强（LoCoMo multi-hop 仍有提升空间）
-- [ ] 多设备记忆同步：离线可用、联网自动合并
 - [ ] 记忆可视化管理：查看、编辑、删除你的记忆
 - [ ] 隐私分级：敏感记忆只留本机
 - [ ] 补充更多公开评测（CodeMemoryBench 等，待数据公开）

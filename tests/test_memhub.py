@@ -25,12 +25,10 @@ from dual_mem.memhub import (
     HOSTS,
     CursorStore,
     HubClient,
-    HubConfig,
     build_turns,
     default_source_roots,
     hosts_status,
     install_host,
-    save_hub_config,
     scan_file,
     scan_sources,
     uninstall_host,
@@ -433,14 +431,10 @@ async def test_open_turn_cursor_and_raw_idempotency(
         assert first.memory_id == second.memory_id
 
 
-def test_install_uninstall_hosts_use_remote_proxy(tmp_path: Path, monkeypatch) -> None:
+def test_install_uninstall_hosts_use_local_proxy(tmp_path: Path, monkeypatch) -> None:
     from agentica.shell_hooks.config import load_shell_hooks_config
 
     hub = tmp_path / "hub"
-    save_hub_config(
-        HubConfig(base_url="http://127.0.0.1:8765", api_key="secret"),
-        hub,
-    )
     home = tmp_path / "home"
     (home / ".agentica").mkdir(parents=True)
     (home / ".agentica" / "mcp_config.json").write_text(
@@ -507,7 +501,6 @@ def test_agentica_yaml_install_keeps_comments_and_uninstall_restores_bytes(
     tmp_path: Path,
 ) -> None:
     hub = tmp_path / "hub"
-    save_hub_config(HubConfig(base_url="http://127.0.0.1:8765", api_key="k"), hub)
     home = tmp_path / "home"
     (home / ".agentica").mkdir(parents=True)
     original = (
@@ -548,40 +541,8 @@ def test_agentica_yaml_install_keeps_comments_and_uninstall_restores_bytes(
     assert config.read_text() == original
 
 
-def test_cli_attach_capture_hook_and_status(tmp_path: Path, monkeypatch) -> None:
-    class FakeAttach:
-        def __init__(self, *, base_url: str, api_key: str) -> None:
-            self.base_url = base_url
-            self.api_key = api_key
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *_exc):
-            return None
-
-        async def identity(self):
-            return {"instance_id": "core-1"}
-
-    monkeypatch.setattr(cli_hub, "HubClient", FakeAttach)
+def test_cli_capture_hook_and_status(tmp_path: Path, monkeypatch) -> None:
     hub = tmp_path / "hub"
-    result = runner.invoke(
-        cli_main.app,
-        [
-            "hub",
-            "attach",
-            "--base-url",
-            "http://127.0.0.1:8765",
-            "--api-key",
-            "secret",
-            "--hub-dir",
-            str(hub),
-        ],
-    )
-    assert result.exit_code == 0, result.output
-    assert json.loads(result.output)["config"]["api_key"] == "***"
-    assert oct((hub / "hub.json").stat().st_mode & 0o777) == "0o600"
-
     class FakeRemote:
         async def __aenter__(self):
             return self
@@ -666,30 +627,17 @@ def test_cli_attach_capture_hook_and_status(tmp_path: Path, monkeypatch) -> None
             str(hub),
         ]
     ]
-    detached = runner.invoke(
-        cli_main.app,
-        ["hub", "detach", "--hub-dir", str(hub)],
-    )
-    assert json.loads(detached.output)["detached"] is True
-    assert not (hub / "hub.json").exists()
 
 
-def test_cli_attach_rejects_plaintext_non_loopback(tmp_path: Path) -> None:
+def test_connect_http_rejects_plaintext_non_loopback(tmp_path: Path) -> None:
     result = runner.invoke(
         cli_main.app,
-        [
-            "hub",
-            "attach",
-            "--base-url",
-            "http://memory.example.com",
-            "--api-key",
-            "secret",
-            "--hub-dir",
-            str(tmp_path),
-        ],
+        ["hub", "connect", "http", "http://memory.example.com", "--api-key", "secret",
+         "--hub-dir", str(tmp_path)],
     )
     assert result.exit_code != 0
-    assert "require HTTPS" in result.output
+    assert "HTTPS" in result.output
+    assert not (tmp_path / "hub.json").exists()
 
 
 async def test_failed_write_is_retried_and_cursor_never_skips_it(
@@ -1394,161 +1342,6 @@ def test_claude_code_hook_keeps_tool_trajectory() -> None:
         {"role": "tool", "tool_call_id": "t", "content": "print(1)"},
         {"role": "assistant", "content": "done"},
     ]
-
-
-def test_connect_reads_remote_core_builds_tunnel_and_attaches(
-    tmp_path: Path, monkeypatch
-) -> None:
-    from dual_mem.memhub import service
-
-    ssh_calls: list[list[str]] = []
-
-    def fake_run(argv, **kwargs):
-        ssh_calls.append(argv)
-        return SimpleNamespace(
-            returncode=0,
-            stdout='tok-123\n{"base_url": "http://127.0.0.1:8765", "pid": 1}\n',
-            stderr="",
-        )
-
-    tunnels: list[dict] = []
-    monkeypatch.setattr(cli_hub.subprocess, "run", fake_run)
-    monkeypatch.setattr(
-        service, "install_tunnel",
-        lambda target, **kw: tunnels.append({"target": target, **kw})
-        or {"service_file": "/x/tunnel.plist", "log": "/x/tunnel.log", "actions": []},
-    )
-    uninstalled: list[int] = []
-    monkeypatch.setattr(service, "uninstall_tunnel", lambda: uninstalled.append(1) or {})
-    seen: list[tuple[str, str]] = []
-
-    async def identity(base_url, api_key, *, timeout):
-        seen.append((base_url, api_key))
-        return {"instance_id": "remote-core"}
-
-    monkeypatch.setattr(cli_hub, "_wait_identity", identity)
-    hub = tmp_path / "hub"
-    result = runner.invoke(
-        cli_main.app,
-        ["hub", "connect", "me@box", "--local-port", "18766",
-         "--ssh-arg=-p", "--ssh-arg=2222", "--hub-dir", str(hub)],
-    )
-    assert result.exit_code == 0, result.output
-    (argv,) = ssh_calls
-    assert argv[:3] == ["ssh", "-o", "BatchMode=yes"] and argv[3:6] == ["-p", "2222", "me@box"]
-    assert argv[-1] == "cat ~/.dual-mem/runtime-token && cat ~/.dual-mem/runtime.json"
-    assert tunnels == [{"target": "me@box", "local_port": 18766, "remote_port": 8765,
-                        "ssh_args": ["-p", "2222"], "hub_dir": str(hub)}]
-    assert seen == [("http://127.0.0.1:18766", "tok-123")]
-    saved = json.loads((hub / "hub.json").read_text())
-    assert saved == {"base_url": "http://127.0.0.1:18766", "api_key": "tok-123",
-                     "ssh_target": "me@box"}
-    out = json.loads(result.output)
-    assert out["config"]["api_key"] == "***" and out["identity"]["instance_id"] == "remote-core"
-    assert resolve_hub_config(hub).resolved_base_url() == "http://127.0.0.1:18766"
-
-    detached = runner.invoke(cli_main.app, ["hub", "detach", "--hub-dir", str(hub)])
-    assert detached.exit_code == 0 and uninstalled == [1]
-    assert not (hub / "hub.json").exists()
-
-
-def test_connect_fails_loudly_and_removes_a_dead_tunnel(tmp_path: Path, monkeypatch) -> None:
-    from dual_mem.memhub import service
-
-    monkeypatch.setattr(
-        cli_hub.subprocess, "run",
-        lambda argv, **kw: SimpleNamespace(
-            returncode=0, stdout='t\n{"base_url": "http://127.0.0.1:9000"}', stderr=""
-        ),
-    )
-    monkeypatch.setattr(
-        service, "install_tunnel",
-        lambda target, **kw: {"service_file": "f", "log": "/x/tunnel.log", "actions": []},
-    )
-    removed: list[int] = []
-    monkeypatch.setattr(service, "uninstall_tunnel", lambda: removed.append(1) or {})
-
-    async def unreachable(*a, **kw):
-        raise httpx.ConnectError("refused")
-
-    monkeypatch.setattr(cli_hub, "_wait_identity", unreachable)
-    hub = tmp_path / "hub"
-    result = runner.invoke(cli_main.app, ["hub", "connect", "box", "--hub-dir", str(hub)])
-    assert result.exit_code != 0 and "/x/tunnel.log" in result.output
-    assert removed == [1] and not (hub / "hub.json").exists()
-
-    monkeypatch.setattr(
-        cli_hub.subprocess, "run",
-        lambda argv, **kw: SimpleNamespace(returncode=1, stdout="", stderr="No such file"),
-    )
-    result = runner.invoke(cli_main.app, ["hub", "connect", "box", "--hub-dir", str(hub)])
-    assert result.exit_code != 0 and "install-service" in result.output
-
-
-async def test_wait_identity_retries_transport_but_not_a_rejected_token() -> None:
-    calls: list[str] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        calls.append(request.url.path)
-        if len(calls) < 3:
-            raise httpx.ConnectError("tunnel starting", request=request)
-        return httpx.Response(401, json={"detail": "bad token"})
-
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(
-            cli_hub,
-            "HubClient",
-            lambda **kw: HubClient(**kw, transport=httpx.MockTransport(handler)),
-        )
-        real_sleep = asyncio.sleep
-        mp.setattr(cli_hub.asyncio, "sleep", lambda _s: real_sleep(0))
-        start = time.monotonic()
-        with pytest.raises(httpx.HTTPStatusError):
-            await cli_hub._wait_identity("http://127.0.0.1:1", "t", timeout=30)
-    # Two refused connects are retried; the 401 ends the wait at once, not at 30s.
-    assert len(calls) == 3 and time.monotonic() - start < 5
-
-
-def test_tunnel_service_restarts_always_and_never_prompts(
-    tmp_path: Path, monkeypatch
-) -> None:
-    import plistlib
-
-    from dual_mem.memhub import service
-
-    monkeypatch.setattr(
-        service, "launchd_plist_path", lambda label=service.LABEL: tmp_path / f"{label}.plist"
-    )
-    monkeypatch.setattr(
-        service, "systemd_unit_path", lambda unit=service.SYSTEMD_UNIT: tmp_path / unit
-    )
-    commands: list[list[str]] = []
-
-    def run(argv):
-        commands.append(argv)
-        return {"command": argv, "returncode": 0, "stderr": ""}
-
-    info = service.install_tunnel(
-        "me@box", local_port=18766, remote_port=8765, ssh_args=["-p", "2222"],
-        hub_dir=tmp_path / "hub", runner=run,
-    )
-    argv = service.tunnel_argv("me@box", local_port=18766, remote_port=8765,
-                               ssh_args=["-p", "2222"])
-    assert argv[:2] == ["ssh", "-N"] and argv[-1] == "me@box"
-    assert "BatchMode=yes" in argv and "ExitOnForwardFailure=yes" in argv
-    assert argv[argv.index("-L") + 1] == "127.0.0.1:18766:127.0.0.1:8765"
-    path = Path(info["service_file"])
-    if sys.platform == "darwin":
-        plist = plistlib.loads(path.read_bytes())
-        assert plist["Label"] == service.TUNNEL_LABEL
-        assert plist["ProgramArguments"] == argv and plist["KeepAlive"] is True
-    else:
-        text = path.read_text()
-        assert "Restart=always" in text and "127.0.0.1:18766:127.0.0.1:8765" in text
-    # The Core service is a different file: connecting never touches it.
-    assert not service.launchd_plist_path(service.LABEL).exists()
-    assert service.uninstall_tunnel(runner=run)["removed"] is True
-    assert not path.exists()
 
 
 def test_hook_install_replaces_hooks_written_as_cli_main(tmp_path: Path) -> None:

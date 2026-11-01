@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **MemHub 多设备同步改为「每台本地检索 + 变更日志复制」，删除 SSH 隧道接入**。破坏性变更：`hub attach` / `hub detach`、`hub connect user@server` 建的常驻 `ssh -N -L` 隧道服务（`com.dual-mem.hub-tunnel` / `dual-mem-hub-tunnel.service`）、`DUAL_MEM_HUB_BASE_URL` / `DUAL_MEM_HUB_API_KEY` 全部删除；`hub.json` 改为同步目标配置，旧文件要删掉后重新 `connect`。已装的隧道服务需手动卸载（macOS `launchctl unload ~/Library/LaunchAgents/com.dual-mem.hub-tunnel.plist` 后删除该文件；Linux `systemctl --user disable --now dual-mem-hub-tunnel.service`）。
+  - 原因：原方案每台电脑只是瘦客户端，每次输入提示词的 `hook-search` 都要经隧道到服务器做向量检索；隧道断开（合盖、换网络，最多 90 秒才判定断线）时记忆完全不可用，没有服务器的用户则根本用不了。
+  - 现在每台电脑跑自己的 Core、保留完整的本地库，召回只读本机。`store/versions.db` 新增复制日志：每次变更（版本计划、L0 Evidence、元数据补丁、删除）按 `(origin, seq)` 记录并带向量，接收方直接写入、不调任何模型。合并按字段进行且与顺序无关（`is_latest` 只能变假，`supersedes` / `superseded_by` 取并集，删除留墓碑）；离线时两台电脑改了同一条记忆，同步后结果一致，两个新版本都保留。
+  - `hub connect dir <文件夹>`（iCloud Drive / Dropbox / Syncthing / NAS，每台设备只写自己的 `log/<origin>/`）、`hub connect git <仓库>`（同样布局，rebase 不会冲突）、`hub connect ssh user@server`（每次同步一条 `ssh ... dual-mem hub relay` 命令，不常驻连接）、`hub connect http https://... --api-key`。新增 `hub disconnect`、`hub sync`；Core 新增 `/v1/hub/log/{heads,export,import}`、`/v1/hub/sync`，`hub status` 的 `sync` 字段给出上次同步结果与错误。
+  - Core 在本机写入后（防抖合并）、每 5 分钟、以及召回发现上次拉取超过 1 分钟时在后台同步；召回本身不等网络。
+  - dual 模式只有一台设备归纳：`ssh` / `http` 由服务器负责，`dir` / `git` 由第一台同步的设备负责（记在 `manifest.json`）。System 2 给已有 schema 追加的证据边改为随版本计划提交，复制到其它设备后图投影一致。
+  - 同步目标记录 Embedding 模型与维度，配置不一致的设备拒绝同步。
+  - 未实现 S3 / R2、Cloudflare D1 后端：挂载成本地目录后可以直接用 `dir`。
 - **配置目录并到 `~/.dual-mem`**。模型配置从 `~/.dual_mem/config.yaml` 改为 `~/.dual-mem/config.yaml`，与 MemHub 的游标、队列、记忆库同一目录。不再读取旧路径。Python 包名仍是 `dual_mem`。
 - **MemHub 自动 digest 改为每天最多一次，并删除 `--digest-idle`**。dual Core 在写入队列排空后检查：距上次成功自动 `digest()` 已满 `--digest-every` 小时（默认 24，`0` = 关闭自动 digest）且仍有待归纳证据才调用模型。原先 `--digest-idle` 默认 300 秒，每次停够 5 分钟就归纳，开会、吃饭会一天跑很多次；这个等待不再决定频率，已从 `hub serve` 去掉。成功时间写在 Hub 根目录 `digest-at`；失败不记，下次队列排空后再试。没有这个文件时，下一次满足条件会归纳一次，然后才开始 24 小时间隔。`hub status` 的 `digest` 为 `auto` / `min_hours` / `last_at` / `last_error`。评测集写完后自己调用 `digest()`。
 

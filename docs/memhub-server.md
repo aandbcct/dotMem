@@ -1,104 +1,105 @@
-# 在自己的服务器上跑 MemHub
+# 多设备同步
 
-多台电脑共用**一份**记忆：服务器上只跑一个 MemHub Core，它是唯一写者。笔记本和台式机不各自保存一份再合并，而是把读写都发给这一个 Core。
-
-这不是 `push` / `pull`，也不是两台机器离线各写、联网再合并。后一种还在 [Roadmap](https://github.com/shibing624/dual-mem#roadmap)。
+每台电脑都有一份**完整的本地记忆**。检索只查本机：你每次输入提示词，`hook-search` 都在本机几十毫秒内返回，断网、合盖刚唤醒都不受影响。电脑之间交换的是**变更日志**：已经裁决好的记忆版本、原始 Evidence 和它们的向量。接收方直接写进本地库，不调用任何模型。
 
 ```text
-笔记本上的 Claude Code / Codex / Cursor
-        │  本机 127.0.0.1:8765
-        │  SSH 隧道（或你自己的 HTTPS 反代）
-        ▼
-服务器 127.0.0.1:8765
-dual-mem hub serve
-        ▼
-服务器上的 ~/.dual-mem/{hub.db,store}
+ 笔记本                                      台式机
+ Claude Code / Codex ── 本机 Core ── 本地库    本地库 ── 本机 Core ── Cursor / Hermes
+                          │                     │
+                          └── 变更日志 ──▶ 同步目标 ◀── 变更日志 ──┘
+                    （iCloud 文件夹 / git 仓库 / 服务器上的 Core）
 ```
 
-Core 只监听 loopback。它不接受 `0.0.0.0`。明文 HTTP 只允许打到 `127.0.0.1`；要直接写一个公网地址，`base_url` 必须是 `https://`。
+## 选哪种同步方式
 
-## 服务器上
+| 你的情况 | 用法 | 需要什么 |
+|---|---|---|
+| 普通用户，几台电脑都登录了同一个网盘 | `connect dir <文件夹>` | iCloud Drive、Dropbox、OneDrive、坚果云、Syncthing、NAS 挂载……任何会自动同步的文件夹 |
+| 开发者，有 GitHub / GitLab 账号 | `connect git <仓库地址>` | 一个**私有**空仓库，本机 `git` 能免密推送 |
+| 有一台常开的服务器 | `connect ssh user@server` | 服务器上跑着 `dual-mem hub install-service`，SSH 免密登录 |
+| 服务器已经有 HTTPS 反代 | `connect http https://... --api-key ...` | 服务器 Core 的 `runtime-token` |
 
-需要 Python 3.11+。模型钥匙写在这台机器的 `~/.dual-mem/config.yaml`（`jev_api_key`、`llm_api_key`、`embed_api_key`，三个地址按你的服务改）。登录自启的服务读不到 shell 里临时 `export` 的变量。抽取和裁决都在服务器上跑，所以这三个地址要**从服务器能访问到**：只在办公内网可达的模型网关，换到公网服务器上会调不通。
+只需要选一种。每台电脑都执行同一条 `connect`，连到同一个目标。
+
+S3 / R2、Cloudflare D1 这类对象存储没有内置：普通用户不会去配 AccessKey 和 Bucket，有这个能力的人用 git 或服务器更简单；把对象存储挂成本地目录（rclone mount 之类）后，也可以直接当 `dir` 用。
+
+## 开始
+
+每台电脑上（先完成 [MemHub 三步开始](memhub.md#三步开始)）：
+
+```bash
+# macOS iCloud Drive
+dual-mem hub connect dir "~/Library/Mobile Documents/com~apple~CloudDocs/dual-mem"
+
+# 或者：私有 git 仓库
+dual-mem hub connect git git@github.com:you/my-memory.git
+
+# 或者：服务器上的 Core（每次同步是一条 ssh 命令，不常驻隧道）
+dual-mem hub connect ssh user@your-server
+```
+
+`connect` 先访问一次目标确认可用，把配置写进本机 `~/.dual-mem/hub.json`（权限 `0600`），然后让本机 Core 立刻同步一次。之后 Core 自动同步：
+
+- 本机写入一轮对话之后（几秒内合并成一次）；
+- 每 5 分钟一次；
+- 检索时发现上次拉取已超过 1 分钟，就在后台拉一次。**这次检索不等它**，新记忆在下一次检索出现。
+
+```bash
+dual-mem hub sync      # 立刻同步一次，返回 pushed / received / applied / pending
+dual-mem hub status    # sync 字段：目标、上次时间、上次结果、上次错误、本机是否负责归纳
+dual-mem hub disconnect  # 停止同步；本机记忆和同步目标上的数据都保留
+```
+
+已经用了一段时间、本机已有记忆的电脑，第一次 `connect` 时会把已有的记忆也发出去。
+
+## 服务器（`connect ssh` / `connect http`）
+
+服务器上就是一台普通的 MemHub：
 
 ```bash
 pip install "dual-mem[all]"
-
-# 登录后一直跑。Linux 是 systemd --user，macOS 是 LaunchAgent。
 dual-mem hub install-service
+sudo loginctl enable-linger "$USER"   # Linux：SSH 断开后服务继续运行
 ```
 
-云主机关掉 SSH 之后，systemd 用户服务会停。让它留在后台：
+`connect ssh` 的每次同步是一条 `ssh user@server dual-mem hub relay ...` 命令，由服务器的 CLI 转给它本机的 Core，用完即断。所以：
+
+- SSH 要能免密登录（key 或 agent）。非默认端口用 `--ssh-arg=-p --ssh-arg=2222`。
+- 服务器上 `dual-mem` 不在 `PATH` 里时，用 `--remote-command /path/to/venv/bin/dual-mem`。
+- Core 仍只监听服务器的 `127.0.0.1`，不开放任何端口。
+- 笔记本合盖、换网络都没关系：下一次同步重新 ssh，失败就等下一次，本机记忆照常可用。
+
+已有 HTTPS 反代（Caddy、Nginx、Cloudflare Tunnel）时用 `connect http`：
 
 ```bash
-sudo loginctl enable-linger "$USER"
+dual-mem hub connect http https://mem.example.com --api-key "$(ssh user@server 'cat ~/.dual-mem/runtime-token')"
 ```
 
-前台看日志时用 `dual-mem hub serve`。默认地址是 `127.0.0.1:8765`。
+明文 `http://` 只允许 loopback 地址。
 
-想让 Core 也做跨证据归纳（L3），在服务器配置里写 `mode: dual`（或 `hub serve --mode dual`）。自动 `digest()` 一天最多一次：写入队列排空后，距上次成功已满 `--digest-every` 小时（默认 24），并且还有没归纳的证据，才跑。`--digest-every 0` 关闭自动归纳。时间记在 Hub 根目录的 `digest-at`。评测集用 `0` 关掉，写完后自己调用 `digest()`。
+## 谁来归纳（dual 模式）
 
-第一次启动会在服务器的 `~/.dual-mem/runtime-token` 写下一把 Bearer key，权限 `0600`。以后重启沿用这一把。查看：
+System 2 的 `digest()` 用 LLM 从多条事实归纳 L3。两台电脑各自归纳同一批事实会得到两套不同的 schema，所以**同一组设备只有一台归纳**，其余的接收它的结果：
 
-```bash
-cat ~/.dual-mem/runtime-token
-```
+- `ssh` / `http`：服务器归纳。服务器要配好模型，并且模型地址要**从服务器能访问到**（只在办公内网可达的网关，放到公网服务器上会调不通）。
+- `dir` / `git`：第一台同步的电脑归纳，记在同步目标的 `manifest.json`（`digester` 字段）。这台电脑要以 `dual` 模式运行。`hub status` 的 `sync.digests_here` 显示本机是否负责。
 
-不要把 `8765` 暴露到公网。安全组只放行 SSH（或你的隧道端口）。
+抽取和 JEV 裁决仍然在写入那台电脑上做：在哪台电脑上聊，就由哪台电脑的模型配置处理。
 
-## 每台电脑上
+## 两台电脑同时改了同一条记忆
 
-工具装在电脑上，记忆库在服务器上。一条命令连上：
+离线时两台电脑可能各自把同一条记忆更新成不同的新版本。同步后的结果在每台电脑上都一样，按下面的规则合并：
 
-```bash
-dual-mem hub connect user@your-server      # 也可以写 ~/.ssh/config 里的 Host 名
-```
+- 旧版本被任意一边取代，它就不再是当前版本；`superseded_by` 记下两边的新版本；
+- 两个新版本都保留为当前版本，检索时都可能出现，各自带着来源；
+- 在一台电脑上删除的记忆，同步后在所有电脑上都删除，不会被另一台带回来；
+- 其它字段以最后收到的修改为准。
 
-它做三件事，安全模型不变：
+同步不会丢记忆，最坏的情况是同一件事出现两个当前版本。之后再聊到这件事时，JEV 裁决会看到这两个版本，可以把它们合成一个。
 
-1. 通过 SSH 读服务器上的 `~/.dual-mem/runtime-token` 和 `runtime.json`（Core 的端口）。token 不经过剪贴板，也不出现在命令行参数里。
-2. 在本机挑一个空闲端口，建 `ssh -N -L 127.0.0.1:<本机端口>:127.0.0.1:<Core 端口>` 隧道，并把它装成登录服务（macOS LaunchAgent / Linux systemd --user），断线自动重连。本机已经有 MemHub 占着 `8765` 也不冲突。
-3. 等隧道连通、用 token 请求一次 Core 确认身份，再把地址和 token 写进这台电脑的 `~/.dual-mem/hub.json`。
+## 要求与限制
 
-SSH 要能免密登录（key 或 agent）：隧道服务在后台运行，不能弹密码框。非默认端口或指定 key 用 `--ssh-arg` 透传，例如 `--ssh-arg=-p --ssh-arg=2222`；固定本机端口用 `--local-port 8766`。服务器上的 Hub 目录不是 `~/.dual-mem` 时用 `--remote-hub-dir`。
-
-这台电脑上的 CLI、MCP、Hook 之后都走这条连接，不再使用本机那份记忆库。接入你实际在用的工具，然后把这台电脑上已有的会话送过去：
-
-```bash
-dual-mem hub install-host claude-code
-dual-mem hub install-host codex
-
-dual-mem hub scan --source claude-code
-dual-mem hub scan --source codex
-dual-mem hub recall "我之前做过哪些技术选择"
-```
-
-`scan` 在**这台电脑**上读转录，游标也留在这台电脑的 `~/.dual-mem/cursors.db`。记忆正文、Evidence 和向量只写在服务器的 `~/.dual-mem`。
-
-不想连了：
-
-```bash
-dual-mem hub detach
-```
-
-`detach` 删掉 `hub.json` 并卸载 `connect` 建的隧道服务，这台电脑回到本机 Core 的自动发现。服务器上的库还在。服务器的 token 换了（例如删掉 `runtime-token` 后重启 Core），重新执行一次 `connect`。
-
-### 不用 SSH 时
-
-Tailscale、WireGuard 只负责把两台机器连上；MemHub 仍要落到本机 loopback，或者由你在服务器上做 TLS 反代。这时手动接：
-
-```bash
-dual-mem hub attach --base-url https://你的域名 --api-key "$(ssh user@your-server 'cat ~/.dual-mem/runtime-token')"
-```
-
-直接写 `http://公网IP:8765` 会被拒绝。
-
-## 和本机模式的差别
-
-| | 只在一台电脑上 | 服务器上的一个 Core |
-|---|---|---|
-| Core 在哪 | 这台电脑的 `127.0.0.1:8765` | 服务器的 `127.0.0.1:8765` |
-| 要不要连接 | 不用，读 `runtime.json` | 每台电脑执行一次 `hub connect` |
-| 工具配置 | 在这台电脑上 `install-host` | 也在每台电脑上 `install-host`，不要装到服务器上 |
-| 记忆文件 | `~/.dual-mem` | 只在服务器的 `~/.dual-mem` |
-| 断网 | 本机照常 | 隧道断了就写不了；不会在本地另存一份再合并 |
+- **所有电脑的 Embedding 配置要一致**（`embed_model`、`embed_dim`）：同步的是向量。不一致时同步报错并拒绝，不会把两种向量混进一个库。
+- 同步目标上是你的全部记忆原文。git 仓库必须是私有的；网盘目录不要共享给别人。
+- 游标（`cursors.db`）在每台电脑本地，各自只采集本机的会话。
+- 同步目标只增不减，不做压缩。

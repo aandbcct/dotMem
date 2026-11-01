@@ -9,7 +9,7 @@
         \          |        |        |       /
          ─────────────  MemHub  ─────────────
                          │
-                你的个人记忆（本机 / 你的云主机）
+            你的个人记忆（每台电脑一份，可跨设备同步）
 ```
 
 ## 你会得到什么
@@ -18,7 +18,7 @@
 - **零配置**：工具自动发现本机的记忆服务，不用填地址，也不用复制密钥。
 - **不拖慢工作**：对话先存下来立刻返回，整理在后台进行。
 - **历史不浪费**：已有的会话记录一键导入，第一天就"懂你"。
-- **数据归你**：默认只存在你的电脑上；也可以放到你自己的云主机，让多台电脑连同一份记忆。
+- **数据归你**：默认只存在你的电脑上；多台电脑可以经你自己的网盘文件夹、git 仓库或服务器同步。
 
 当前支持：**Claude Code、Codex、Cursor、Hermes、Agentica**。OpenCode、WorkBuddy 等更多工具正在接入，见 [Roadmap](https://github.com/shibing624/dual-mem#roadmap)。
 
@@ -50,36 +50,35 @@ dual-mem hub status
 
 ## 多台电脑共用一份记忆
 
-服务器上只跑一个 Core，监听它自己的 `127.0.0.1:8765`。每台电脑一条命令连上：
+每台电脑一条命令，连到同一个同步目标：
 
 ```bash
-dual-mem hub connect user@memory-host
+dual-mem hub connect dir "~/Library/Mobile Documents/com~apple~CloudDocs/dual-mem"   # iCloud 等同步文件夹
+dual-mem hub connect git git@github.com:you/my-memory.git                          # 私有 git 仓库
+dual-mem hub connect ssh user@your-server                                          # 服务器上的 Core
 ```
 
-它通过 SSH 读服务器的 `runtime-token`，在本机空闲端口建常驻 SSH 隧道（登录服务，断线重连），确认身份后写好本机 `hub.json`。Core 仍只监听服务器的 loopback。完整步骤（服务器安装、免密 SSH、自定义端口、不用 SSH 时怎么接）见 [在自己的服务器上跑 MemHub](memhub-server.md)。
+每台电脑保留完整的本地记忆，检索只查本机；Core 在写入后、定时、以及检索发现数据旧了时在后台交换变更。完整说明（怎么选、谁来归纳、冲突怎么合并）见 [多设备同步](memhub-server.md)。
 
-不想连了：`dual-mem hub detach`，同时卸载隧道服务，这台电脑恢复使用本机记忆。服务器上的那一份还在。
+不想同步了：`dual-mem hub disconnect`。本机记忆和同步目标上的数据都保留。
 
-### 记忆是怎么"同步"的
-
-严格说没有同步：**任何时候只有一个 Core、一份库**，各个工具只是往里送对话、从里取记忆。
+### 记忆是怎么流动的
 
 ```text
-┌─────────── 你的电脑 ────────────┐                    ┌───── Core 所在机器 ─────┐
-│ Claude Code ┐                   │                    │                        │
-│ Codex       ├ capture Hook ─────┼──┐                 │  dual-mem hub serve    │
-│ Agentica    ┘ （一轮对话结束）    │  │  本机 loopback   │  （唯一写者）            │
-│                                 │  ├─ 或 SSH 隧道 ───┼─▶ 127.0.0.1:8765        │
-│ 你输入提示词 ─ hook-search ─────┼──┘                 │  ~/.dual-mem/{hub.db,  │
-│ Agent 主动查 ─ MCP memory_* ────┼────────────────────┼─▶          store}       │
-└─────────────────────────────────┘                    └────────────────────────┘
+┌──────────────────── 每台电脑 ─────────────────────┐
+│ Claude Code ┐                                     │
+│ Codex       ├ capture Hook ──┐                    │
+│ Agentica    ┘（一轮对话结束）  ├─▶ 127.0.0.1:8765  │
+│                              │   dual-mem hub serve│──▶ 同步目标（可选）
+│ 你输入提示词 ─ hook-search ───┤   （本机唯一写者）   │◀── 其它电脑的变更
+│ Agent 主动查 ─ MCP memory_* ──┘   ~/.dual-mem/store │
+└───────────────────────────────────────────────────┘
 ```
 
-1. **写**：一轮对话结束，宿主触发 capture Hook（Claude Code `Stop`、Agentica `run.completed`、Codex `Stop`）。它按本机 `cursors.db` 的游标读出会话日志里新增的轮次，交给 Core 后立刻返回，不等 LLM。
-2. **整理**：Core 先把 Evidence 写进持久队列 `hub.db`，再由唯一 worker 在后台抽取、JEV 裁决、写入记忆；dual 模式下，距上次成功归纳满一天且仍有新证据时，在写入空档自动 `digest()`。
-3. **读**：你提交提示词时，recall Hook（`hook-search`）把相关记忆注入上下文；Agent 也可以通过 MCP 工具（`memory_search` 等）主动查。
-
-默认 Core 跑在本机，同一台电脑上的所有工具共享它。`hub connect` 之后 Core 换到服务器，**结构不变**：本机的 Hook 和 MCP 改为经 SSH 隧道访问服务器上的 Core，本机只留游标和连接配置。多台电脑 `connect` 同一台服务器，就是同一份记忆。断网时提交失败、游标不前进，恢复后下一次 capture 自动补交。
+1. **写**：一轮对话结束，宿主触发 capture Hook（Claude Code `Stop`、Agentica `run.completed`、Codex `Stop`）。它按本机 `cursors.db` 的游标读出会话日志里新增的轮次，交给本机 Core 后立刻返回，不等 LLM。
+2. **整理**：Core 先把 Evidence 写进持久队列 `hub.db`，再由唯一 worker 在后台抽取、JEV 裁决、写入记忆；dual 模式下，距上次成功归纳满一天且仍有新证据时，在写入空档自动 `digest()`（多设备时只有一台负责）。
+3. **读**：你提交提示词时，recall Hook（`hook-search`）把相关记忆注入上下文；Agent 也可以通过 MCP 工具（`memory_search` 等）主动查。都只读本机库。
+4. **同步**（`connect` 之后）：本机库的每次变更带着向量记进变更日志，Core 在后台把它推到同步目标，并拉回其它电脑的变更。
 
 ## 常用命令
 
@@ -90,6 +89,7 @@ dual-mem hub connect user@memory-host
 | 只导入某个工具的历史 | `dual-mem hub scan --source codex` |
 | 快速导入、稍后再整理 | `dual-mem hub scan --source all --raw-only`，之后 `dual-mem hub extract` |
 | 重试失败的整理任务 | `dual-mem hub retry` |
+| 立刻跨设备同步一次 | `dual-mem hub sync` |
 | 停止开机自启 | `dual-mem hub uninstall-service` |
 
 ---
@@ -98,7 +98,7 @@ dual-mem hub connect user@memory-host
 
 ### 单 Core 架构
 
-MemHub 是本地优先的单 Core 架构，不是多机数据库同步：
+每台设备一个 Core，它是本机库的唯一写者：
 
 ```text
 CLI transcript / MCP / Hook
@@ -115,7 +115,7 @@ dual-mem hub serve（唯一写者）
 - Core 只监听 `127.0.0.1:8765`，启动时自动生成 `runtime-token` 并发布 `runtime.json`，同机的 CLI、MCP 和 Hook 自动发现，不需要配置。
 - Bearer Token 只保存在权限为 `0600` 的 `~/.dual-mem/runtime-token`，不会复制到各宿主的配置里。
 - `install-host` 会安装 MCP、Skill，以及该工具可用的 capture / recall Hook。改写 YAML 配置（Agentica、Hermes）时保留原有注释、引号与缩进；`uninstall-host` 后文件恢复原样。
-- MemHub 自带的 MCP 服务（`python -m dual_mem.memhub.mcp`，由 `install-host` 写入宿主配置）提供 `memory_search`、`memory_add`、`conversation_search`、`memory_status`，请求同样走 `hub.json` / 本机发现的 Core。需要 mcp 2.x（`pip install "dual-mem[mcp]"`）。
+- MemHub 自带的 MCP 服务（`python -m dual_mem.memhub.mcp`，由 `install-host` 写入宿主配置）提供 `memory_search`、`memory_add`、`conversation_search`、`memory_status`，请求同样发给本机发现的 Core。需要 mcp 2.x（`pip install "dual-mem[mcp]"`）。
 
 ### 写入流程
 
@@ -127,13 +127,13 @@ dual-mem hub serve（唯一写者）
 - Claude Code / Codex / Agentica 会话里的工具调用和结果随对话一起送达（单条结果过长时保留头尾），会话的工作目录和 git 分支作为 `workspace_id` / `branch`。Core 据此在对话记忆之外沉淀 procedure 工程经验；`recall` 和 `hook-search` 默认返回最多 3 条相关经验，在注入块里标为 `[procedure]`。
 - Core 以 dual 模式运行时（`hub serve --mode dual`）自己 `digest()`，一天最多一次。写入队列排空后，距上次成功已满 `--digest-every` 小时（默认 24），并且还有待归纳证据，才跑。`--digest-every 0` 关闭。各台电脑不用自己触发。
 
-### 云端单实例
+### 多设备复制
 
-- 云模式仍然只有一个数据库、一个写者。Core 只监听云主机的 loopback，客户端用 SSH、Tailscale 或 WireGuard 隧道映射到自己的 loopback。
-- 远程 Core 的密钥在它自己的 `~/.dual-mem/runtime-token`。`connect`（或手动的 `attach`）把连接保存在本机的 `hub.json`。
-- 会话解析和游标留在客户端；记忆内容、Evidence、上传目录和向量 / 图数据库只存在 Core 主机的 `~/.dual-mem`。
-- MemHub 不做 `push` / `pull`、快照合并或网络数据库复制。不走 loopback 隧道时，远程 `base_url` 必须是 HTTPS。
-- 离线可用、联网自动合并的多设备同步在 Roadmap 中。
+- 本机库的每次变更（裁决后的版本计划、L0 Evidence、元数据补丁、删除）按 `(origin, seq)` 记在 `store/versions.db` 的 `log` 表，带完整内容和向量。同步只搬这些条目，接收方不调模型。
+- 同一来源的条目严格按序应用；条目引用了本机还没有的记忆（来自第三台设备）时先等待，那条记忆到了再应用。
+- 合并按字段进行，与到达顺序无关：`is_latest` 只能从真变假，`supersedes` / `superseded_by` 取并集，删除留墓碑。
+- `dir` / `git` 目标里每台设备只写自己的 `log/<origin>/` 目录，两台设备永远不会写同一个文件；`manifest.json` 记录 Embedding 配置和负责归纳的设备。
+- `ssh` 每次同步是一条 `ssh <server> dual-mem hub relay ...` 命令，不常驻隧道。`http` 目标必须是 HTTPS（loopback 除外）。
 
 ### 其他命令
 
