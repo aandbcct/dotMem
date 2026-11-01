@@ -157,7 +157,7 @@ def _seed_transcripts(home: Path) -> dict[str, Path]:
             {
                 "type": "event_msg",
                 "payload": {
-                    "type": "item_completed",
+                "type": "item_completed",
                     "item": {
                         "type": "UserMessage",
                         "content": [{"type": "text", "text": "我的网站是 mulanai.com"}],
@@ -167,7 +167,7 @@ def _seed_transcripts(home: Path) -> dict[str, Path]:
             {
                 "type": "event_msg",
                 "payload": {
-                    "type": "item_completed",
+                "type": "item_completed",
                     "item": {
                         "type": "AgentMessage",
                         "content": [{"type": "Text", "text": "记住了"}],
@@ -396,9 +396,9 @@ async def test_open_turn_cursor_and_raw_idempotency(
     _jsonl(
         path,
         [
-            {"type": "user", "session_id": "s", "content": "第一问"},
-            {"type": "assistant", "session_id": "s", "content": "第一答"},
-            {"type": "user", "session_id": "s", "content": "第二问"},
+        {"type": "user", "session_id": "s", "content": "第一问"},
+        {"type": "assistant", "session_id": "s", "content": "第一答"},
+        {"type": "user", "session_id": "s", "content": "第二问"},
             {"type": "assistant", "session_id": "s", "content": "中间步骤"},
         ],
     )

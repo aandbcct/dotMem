@@ -214,7 +214,8 @@ Full documentation: **[https://shibing624.github.io/dual-mem](https://shibing624
 | [Architecture](https://github.com/shibing624/dual-mem/blob/main/docs/architecture.md) | how the SDK relates to each frontend; storage |
 | [Memory layers](https://github.com/shibing624/dual-mem/blob/main/docs/memory_layers.md) | L0 raw / L1 facts / L2 profile / L3 derived |
 | [Write decisions](https://github.com/shibing624/dual-mem/blob/main/docs/jev-memory-design.md) | decision-model actions and relations, version chains, concurrency |
-| [MemHub](https://github.com/shibing624/dual-mem/blob/main/docs/memhub.md) | Core service, host integration, server mode |
+| [MemHub](https://github.com/shibing624/dual-mem/blob/main/docs/memhub.md) | local Core, 5 host integrations, history import |
+| [Multi-device sync](https://github.com/shibing624/dual-mem/blob/main/docs/memhub-server.md) | `dir` / `git` / `ssh` / `http` change-log replication, local recall |
 | [MCP / REST](https://github.com/shibing624/dual-mem/blob/main/docs/mcp_integration.md) | tool ↔ HTTP ↔ SDK mapping |
 | [Integrations](https://github.com/shibing624/dual-mem/blob/main/docs/integrations.md) | Agentica / Claude Code / Hermes / OpenClaw |
 | [Benchmarks](https://github.com/shibing624/dual-mem/blob/main/docs/benchmarks.md) | protocol, question sets, reproduction, breakdowns |

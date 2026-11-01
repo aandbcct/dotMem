@@ -13,9 +13,9 @@
    最高 embedding 相似度排序并截断。**相似度只决定拿哪些旧版本来比较，不决定是否写入**：
    每条提议仍进入 JEV 决策，被截掉的 head 只是不参与这次比较。路由用的 embedding 在写入时复用。
    target 选项是短标签（`[layer/kind 日期] 正文前 240 字`），完整节点只在 `state.current` 出现一次。
-4. 先问 coverage、representation 和 target。没有 current head、也没有更早的 proposal 时，
-   action 跟这批一起问，仍然是一次 JEV。只要存在可选 target，action 放到第二阶段，
-   并且只提供与 target 是否为空匹配的选项。
+4. 候选与当前 head / 批内较早候选的最高 cosine 低于 `reconcile_relation_threshold`（默认 0.6）时，
+   直接作为独立记忆（`ADD_SUPPLEMENT` 或带有效期的 `ADD_TEMPORAL`）追加，不调用 JEV。达到阈值时，
+   先问 target；选中 target 后，第二阶段再问 action，并且只提供与 target 匹配的选项。
 5. 有 target：`ADD_OVERRIDE` / `ADD_MERGE` / `ADD_NEGATE` / `ADD_CONFLICT` / `SKIP` /
    `DELETE` / `INVALID` / `NEED_CONTEXT`。来源 `memory_at` 早于所选 head 时（乱序灌入），选项换成
    `ADD_HISTORICAL` / `ADD_MERGE` / `ADD_CONFLICT` / `SKIP` / `INVALID` / `NEED_CONTEXT`：旧报告不能
@@ -90,8 +90,7 @@ System2（v3，对齐 hy-memory 2.0.4）产出三类 L3：
 - `MemoryItem` 暴露 layer、kind、revision、有效期、source_ids、supersedes、conflicts_with。
 - `add(..., request_id=...)` 允许相同输入幂等重试；另一个事件必须使用另一 request_id。
   重试恢复 durable plan，重复文本不依赖 content hash 去重。
-- `versions.db` 保存完整计划与审计事件；`versions.lock` 协调本机进程。进入存储读操作先
-  先校验现存 schema 与全部待回放计划的 schema，再恢复未完成计划；旧格式拒绝且不改写。非法向量在写日志前拒绝。跨机器共享目录/分布式事务不在此实现中。
+- `versions.db` 保存完整计划（`plans`）、审计事件、跨设备复制日志（`log`，按 `(origin, seq)` 递增并带向量）与删除墓碑（`tombstones`）；`versions.lock` 协调本机进程。进入存储读操作先校验现存 schema 与全部待回放计划的 schema，再恢复未完成计划；旧格式拒绝且不改写。非法向量在写日志前拒绝。多台设备之间通过导出/导入 `log` 条目（`export_log` / `import_log`）异步复制并按字段收敛合并，不在多台机器间直接挂载同一个 Chroma 目录做并发写。
 - `persist_history` 控制附加审计库；版本内容和恢复日志始终保留。
 - 幂等结果存在 `cache.db` 的 `request_outcomes` 表（不再借用 profile 缓存），digest 时清理
   超过 `request_outcome_ttl_seconds` 的记录。

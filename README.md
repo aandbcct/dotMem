@@ -73,7 +73,7 @@ chat 和 coding 是同一个 `add()` / `search()`。`messages` 里带工具轨�
 pip install dual-mem
 ```
 
-含 REST / CLI / MCP / MemHub：`pip install "dual-mem[all]"`；首次运行会把包内 [`config.default.yaml`](https://github.com/shibing624/dual-mem/blob/main/dual_mem/config.default.yaml) 复制成 `~/.dual-mem/config.yaml`。启动要三把钥匙，缺一就拒绝构造：
+含 REST / CLI / MCP / MemHub：`pip install "dual-mem[all]"`；各 extra 也可以单独装，MCP 基于 mcp 2.x。首次运行会把包内 [`config.default.yaml`](https://github.com/shibing624/dual-mem/blob/main/dual_mem/config.default.yaml) 复制成 `~/.dual-mem/config.yaml`。启动要三把钥匙，缺一就拒绝构造：
 
 ```yaml
 jev_api_key: ""    # 写入裁决。System One，不是 Chat Completions
@@ -214,7 +214,8 @@ with SyncMemoryClient() as memory:
 | [架构说明](https://github.com/shibing624/dual-mem/blob/main/docs/architecture.md) | SDK 与各接入层的关系、存储 |
 | [四层记忆](https://github.com/shibing624/dual-mem/blob/main/docs/memory_layers.md) | L0 原文 / L1 事实 / L2 画像 / L3 推导 |
 | [写入决策设计](https://github.com/shibing624/dual-mem/blob/main/docs/jev-memory-design.md) | 决策模型动作与关系、版本链、并发 |
-| [MemHub](https://github.com/shibing624/dual-mem/blob/main/docs/memhub.md) | Core 服务、宿主接入、云端单实例 |
+| [MemHub](https://github.com/shibing624/dual-mem/blob/main/docs/memhub.md) | 本地 Core、5 个宿主接入、历史会话导入 |
+| [多设备同步](https://github.com/shibing624/dual-mem/blob/main/docs/memhub-server.md) | `dir` / `git` / `ssh` / `http` 变更日志复制，每台本地检索 |
 | [MCP / REST](https://github.com/shibing624/dual-mem/blob/main/docs/mcp_integration.md) | 工具 ↔ HTTP ↔ SDK 对照 |
 | [生态集成](https://github.com/shibing624/dual-mem/blob/main/docs/integrations.md) | Agentica / Claude Code / Hermes / OpenClaw |
 | [评测说明](https://github.com/shibing624/dual-mem/blob/main/docs/benchmarks.md) | 协议、题集、复现与结果细分 |

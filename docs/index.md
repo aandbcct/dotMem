@@ -11,7 +11,7 @@
 
 | 我想… | 看这里 |
 |---|---|
-| 让我常用的 AI 工具共享记忆 | [MemHub](memhub.md) |
+| 让我常用的 AI 工具共享记忆（含跨电脑同步） | [MemHub](memhub.md) · [多设备同步](memhub-server.md) |
 | 给自己的 Agent / 应用加长期记忆 | [安装](getting-started/installation.md) → [快速开始](getting-started/quickstart.md) |
 | 接入 Agentica、Claude Code、Hermes 等框架 | [生态集成](integrations.md) |
 | 通过 MCP 或 REST 接入 | [MCP / REST](mcp_integration.md) |
