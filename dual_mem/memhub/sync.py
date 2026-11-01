@@ -11,8 +11,11 @@ Backends only move log entries:
 - ``dir``: a folder (iCloud Drive, Dropbox, Syncthing, a NAS mount). Each store
   writes ``log/<origin>/<seq>.json`` under its own origin only, so two devices
   never write the same file.
-- ``git``: the same layout in a git repository; every device commits only its own
-  origin directory, so a rebase never conflicts.
+- ``git``: the same layout in a git repository; every device commits only
+  ``log/`` and ``manifest.json``. Scripts, README and other files in that
+  repository are never read into the store and are never included in a sync
+  commit. A rebase does not conflict, because each device writes only its own
+  origin directory.
 - ``http``: another MemHub Core (``/v1/hub/log/*``), which relays every origin it
   has received.
 - ``ssh``: the same Core API, each call one ``ssh <target> dual-mem hub relay``
@@ -180,7 +183,11 @@ class GitBackend(DirBackend):
             # Log files never collide (one directory per origin). Only manifest.json
             # can, when two devices start on an empty repository: the one pushed
             # first wins (``-X ours`` is the upstream side during a rebase).
-            self._git("pull", "--rebase", "-X", "ours", "--quiet", "origin", self.BRANCH)
+            # --autostash keeps a local edit to a script or README from blocking
+            # the memory pull. close() never stages those files.
+            self._git(
+                "pull", "--rebase", "--autostash", "-X", "ours", "--quiet", "origin", self.BRANCH
+            )
 
     def open(self, embed: dict[str, Any], origin: str) -> None:
         if not (self.root / ".git").is_dir():
@@ -192,8 +199,13 @@ class GitBackend(DirBackend):
         super().open(embed, origin)
 
     def close(self) -> None:
-        self._git("add", "-A")
-        if not self._git("status", "--porcelain").stdout.strip():
+        # Only the replication log is ours. A word-cloud script, README or
+        # image living in the same repository must not be committed or imported.
+        paths = [name for name in ("log", "manifest.json") if (self.root / name).exists()]
+        if not paths:
+            return
+        self._git("add", "--", *paths)
+        if self._git("diff", "--cached", "--quiet", check=False).returncode == 0:
             return
         self._git(
             "-c", "user.name=dual-mem", "-c", "user.email=dual-mem@localhost",

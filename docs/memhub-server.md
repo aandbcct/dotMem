@@ -72,8 +72,9 @@ dual-mem hub status
 工作原理与多机接入：
 
 - Core 在 `~/.dual-mem/sync-git/` 下维护该仓库的本地克隆（`main` 分支）。
-- 仓库结构为 `manifest.json` 加 `log/<origin>/<seq>.json`。每台电脑拥有独立的 `origin` UUID，**只往自己的子目录追加新文件**，因此多台电脑并发 `git pull --rebase` + `git push` 永远不会产生文件冲突。
-- `~/.dual-mem/config.yaml`（含你的 API key）**不会**进入这个仓库；仓库里只有记忆正文、元数据和向量。
+- 同步只读写 `manifest.json` 和 `log/<origin>/<seq>.json`。每台电脑拥有独立的 `origin` UUID，**只往自己的子目录追加新文件**，因此多台电脑并发 `git pull --rebase` + `git push` 不会在日志文件上冲突。
+- 仓库里可以另外放 README、词云、脚本。这些文件不会被导入记忆库，也不会被检索到；同步提交也不会改它们。
+- `~/.dual-mem/config.yaml`（含你的 API key）**不会**进入这个仓库。日志文件里是记忆正文、元数据和向量。
 - 在第二台电脑上，装好 `dual-mem`、配好 `~/.dual-mem/config.yaml` 并启动 `install-service` 后，执行**完全相同**的一行 `dual-mem hub connect git git@github.com:<你的用户名>/my-vibecoding-memory.git`，即刻拉回全部记忆与向量。
 
 ## 服务器（`connect ssh` / `connect http`）

@@ -263,6 +263,50 @@ def test_git_backend_syncs_two_devices_that_push_concurrently(tmp_path):
     assert set(state(a)) == set(state(b)) == {"x", "y", "z", "w"}
 
 
+def test_git_sync_does_not_import_or_commit_files_outside_the_log(tmp_path):
+    remote = tmp_path / "remote.git"
+    _git("init", "--bare", "--quiet", "-b", "main", str(remote))
+    seed = tmp_path / "seed"
+    _git("init", "--quiet", "-b", "main", str(seed))
+    _git("remote", "add", "origin", str(remote), cwd=seed)
+    script = seed / "scripts" / "memory_cloud.py"
+    script.parent.mkdir()
+    script.write_text("print('not-a-memory')\n")
+    _git("add", "--", "scripts/memory_cloud.py", cwd=seed)
+    _git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "script", cwd=seed)
+    _git("push", "--quiet", "origin", "main", cwd=seed)
+
+    a, b = store(tmp_path / "a"), store(tmp_path / "b")
+    ga = GitBackend(str(remote), tmp_path / "ga")
+    a.upsert([node("kept")])
+    sync(a, ga)
+    checkout_script = tmp_path / "ga" / "scripts" / "memory_cloud.py"
+    assert checkout_script.read_text() == "print('not-a-memory')\n"
+    checkout_script.write_text("print('local-edit-must-stay-uncommitted')\n")
+    (tmp_path / "ga" / "notes.md").write_text("not-a-memory-either\n")
+    a.upsert([node("also-kept")])
+    sync(a, ga)
+
+    view = tmp_path / "view"
+    _git("clone", "--quiet", str(remote), str(view))
+    files = {
+        p.relative_to(view).as_posix()
+        for p in view.rglob("*")
+        if p.is_file() and ".git" not in p.parts
+    }
+    assert "scripts/memory_cloud.py" in files
+    assert (view / "scripts" / "memory_cloud.py").read_text() == "print('not-a-memory')\n"
+    assert "notes.md" not in files
+    assert any(name.startswith("log/") and name.endswith(".json") for name in files)
+
+    gb = GitBackend(str(remote), tmp_path / "gb")
+    sync(b, gb)
+    blob = " ".join(doc or "" for doc, _meta in state(b).values())
+    assert "kept" in blob and "also-kept" in blob
+    assert "not-a-memory" not in blob
+    assert checkout_script.read_text() == "print('local-edit-must-stay-uncommitted')\n"
+
+
 def test_git_push_rejected_by_a_newer_remote_rebases_and_retries(tmp_path):
     remote = tmp_path / "remote.git"
     _git("init", "--bare", "--quiet", "-b", "main", str(remote))
