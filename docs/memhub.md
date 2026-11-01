@@ -121,7 +121,8 @@ dual-mem hub connect git git@github.com:<你的用户名>/my-vibecoding-memory.g
 
 ---
 
-## 架构、安全模型与写入流程
+<details markdown="1">
+<summary>可选阅读：Core 存在哪、怎么鉴权、同步日志怎么合并</summary>
 
 ### 单 Core 架构
 
@@ -169,3 +170,5 @@ dual-mem hub serve（唯一写者）
 dual-mem hub hook-search            # 供宿主 Hook 调用：搜索并输出注入块
 dual-mem hub capture claude-code    # 供宿主 Hook 调用：上报当前会话
 ```
+
+</details>

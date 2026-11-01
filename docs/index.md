@@ -33,9 +33,9 @@ with SyncMemoryClient() as memory:
 
 ---
 
-## 开发者文档
+## 可选阅读
 
-想了解原理和实现细节，可以按这个顺序读：
+使用和接入不用看下面这些。想了解原理时再读：
 
 1. [架构说明](architecture.md)：SDK 与 CLI、REST、MCP、Skill 的关系，以及存储层
 2. [四层记忆](memory_layers.md)：L0 原文、L1 事实、L2 画像、L3 推导

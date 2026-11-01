@@ -1,6 +1,8 @@
 # JEV 记忆决策与迁移
 
-本地可交互流程页：`docs/design/jev-memory-flow.html`（Git 忽略，不随仓库分发）。实现只保留 system1 和 dual。
+> 可选阅读。这一页是写入决策的实现说明，写应用时不用看。
+
+实现只保留 system1 和 dual。
 
 ## 写入
 
@@ -120,22 +122,6 @@ JEV 可使用 `jev=` 注入 provider，或配置 `jev_api_key` / `jev_endpoint` 
 reconcile_policy、reconcile_non_destructive、content_hash_dedup 以及 cluster 写入门控。
 旧键及嵌套 mem0 配置不再兼容，Settings 校验直接报错。默认 `storage_dir` 是 `./.dual_mem_v4`，旧的 `.dual_mem_data` 不再使用。显式打开 `layer_schema_version` 不是 4、或状态不是 `ACTIVE` 的目录时抛 `ValueError` 并且不改写文件。
 
-## 验证
-
-```bash
-python -m pytest tests/ -q
-python ~/.agents/rules/check_ast.py .
-python tmp/jev_smoke.py --offline
-python tmp/benchmark_protocol_smoke.py
-```
-
-Smoke 通过 MemoryClient 验证演化、已知判断、四个并行 scope 和显式 digest。
-文本生成与 embedding 使用确定性适配器，JEV 是真实接口；这是接口/版本协议验证，
-不等于业务 accuracy 的对比基准。
-
-真实验证使用确定性 embedding，生成与裁决分别计时。最新版数据见下方最终本地验证；
-历史报告均保留在本地 docs/design/validation，不进入 Git。
-
 ## Coding 场景：procedure 记忆
 
 chat 和 coding 不是两套系统。场景是每条数据的属性：带工具轨迹、被判为工程会话的写入，
@@ -168,50 +154,3 @@ chat 和 coding 不是两套系统。场景是每条数据的属性：带工具�
 **对外结果**：`WriteResult.scene` 为 `chat` / `coding`，`procedure_ids` 是新 procedure 版本 id
 （同时在 `extra_node_ids` 里）；`decisions` 合并两路裁决。`MemoryItem.procedure` 给出结构化字段。
 `update` / `delete` / `get` / `list` 与其它 L1 记忆一致。
-
-## 最终本地验证
-
-2026-10-15，main 合并后清理全部旧兼容路径。当时全量 pytest 为 390 passed、1 skipped。随后 coding 裁决、社区入口和文档又对齐了同一套 JEV 动作；以发布前重新跑的 `pytest tests/ -q` 为准。AST 检查通过。所有自动化测试 mock 模型与网络，真实接口验证仅由 tmp smoke 执行。
-
-hy3 当前接口不能通过不传 reasoning_effort 关闭思考。实测只传
-`extra_body={"thinking":{"type":"disabled"}}` 仍产生 314 reasoning tokens。
-非思考验证显式使用：
-
-```python
-extra_body={"reasoning_effort": "no_think", "thinking": {"type": "disabled"}}
-```
-
-这里的 extra_body 是 OpenAI SDK 合并到请求顶层的扩展参数；全部五次 hy3 返回
-reasoning_content 为空，reasoning token 计数未提供。不能把缺少计数当成服务器已报告 0。
-
-下面这张表是 **target-first 之前** 的旧协议计时：当时每次写入只有一次 JEV。
-现在只要存在 target 候选就会多一次 evaluation，调用数和延迟不能再拿来对比，需要重跑。
-
-| 步骤 | hy3 API ms | JEV API ms | 端到端 ms | 调用数 hy3 / JEV |
-| --- | ---: | ---: | ---: | --- |
-| 我目前住在北京。 | 1234.2 | 494.1 | 1753 | 1 / 1 |
-| 我从北京搬到上海了，现在住在上海。 | 1483.7 | 438.3 | 1953 | 1 / 1 |
-| 我又搬回北京了，目前住在北京。 | 1355.7 | 465.0 | 1846 | 1 / 1 |
-| 我目前住在北京。 | 1093.6 | 461.0 | 1568 | 1 / 1 |
-| 显式 digest | 2819.3 | 1210.1 | 4139.0 | 1 / 3 |
-
-旧协议下每次写入一次候选生成、一次批量 JEV 裁决。digest 那次含推导生成、来源校验及关系裁决，
-还触发多目标选择，共三次 JEV。API ms 为各实际调用的延迟之和；并行时不等于墙钟
-耗时。JEV 计时覆盖每次 HTTP 尝试，不包含排队和重试等待；端到端时间包含这些开销。
-
-独立 JEV 真实接口 smoke 也是旧协议：四个 scope 并发写入 553.0 ms，5 个 scope digest
-完成，合计 18 次 JEV 请求。生成与向量使用确定性适配器，不能与真实生成时延混算。
-这组次数在 target-first 之后失效。
-
-真实 smoke 六项断言全部通过：无思考内容、返回旧值为 OVERRIDE、重复为 SKIP、
-两个独立搬家事件保持 current、三代画像保留、只有一个 current 画像。
-报告留在本地 design/validation，不进入 Git。早期负例也保留；本次通过
-不证明业务准确率或速度普遍提升。尚无生产 embedding 联调或业务质量 A/B。
-
-```bash
-python tmp/jev_smoke.py --offline
-# 配置 GENERATION_API_KEY / GENERATION_BASE_URL / GENERATION_MODEL=hy3 / DUAL_MEM_JEV_API_KEY
-python tmp/jev_generation_smoke.py --output /tmp/generation.json
-```
-
-脚本同时校验模型行为与版本语义，断言失败时退出非零；接口成功不等于 smoke 通过。

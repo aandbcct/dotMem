@@ -1,5 +1,7 @@
 # dual-mem 架构说明
 
+> 可选阅读。安装、写记忆、接 MemHub 都不用看这一页。
+
 dual-mem 采用「核心 SDK + 生态接入层」的分层设计。**SDK 是唯一的核心**，对外的
 CLI / REST / MCP / Skill 都是围绕它的并列接入方式（frontends），互不依赖、可按需启用。
 

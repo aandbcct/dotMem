@@ -1,7 +1,5 @@
 # 快速开始
 
-> JEV 配置与版本 API 的迁移说明见 [设计文档](../jev-memory-design.md)。
-
 ## 同步（脚本 / REPL，推荐入门）
 
 ```python
@@ -161,15 +159,6 @@ for m in res.memories.procedures:
   和 `dual-mem search --procedure-limit`。MemHub 采集 Claude Code / Codex / Agentica 会话时保留对话正文与工具调用涉及的文件路径（不读取工具输出）。
 
 完整可运行示例（含方案演化）：[`examples/06_coding_memory.py`](https://github.com/shibing624/dual-mem/blob/main/examples/06_coding_memory.py)。
-
-## `aclose()` 要不要调？
-
-| 场景 | 是否需要 |
-|---|---|
-| `system1` / `dual` 短脚本 | 建议调用，释放存储句柄 |
-| FastAPI / 长驻 Agent | lifespan shutdown 调一次；进程级单例一个 `MemoryClient` |
-
-`aclose()` 不触发 digest；dual 应在业务确定的巩固点显式调用 `digest()`。
 
 ## Agent 集成（Agentica 多轮对话）
 

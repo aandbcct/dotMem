@@ -179,22 +179,22 @@ with SyncMemoryClient() as memory:
 - [ ] MemHub 接入更多工具：OpenCode、WorkBuddy、Gemini CLI、Windsurf、Trae 等，目标 10+ 种
 - [ ] 云端 HTTP MCP：远程 Agent 直接连接托管记忆
 - [ ] 多跳推理类问题的检索增强（LoCoMo multi-hop 仍有提升空间）
-- [ ] 记忆可视化管理：查看、编辑、删除你的记忆
-- [ ] 隐私分级：敏感记忆只留本机
+- [ ] 记忆可视化管理：查看、编辑、删除你的记忆 
 - [ ] 补充更多公开评测（CodeMemoryBench 等，待数据公开）
 
 欢迎在 [Issues](https://github.com/shibing624/dual-mem/issues) 投票或提需求。
 
 ## News
 
+- [2026/11/01] **v0.2.1**：多设备改为每台电脑本地检索，用网盘文件夹、私有 git 仓库或服务器交换变更日志，删掉了常驻 SSH 隧道。模型配置统一到 `~/.dual-mem/config.yaml`。工程记忆只保留问题和最终回答，工具输出不再送进模型。自动归纳改为一天最多一次。详见 [Release-v0.2.1](https://github.com/shibing624/dual-mem/releases/tag/v0.2.1)。
 - [2026/10/24] **v0.2.0**：chat 与 coding 统一成同一套 `add()` / `search()`。带工具轨迹的工程会话在对话记忆之外沉淀 `kind="procedure"` 工程经验，共用存储、版本链和 JEV 裁决，`search(procedure_limit=3)` 单独返回 `procedures` 组；`dual` 的 `digest()` 也覆盖工程经验。删除 `search_coding` 与独立的 coding 库。chat 路径的 prompt、裁决与召回不变。MemHub 采集 Claude Code / Codex / Agentica 的工具轨迹，dual 模式空闲时自动 digest；新增 `dual-mem hub connect user@server`，一条命令建隧道、读 token、写好 `hub.json`。MCP 迁移到 mcp 2.x；`install-host` 改写 YAML 时保留注释。详见 [Release-v0.2.0](https://github.com/shibing624/dual-mem/releases/tag/v0.2.0)。
 - [2026/10/23] **v0.1.5**：修复 Coding 记忆接真实模型时写不进去的问题。抽取改为返回 `{"candidates": [...]}` 对象，适配默认 `llm_json_mode`；去掉 coverage 硬门槛；同一批写入可以覆盖同一条旧方案；裁决只看当前版本边界内的记录；同一用户的并发写入按 scope 串行。快速上手补充 Coding 记忆章节，`examples/06_coding_memory.py` 增加方案更新后只返回当前版本的示例。详见 [Release-v0.1.5](https://github.com/shibing624/dual-mem/releases/tag/v0.1.5)。
-- [2026/10/23] **v0.1.4**：新增 MemHub 本地单 Core 跨工具记忆中枢（支持 Claude Code / Codex / Cursor / Hermes / Agentica 会话增量导入、后台持久队列写入、开机自启与云端隧道连接）；升级 System 2 v3 聚类认知与版本桥召回；补充 Coding 记忆示例并精简无收益配置项；在 LoCoMo（74.7）、LongMemEval（91.7）、PersonaMem-v2（50.0）同场评测中全面领先 hy-memory 2.0.4 与 mem0。详见 [Release-v0.1.4](https://github.com/shibing624/dual-mem/releases/tag/v0.1.4)。
-- [2026/10/15] **v0.1.3**：升级为 L0_RAW / L1_FACT / L2_PROFILE / L3_DERIVED 四层记忆架构与 JEV 专用决策模型写路径，支持 target-first 关系裁决、版本演化链与历史回溯；新增 Agentica / Claude Code / Hermes / OpenClaw 原生生态集成与 Coding 记忆子系统（存储格式不兼容旧版，需使用新目录）。详见 [Release-v0.1.3](https://github.com/shibing624/dual-mem/releases/tag/v0.1.3)。
 
 <details>
 <summary>更早版本</summary>
 
+- [2026/10/23] **v0.1.4**：新增 MemHub 本地单 Core 跨工具记忆中枢（支持 Claude Code / Codex / Cursor / Hermes / Agentica 会话增量导入、后台持久队列写入、开机自启与云端隧道连接）；升级 System 2 v3 聚类认知与版本桥召回；补充 Coding 记忆示例并精简无收益配置项；在 LoCoMo（74.7）、LongMemEval（91.7）、PersonaMem-v2（50.0）同场评测中全面领先 hy-memory 2.0.4 与 mem0。详见 [Release-v0.1.4](https://github.com/shibing624/dual-mem/releases/tag/v0.1.4)。
+- [2026/10/15] **v0.1.3**：升级为 L0_RAW / L1_FACT / L2_PROFILE / L3_DERIVED 四层记忆架构与 JEV 专用决策模型写路径，支持 target-first 关系裁决、版本演化链与历史回溯；新增 Agentica / Claude Code / Hermes / OpenClaw 原生生态集成与 Coding 记忆子系统（存储格式不兼容旧版，需使用新目录）。详见 [Release-v0.1.3](https://github.com/shibing624/dual-mem/releases/tag/v0.1.3)。
 - [2026/06/20] **v0.1.2**：新增 `SyncMemoryClient` 同步客户端封装，支持首次运行自动生成 `~/.dual_mem/config.yaml` 默认配置，完善 REST / MCP / CLI 统一契约与在线文档站点。详见 [Release-v0.1.2](https://github.com/shibing624/dual-mem/releases/tag/v0.1.2)。
 - [2026/06/19] **v0.1.1**：发布双系统分层记忆 SDK，支持语义 + BM25 + RRF 混合检索及 CLI / REST / MCP 接口。详见 [Release-v0.1.1](https://github.com/shibing624/dual-mem/releases/tag/v0.1.1)。
 - [2026/06/18] **v0.1.0**：首版开源。
@@ -211,9 +211,9 @@ with SyncMemoryClient() as memory:
 |---|---|
 | [安装与配置](https://github.com/shibing624/dual-mem/blob/main/docs/getting-started/installation.md) | extras、配置文件、凭证与优先级 |
 | [快速开始](https://github.com/shibing624/dual-mem/blob/main/docs/getting-started/quickstart.md) | 同步 / 异步客户端、多轮写入、Agent 集成 |
-| [架构说明](https://github.com/shibing624/dual-mem/blob/main/docs/architecture.md) | SDK 与各接入层的关系、存储 |
-| [四层记忆](https://github.com/shibing624/dual-mem/blob/main/docs/memory_layers.md) | L0 原文 / L1 事实 / L2 画像 / L3 推导 |
-| [写入决策设计](https://github.com/shibing624/dual-mem/blob/main/docs/jev-memory-design.md) | 决策模型动作与关系、版本链、并发 |
+| [架构说明](https://github.com/shibing624/dual-mem/blob/main/docs/architecture.md) | 可选阅读：SDK 与各接入层的关系、存储 |
+| [四层记忆](https://github.com/shibing624/dual-mem/blob/main/docs/memory_layers.md) | 可选阅读：L0 原文 / L1 事实 / L2 画像 / L3 推导 |
+| [写入决策设计](https://github.com/shibing624/dual-mem/blob/main/docs/jev-memory-design.md) | 可选阅读：决策模型动作与关系、版本链 |
 | [MemHub](https://github.com/shibing624/dual-mem/blob/main/docs/memhub.md) | 本地 Core、5 个宿主接入、历史会话导入 |
 | [多设备同步](https://github.com/shibing624/dual-mem/blob/main/docs/memhub-server.md) | `dir` / `git` / `ssh` / `http` 变更日志复制，每台本地检索 |
 | [MCP / REST](https://github.com/shibing624/dual-mem/blob/main/docs/mcp_integration.md) | 工具 ↔ HTTP ↔ SDK 对照 |

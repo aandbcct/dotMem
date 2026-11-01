@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+## [0.2.1] — 2026-11-01
+
+- **文档改成按使用来写**。快速开始去掉 `aclose()` 说明；架构、记忆分层、写入决策，以及 MemHub 里 Core 内部流程，标成可选阅读。写入决策页删掉过期的本地计时记录。
 - **coding 会话的记忆只从对话正文来，工具输出不再进模型**。破坏性变更：删除 `procedure_tool_result_max_chars`，新增 `procedure_source_max_chars`（默认 24000）。
   - 原因：真实 agentica 编码会话导入 36 个批次失败 26 个。一类是 L0_RAW 把整段工具轨迹（文件内容、命令输出）当 embedding 输入，中文、代码与日志混排时实际 token 数超过按 2.5 字符/token 估算的上限，被上游以 8192 token 拒绝；另一类是 procedure 裁决把整段轨迹作为 JEV `state`，超出 `jev_max_question_chars`。
   - 现在：L0_RAW、procedure 抽取和 JEV 裁决都只看用户消息与 assistant 回答；工具调用只用来结构化提取 `files`。超出预算时用户消息全文优先保留，assistant 回答截到 2000 字，仍超出才从最早的轮次丢弃，最后一轮一定保留。MemHub 采集端也不再读取工具输出。
