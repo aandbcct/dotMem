@@ -212,12 +212,20 @@ def hub_disconnect(hub_dir: str | None = HubDir) -> None:
 
 
 @hub_app.command("sync")
-def hub_sync_now(hub_dir: str | None = HubDir) -> None:
+def hub_sync_now(
+    compact: bool = typer.Option(
+        False,
+        "--compact",
+        help="同时把同步目标上的日志折叠成快照（只在负责 digest 的设备上生效；"
+        "平时日志超过阈值会自动折叠）",
+    ),
+    hub_dir: str | None = HubDir,
+) -> None:
     """立刻与同步目标交换一次变更（Core 平时会自动同步）。"""
 
     async def run() -> dict[str, Any]:
         async with make_client(hub_dir) as client:
-            return await client.sync()
+            return await client.sync(compact=compact)
 
     _echo(asyncio.run(run()))
 

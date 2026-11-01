@@ -436,13 +436,14 @@ def create_hub_app(
         return {"sync": app.state.syncer.status() if app.state.syncer else None}
 
     @app.post("/v1/hub/sync", dependencies=[Depends(verify)])
-    async def sync_now():
+    async def sync_now(compact: bool = False):
+        """One sync cycle; ``compact=true`` also folds the log into a snapshot."""
         if app.state.syncer is None:
             raise HTTPException(
                 status_code=400, detail="no sync target; run `dual-mem hub connect`"
             )
         try:
-            return await app.state.syncer.run_once()
+            return await app.state.syncer.run_once(compact=True if compact else None)
         except Exception as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
 

@@ -28,7 +28,12 @@ from dual_mem.memhub.sync import (
     sync_once,
 )
 from dual_mem.storage.history_store import HistoryStore
-from dual_mem.storage.vector_store import ChromaVectorStore, merge_metadata
+from dual_mem.storage.vector_store import (
+    ChromaVectorStore,
+    merge_metadata,
+    pack_vector,
+    unpack_vector,
+)
 from dual_mem.types import Layer, MemoryNode
 
 EMBED = {"model": "m", "dim": 2}
@@ -170,7 +175,7 @@ def test_deleted_node_stays_deleted_on_every_replica(tmp_path):
     assert result["pending"] == 0 and b.get("x") is None
     b.import_log([{"origin": "late", "seq": 1, "kind": "nodes",
                    "data": a._node_rows([]) + [{"id": "x", "content": "x",
-                                               "embedding": [1.0, 0.0],
+                                               "embedding": pack_vector([1.0, 0.0]),
                                                "meta": node("x").to_metadata()}]}])
     assert b.get("x") is None
 
@@ -518,3 +523,292 @@ async def test_auto_digest_runs_only_on_the_digesting_device(
         assert first_calls and not second_calls
     await fc.aclose()
     await sc.aclose()
+
+
+# --- size control: packed vectors and snapshots -----------------------------------
+
+
+def test_vectors_travel_as_float16_and_keep_their_direction(tmp_path):
+    a, b = store(tmp_path / "a"), store(tmp_path / "b")
+    vec = [0.123456789, -0.987654321]
+    a.upsert([MemoryNode(node_id="v", content="v", app_id="app", user_id="u",
+                         layer=Layer.L1_FACT, embedding=vec)])
+    (entry,) = a.export_log(origin=a.origin)
+    packed = entry["data"][0]["embedding"]
+    assert isinstance(packed, str) and len(packed) == 8  # 2 dims x 2 bytes, base64
+    assert unpack_vector(packed) == pytest.approx(vec, abs=1e-3)
+    b.import_log([entry])
+    assert b.get("v").embedding == pytest.approx(vec, abs=1e-3)
+    # Decimal text vectors are no longer accepted on the wire.
+    with pytest.raises(Exception):
+        store(tmp_path / "c").import_log([{**entry, "seq": 1, "origin": "o",
+                                           "data": [{**entry["data"][0], "embedding": vec}]}])
+
+
+def test_folder_in_the_old_format_is_refused(tmp_path):
+    folder = tmp_path / "cloud"
+    folder.mkdir()
+    (folder / "manifest.json").write_text(json.dumps(
+        {"format": 1, "embed": EMBED, "digester": "x"}))
+    with pytest.raises(SyncError, match="format 1"):
+        sync(store(tmp_path / "a"), DirBackend(folder))
+
+
+def _log_files(root: Path) -> set[str]:
+    return {p.relative_to(root).as_posix() for p in (root / "log").rglob("*.json")}
+
+
+def test_compaction_replaces_the_log_and_a_new_device_starts_from_the_snapshot(tmp_path):
+    a, b = store(tmp_path / "a"), store(tmp_path / "b")
+    folder = DirBackend(tmp_path / "cloud")
+    a.upsert([node("x")])
+    assert plan(a, [node("y", supersedes=["x"])], {"x": 0})
+    a.upsert([node("gone")])
+    a.delete(["gone"])
+    sync(a, folder)
+    b.upsert([node("from-b")])
+    sync(b, folder)
+    sync(a, folder)
+    assert len(_log_files(tmp_path / "cloud")) == 5
+
+    result = sync_once(a, folder, embed=EMBED, compact=True)
+    assert result["compacted"]["epoch"] == 1 and result["compacted"]["folded"] == 5
+    # Every entry both stores had is now inside the snapshot.
+    assert _log_files(tmp_path / "cloud") == set()
+    manifest = json.loads((tmp_path / "cloud" / "manifest.json").read_text())
+    assert manifest["snapshot"]["base"] == {a.origin: 4, b.origin: 1}
+
+    c = store(tmp_path / "c")
+    pulled = sync(c, folder)
+    assert pulled["snapshot_adopted"] == 1 and pulled["pending"] == 0
+    assert state(c) == state(a)
+    assert c.get("gone") is None and not c.get("x").is_latest
+    # c never held "gone": only the snapshot's tombstone keeps a stale copy
+    # of it (from a device that has not caught up) from bringing it back.
+    c.import_log([{"origin": "stale", "seq": 1, "kind": "nodes",
+                   "data": [{"id": "gone", "content": "gone",
+                             "embedding": pack_vector([1.0, 0.0]),
+                             "meta": node("gone").to_metadata()}]}])
+    assert c.get("gone") is None
+    # Writes after the snapshot travel as log entries from the base on.
+    a.upsert([node("later")])
+    sync(a, folder)
+    assert _log_files(tmp_path / "cloud") == {f"log/{a.origin}/{5:012d}.json"}
+    sync(c, folder)
+    assert c.get("later") is not None and c.log_heads()[a.origin] == 5
+
+
+def test_only_the_digester_compacts(tmp_path):
+    a, b = store(tmp_path / "a"), store(tmp_path / "b")
+    folder = DirBackend(tmp_path / "cloud")
+    a.upsert([node("x")])
+    sync(a, folder)
+    b.upsert([node("y")])
+    assert sync_once(b, folder, embed=EMBED, compact=True)["compacted"] is None
+    assert sync_once(a, folder, embed=EMBED, compact=True)["compacted"] is not None
+
+
+def test_compaction_waits_for_the_threshold(tmp_path, monkeypatch):
+    from dual_mem.memhub import sync as sync_mod
+
+    monkeypatch.setattr(sync_mod, "COMPACT_AFTER", 3)
+    a = store(tmp_path / "a")
+    folder = DirBackend(tmp_path / "cloud")
+    a.upsert([node("one")])
+    a.upsert([node("two")])
+    assert sync(a, folder)["compacted"] is None
+    a.upsert([node("three")])
+    assert sync(a, folder)["compacted"]["folded"] == 3
+
+
+def test_a_device_behind_the_snapshot_keeps_its_own_unpushed_writes(tmp_path):
+    """b was offline across a compaction that deleted x; its own write survives,
+    the deletion reaches it, and its unpushed entry is published afterwards."""
+    a, b = store(tmp_path / "a"), store(tmp_path / "b")
+    folder = DirBackend(tmp_path / "cloud")
+    a.upsert([node("x")])
+    a.upsert([node("kept")])
+    sync(a, folder)
+    sync(b, folder)
+    b.upsert([node("offline")])  # not pushed yet
+    b.update_payload_many({"kept": {"tags": "from-b"}})  # newer than the snapshot
+    a.delete(["x"])
+    sync_once(a, folder, embed=EMBED, compact=True)
+
+    result = sync(b, folder)
+    assert result["snapshot_adopted"] == 1
+    assert b.get("x") is None
+    assert b.get("offline") is not None
+    assert b.get("kept").tags == ["from-b"]
+    assert result["pushed"] == 2
+    sync(a, folder)
+    assert a.get("offline") is not None and a.get("kept").tags == ["from-b"]
+    assert state(a) == state(b)
+
+
+def test_a_device_that_already_has_everything_is_unchanged_by_the_snapshot(tmp_path):
+    a, b = store(tmp_path / "a"), store(tmp_path / "b")
+    folder = DirBackend(tmp_path / "cloud")
+    a.upsert([node("x")])
+    assert plan(a, [node("y", supersedes=["x"])], {"x": 0})
+    sync(a, folder)
+    sync(b, folder)
+    before = state(b)
+    sync_once(a, folder, embed=EMBED, compact=True)
+    assert sync(b, folder)["snapshot_adopted"] == 1
+    assert state(b) == before
+
+
+def test_snapshot_carries_schemas_and_edges_to_a_new_replica(tmp_path, fake_embed):
+    from dual_mem.memhub.sync import project_received
+    from dual_mem.registry import ComponentFactory
+
+    def factory(path):
+        return ComponentFactory(settings=Settings(mode="dual", storage_dir=str(path)),
+                                embed=fake_embed)
+
+    fa, fb = factory(tmp_path / "a"), factory(tmp_path / "b")
+    folder = DirBackend(tmp_path / "cloud")
+    fact = MemoryNode(content="f", layer=Layer.L1_FACT, app_id="app", user_id="u",
+                      embedding=fake_embed.embed_sync("f"), node_id="f")
+    other = MemoryNode(content="g", layer=Layer.L1_FACT, app_id="app", user_id="u",
+                       embedding=fake_embed.embed_sync("g"), node_id="g")
+    schema = MemoryNode(content="s", layer=Layer.L3_DERIVED, kind="schema", app_id="app",
+                        user_id="u", embedding=fake_embed.embed_sync("s"), node_id="s",
+                        custom={"source_ids": ["f"]})
+    fa.vector.upsert([fact, other])
+    assert fa.vector.apply_version_plan(nodes=[schema], expected={}, archives=[], scope=SCOPE)
+    assert fa.vector.apply_version_plan(nodes=[], expected={"g": 0}, archives=[], scope=SCOPE,
+                                        processed_evidence=["g"], edges=[("s", "g")])
+    sync_once(fa.vector, folder, embed=EMBED, compact=True)
+    assert _log_files(tmp_path / "cloud") == set()
+    sync_once(fb.vector, folder, embed=EMBED)
+    asyncio.run(project_received(SimpleNamespace(factory=fb)))
+    assert set(fb.graph.evidence_of("s")) == {"f", "g"}
+    fa.close()
+    fb.close()
+
+
+def _remote_objects(remote: Path) -> int:
+    out = subprocess.run(["git", "count-objects", "-v"], cwd=remote, capture_output=True,
+                         text=True, check=True).stdout
+    _git("gc", "--quiet", "--prune=now", cwd=remote)
+    out = subprocess.run(["git", "rev-list", "--all", "--objects"], cwd=remote,
+                         capture_output=True, text=True, check=True).stdout
+    return len(out.splitlines())
+
+
+def test_git_compaction_drops_the_old_history_and_other_clones_follow(tmp_path):
+    remote = tmp_path / "remote.git"
+    _git("init", "--bare", "--quiet", "-b", "main", str(remote))
+    a, b = store(tmp_path / "a"), store(tmp_path / "b")
+    ga = GitBackend(str(remote), tmp_path / "ga")
+    gb = GitBackend(str(remote), tmp_path / "gb")
+    for i in range(6):
+        a.upsert([node(f"n{i}")])
+        sync(a, ga)
+    sync(b, gb)
+    b.upsert([node("from-b-offline")])  # b committed nothing for it yet
+
+    sync_once(a, ga, embed=EMBED, compact=True)
+    log = subprocess.run(["git", "log", "--format=%s", "main"], cwd=remote,
+                         capture_output=True, text=True, check=True).stdout.splitlines()
+    assert log == ["dual-mem snapshot 1"]
+    # The old commits and their log blobs are gone from the remote.
+    objects = subprocess.run(["git", "rev-list", "--all", "--objects"], cwd=remote,
+                             capture_output=True, text=True, check=True).stdout
+    assert "log/" not in objects
+
+    # b's clone has the old history; it follows the new root, keeps its own write.
+    result = sync(b, gb)
+    assert result["snapshot_adopted"] == 1 and result["pushed"] == 1
+    # Following the new root means the old history is not pushed back.
+    tree = subprocess.run(["git", "ls-tree", "-r", "--name-only", "main"], cwd=remote,
+                          capture_output=True, text=True, check=True).stdout.splitlines()
+    assert [p for p in tree if p.startswith("log/")] == [f"log/{b.origin}/{1:012d}.json"]
+    commits = subprocess.run(["git", "rev-list", "--count", "main"], cwd=remote,
+                             capture_output=True, text=True, check=True).stdout.strip()
+    assert commits == "2"
+    sync(a, ga)
+    assert set(state(a)) == set(state(b)) == {*(f"n{i}" for i in range(6)), "from-b-offline"}
+    history = subprocess.run(["git", "log", "--format=%s", "main"], cwd=tmp_path / "gb",
+                             capture_output=True, text=True, check=True).stdout.splitlines()
+    assert history[-1] == "dual-mem snapshot 1"
+
+
+def test_git_compaction_loses_its_lease_to_a_concurrent_push(tmp_path, monkeypatch):
+    remote = tmp_path / "remote.git"
+    _git("init", "--bare", "--quiet", "-b", "main", str(remote))
+    a, b = store(tmp_path / "a"), store(tmp_path / "b")
+    ga = GitBackend(str(remote), tmp_path / "ga")
+    gb = GitBackend(str(remote), tmp_path / "gb")
+    a.upsert([node("x")])
+    sync(a, ga)
+    sync(b, gb)
+
+    original = GitBackend.publish_snapshot
+
+    def racing(self, state):
+        # b pushes between a's last pull and a's snapshot push.
+        b.upsert([node("racer")])
+        sync(b, gb)
+        return original(self, state)
+
+    monkeypatch.setattr(GitBackend, "publish_snapshot", racing)
+    assert sync_once(a, ga, embed=EMBED, compact=True)["compacted"] is None
+    monkeypatch.setattr(GitBackend, "publish_snapshot", original)
+    # Nothing was lost: the racer is on the remote, and a retry compacts.
+    sync(a, ga)
+    assert a.get("racer") is not None
+    assert sync_once(a, ga, embed=EMBED, compact=True)["compacted"]["epoch"] == 1
+    sync(b, gb)
+    assert set(state(a)) == set(state(b)) == {"x", "racer"}
+
+
+def test_a_node_written_again_after_its_deletion_reaches_every_replica(tmp_path):
+    a, b = store(tmp_path / "a"), store(tmp_path / "b")
+    folder = DirBackend(tmp_path / "cloud")
+    a.upsert([node("x")])
+    sync(a, folder)
+    sync(b, folder)
+    a.delete(["x"])
+    sync(a, folder)
+    sync(b, folder)
+    assert b.get("x") is None
+
+    # Node ids are derived from content, so a retried write reuses the id.
+    a.upsert([node("x")])
+    plan(a, [node("y")])
+    a.delete(["y"])
+    # A later operation (another id) writing the same content gets the same node id.
+    plan(a, [node("y"), node("y2")])
+    a.update_payload_many({"x": {"tags": "t"}})
+    sync(a, folder)
+    sync(b, folder)
+    assert b.get("x") is not None and b.get("x").tags == ["t"]
+    assert b.get("y") is not None and state(b) == state(a)
+
+    # A device replaying the whole log, and one built from the snapshot, agree.
+    replay = store(tmp_path / "replay")
+    assert sync(replay, folder)["pending"] == 0
+    assert state(replay) == state(a)
+    assert sync_once(a, folder, embed=EMBED, compact=True)["compacted"]
+    built = store(tmp_path / "built")
+    assert sync(built, folder)["snapshot_adopted"] == 1
+    assert state(built) == state(a)
+    manifest = json.loads((tmp_path / "cloud" / "manifest.json").read_text())
+    snapshot = json.loads((tmp_path / "cloud" / manifest["snapshot"]["path"]).read_text())
+    assert not {"x", "y"} & set(snapshot["tombstones"])
+
+
+def test_a_stale_copy_does_not_undo_a_deletion_after_a_revival_elsewhere(tmp_path):
+    a = store(tmp_path / "a")
+    a.upsert([node("x")])
+    a.delete(["x"])
+    a.upsert([node("z")])
+    a.delete(["z"])
+    a.upsert([node("x")])
+    stale = {"id": "z", "content": "z", "embedding": pack_vector([1.0, 0.0]),
+             "meta": node("z").to_metadata()}
+    a.import_log([{"origin": "stale", "seq": 1, "kind": "nodes", "data": [stale]}])
+    assert a.get("x") is not None and a.get("z") is None

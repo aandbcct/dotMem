@@ -121,9 +121,14 @@ class HubClient:
     async def status(self) -> dict[str, Any]:
         return await self._request("GET", "/v1/hub/status")
 
-    async def sync(self) -> dict[str, Any]:
-        """Replicate with the sync target now and return the cycle's counts."""
-        return await self._request("POST", "/v1/hub/sync")
+    async def sync(self, *, compact: bool = False) -> dict[str, Any]:
+        """Replicate with the sync target now and return the cycle's counts.
+
+        ``compact`` also folds the target's log into a snapshot (digester only).
+        """
+        return await self._request(
+            "POST", "/v1/hub/sync", params={"compact": "true"} if compact else None
+        )
 
     async def relay(self, method: str, path: str, body: Any = None) -> Any:
         """Forward one Core API call (``hub relay``: sync over ssh)."""

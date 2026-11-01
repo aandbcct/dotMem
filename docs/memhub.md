@@ -161,7 +161,7 @@ dual-mem hub serve（唯一写者）
 - 本机库的每次变更（裁决后的版本计划、L0 Evidence、元数据补丁、删除）按 `(origin, seq)` 记在 `store/versions.db` 的 `log` 表，带完整内容和向量。同步只搬这些条目，接收方不调模型。
 - 同一来源的条目严格按序应用；条目引用了本机还没有的记忆（来自第三台设备）时先等待，那条记忆到了再应用。
 - 合并按字段进行，与到达顺序无关：`is_latest` 只能从真变假，`supersedes` / `superseded_by` 取并集，删除留墓碑。
-- `dir` / `git` 目标里每台设备只写自己的 `log/<origin>/` 目录，两台设备永远不会写同一个文件；`manifest.json` 记录负责归纳的设备。
+- `dir` / `git` 目标里每台设备只写自己的 `log/<origin>/` 目录，两台设备永远不会写同一个文件；`manifest.json` 记录负责归纳的设备和当前快照。日志累积后由这台设备折叠进 `snapshot/`，新设备先导入快照，再回放它之后的日志。
 - `ssh` 每次同步是一条 `ssh <server> dual-mem hub relay ...` 命令，不常驻隧道。`http` 目标必须是 HTTPS（loopback 除外）。
 
 ### 其他命令

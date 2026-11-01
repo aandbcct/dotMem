@@ -72,7 +72,7 @@ dual-mem hub status
 工作原理与多机接入：
 
 - Core 在 `~/.dual-mem/sync-git/` 下维护该仓库的本地克隆（`main` 分支）。
-- 同步只读写 `manifest.json` 和 `log/<origin>/<seq>.json`。每台电脑拥有独立的 `origin` UUID，**只往自己的子目录追加新文件**，因此多台电脑并发 `git pull --rebase` + `git push` 不会在日志文件上冲突。
+- 同步只读写 `manifest.json`、`log/<origin>/<seq>.json` 和 `snapshot/`。每台电脑拥有独立的 `origin` UUID，**只往自己的子目录追加新文件**，因此多台电脑并发 `git pull --rebase` + `git push` 不会在日志文件上冲突。
 - 仓库里可以另外放 README、词云、脚本。这些文件不会被导入记忆库，也不会被检索到；同步提交也不会改它们。
 - `~/.dual-mem/config.yaml`（含你的 API key）**不会**进入这个仓库。日志文件里是记忆正文、元数据和向量。
 - 在第二台电脑上，装好 `dual-mem`、配好 `~/.dual-mem/config.yaml` 并启动 `install-service` 后，执行**完全相同**的一行 `dual-mem hub connect git git@github.com:<你的用户名>/my-vibecoding-memory.git`，即刻拉回全部记忆与向量。
@@ -126,4 +126,4 @@ System 2 的 `digest()` 用 LLM 从多条事实归纳 L3。两台电脑各自归
 
 - 同步目标上是你的全部记忆原文。git 仓库必须是私有的；网盘目录不要共享给别人。
 - 游标（`cursors.db`）在每台电脑本地，各自只采集本机的会话。
-- 同步目标只增不减，不做压缩。
+- 同步目标的大小跟着当前记忆走，不随写入次数累积：向量以 float16 传输；负责 digest 的设备在日志累积到 400 条后折叠成 `snapshot/state-<epoch>.json`，也可以用 `dual-mem hub sync --compact` 手动触发。`git` 目标会用新的根提交强推替换历史，**不要在这个仓库的 `main` 上保留需要长期留存的手工提交历史**；脚本、README 这类文件本身会保留在新根提交里，其它设备下次同步时自动跟随。

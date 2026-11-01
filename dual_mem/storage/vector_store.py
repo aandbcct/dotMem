@@ -5,17 +5,19 @@
 upserting, querying and managing MemoryNode embeddings with metadata filters.
 """
 from abc import ABC, abstractmethod
+import base64
 import threading
 import json
 import sqlite3
 import hashlib
 import math
 import fcntl
+import struct
 import time
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator
+from typing import Any, Iterator
 
 import chromadb
 from chromadb.config import Settings
@@ -28,6 +30,41 @@ _COLLECTION = "memories"
 _BASELINE_CHUNK = 200
 # Version links and retirement only grow; every other field takes the newest value.
 _UNION_FIELDS = ("supersedes", "superseded_by")
+
+
+def pack_vector(vector: list[float]) -> str:
+    """A vector as base64 little-endian float16: what the replication log carries.
+
+    Decimal floats were three quarters of the log; float16 keeps cosine
+    similarity unchanged to four decimals at a fifth of the size.
+    """
+    return base64.b64encode(struct.pack(f"<{len(vector)}e", *vector)).decode("ascii")
+
+
+def unpack_vector(text: str) -> list[float]:
+    raw = base64.b64decode(text)
+    return list(struct.unpack(f"<{len(raw) // 2}e", raw))
+
+
+def _packed(kind: str, data: Any) -> Any:
+    """Log entry data as it travels: vectors packed."""
+    if kind == "nodes":
+        return [{**row, "embedding": pack_vector(row["embedding"])} for row in data]
+    if kind == "plan":
+        payload = data["payload"]
+        nodes = [{**n, "embedding": pack_vector(n["embedding"])} for n in payload["nodes"]]
+        return {**data, "payload": {**payload, "nodes": nodes}}
+    return data
+
+
+def _unpacked(kind: str, data: Any) -> Any:
+    if kind == "nodes":
+        return [{**row, "embedding": unpack_vector(row["embedding"])} for row in data]
+    if kind == "plan":
+        payload = data["payload"]
+        nodes = [{**n, "embedding": unpack_vector(n["embedding"])} for n in payload["nodes"]]
+        return {**data, "payload": {**payload, "nodes": nodes}}
+    return data
 
 
 def _union(current: str, incoming: str) -> str:
@@ -284,16 +321,271 @@ class ChromaVectorStore(VectorStore):
 
         A pull asks for entries after these heads, so an entry missing from the
         middle (a file a cloud folder has not downloaded yet) is asked for again.
+        After a compaction the log starts at ``log_base``: everything before it
+        lives in the snapshot, so a head never goes below its base.
         """
         with self._guard():
             rows = self._journal.execute(
                 "SELECT origin, seq FROM log ORDER BY origin, seq"
             ).fetchall()
-        heads: dict[str, int] = {}
+        base = self.log_base()
+        heads: dict[str, int] = dict(base)
+        for origin, seq in rows:
+            if seq <= base.get(origin, 0):
+                continue
+            if seq == heads.get(origin, 0) + 1:
+                heads[origin] = seq
+        return heads
+
+    def log_base(self) -> dict[str, int]:
+        """Per origin, the last sequence folded into the published snapshot."""
+        with self._guard():
+            row = self._journal.execute(
+                "SELECT value FROM meta WHERE key='log_base'"
+            ).fetchone()
+        return json.loads(row[0]) if row else {}
+
+    def snapshot_epoch(self) -> int:
+        """The highest snapshot this store has adopted (0 before any compaction)."""
+        with self._guard():
+            row = self._journal.execute(
+                "SELECT value FROM meta WHERE key='snapshot_epoch'"
+            ).fetchone()
+        return int(row[0]) if row else 0
+
+    def applied_heads(self) -> dict[str, int]:
+        """Per origin, the last sequence such that every entry up to it is applied.
+
+        This is what a snapshot of this store covers: a received entry still
+        waiting for a node is not in the state yet.
+        """
+        with self._guard():
+            base = self.log_base()
+            rows = self._journal.execute(
+                "SELECT origin, seq FROM log WHERE applied=1 ORDER BY origin, seq"
+            ).fetchall()
+        heads: dict[str, int] = dict(base)
         for origin, seq in rows:
             if seq == heads.get(origin, 0) + 1:
                 heads[origin] = seq
         return heads
+
+    def _all_rows(self) -> list[dict]:
+        """Every node row, vectors included; page by page, so nothing is truncated."""
+        rows: list[dict] = []
+        offset = 0
+        while True:
+            page = self.collection.get(
+                limit=1000, offset=offset,
+                include=["metadatas", "documents", "embeddings"],
+            )
+            rows.extend(
+                {
+                    "id": nid,
+                    "content": doc,
+                    "embedding": [float(v) for v in emb],
+                    "meta": meta,
+                }
+                for nid, doc, emb, meta in zip(
+                    page["ids"], page["documents"], page["embeddings"], page["metadatas"]
+                )
+            )
+            offset += len(page["ids"])
+            if len(page["ids"]) < 1000:
+                return rows
+
+    def snapshot_state(self, epoch: int) -> dict:
+        """This store's whole state, standing in for every log entry it has applied.
+
+        It replaces the log prefix up to ``base`` (``applied_heads``) on the sync
+        target. Tombstones travel with it, so a node deleted before the snapshot
+        never comes back through an older entry; evidence edges travel with it,
+        so a device built from it projects the same graph.
+        """
+        with self._guard():
+            base = self.applied_heads()
+            rows = self._all_rows()
+            tombstones = sorted(
+                r[0] for r in self._journal.execute("SELECT node_id FROM tombstones")
+            )
+            present = {row["id"] for row in rows}
+            edges = sorted(
+                {
+                    (a, b)
+                    for (payload,) in self._journal.execute("SELECT payload FROM plans")
+                    for a, b in json.loads(payload).get("edges", [])
+                    if a in present and b in present
+                }
+            )
+        return {
+            "epoch": epoch,
+            "base": base,
+            "nodes": _packed("nodes", rows),
+            "tombstones": tombstones,
+            "edges": [list(edge) for edge in edges],
+        }
+
+    def mark_snapshot(self, epoch: int, base: dict[str, int]) -> None:
+        """Record that the sync target's log now starts after ``base``."""
+        with self._guard(), self._journal:
+            self._set_meta("log_base", json.dumps(base))
+            self._set_meta("snapshot_epoch", str(epoch))
+
+    def adopt_snapshot(self, state: dict) -> list[tuple[str, str, str]]:
+        """Bring this store to the snapshot's state; the scopes that changed.
+
+        The snapshot carries what entries up to its ``base`` did. A node this
+        store holds that the snapshot lacks was deleted before it, unless an
+        applied log entry past the base created it: this device's own writes
+        not covered yet, and entries received from beyond the snapshot. A node
+        such an entry also changed keeps its local field values: they are newer
+        than the snapshot's, and the entry that made them still travels.
+        Retirement and version links merge the way replication merges them, so
+        a store that already has everything ends up unchanged.
+        """
+        base = {name: int(seq) for name, seq in state["base"].items()}
+        rows = _unpacked("nodes", state["nodes"])
+        scopes: set[tuple[str, str, str]] = set()
+        with self._guard():
+            created, changed = self._ids_beyond(base)
+            keep = {row["id"] for row in rows} | created
+            gone = sorted(
+                (set(self._all_ids()) - keep) | (set(state["tombstones"]) - created)
+            )
+            old = self.get_by_ids(gone)
+            if old:
+                self.collection.delete(ids=list(old))
+            scopes.update((n.app_id, n.user_id, n.agent_id) for n in old.values())
+            with self._journal:
+                self._journal.executemany(
+                    "INSERT OR IGNORE INTO tombstones(node_id) VALUES (?)",
+                    [(nid,) for nid in gone],
+                )
+            touched = [row["id"] for row in rows if row["id"] in changed]
+            local = (
+                self.collection.get(ids=touched, include=["metadatas"])
+                if touched
+                else {"ids": [], "metadatas": []}
+            )
+            newer = dict(zip(local["ids"], local["metadatas"]))
+            self._merge_nodes([row for row in rows if row["id"] not in newer])
+            self._keep_newer(
+                {row["id"]: row["meta"] for row in rows if row["id"] in newer}, newer
+            )
+            scopes.update(
+                (r["meta"]["app_id"], r["meta"]["user_id"], r["meta"]["agent_id"])
+                for r in rows
+                if r["meta"]["layer"] != Layer.L0_RAW.value
+            )
+            for scope in scopes:
+                self._bump_epoch(scope)
+            schemas = [
+                row["id"] for row in rows if row["meta"]["layer"] == Layer.L3_DERIVED.value
+            ]
+            present = set(self.collection.get(ids=schemas, include=[])["ids"]) if schemas else set()
+            with self._journal:
+                # A received entry the snapshot covers would wait forever for the
+                # entries before it, which the sync target no longer has.
+                for name, seq in base.items():
+                    if name != self.origin:
+                        self._journal.execute(
+                            "DELETE FROM log WHERE origin=? AND seq<=? AND applied=0",
+                            (name, seq),
+                        )
+                self._record_projection(
+                    rows, state["edges"], present, int(state["epoch"])
+                )
+                self._set_meta("log_base", json.dumps(base))
+                self._set_meta("snapshot_epoch", str(int(state["epoch"])))
+            scopes.update(self._apply_received_scopes())
+        return sorted(scopes)
+
+    def _keep_newer(self, snapshot: dict[str, dict], local: dict[str, dict]) -> None:
+        """Merge the snapshot's metadata under local values a later entry made."""
+        ids: list[str] = []
+        metas: list[dict] = []
+        for nid, theirs in snapshot.items():
+            ours = local[nid]
+            merged = merge_metadata(theirs, ours)
+            same = {k: v for k, v in merged.items() if k != "revision"} == {
+                k: v for k, v in ours.items() if k != "revision"
+            }
+            merged["revision"] = int(ours["revision"]) + (0 if same else 1)
+            if not same:
+                ids.append(nid)
+                metas.append(merged)
+        if ids:
+            self.collection.update(ids=ids, metadatas=metas)
+
+    def _apply_received_scopes(self) -> set[tuple[str, str, str]]:
+        scopes: set[tuple[str, str, str]] = set()
+        self._apply_received(scopes)
+        return scopes
+
+    def _record_projection(
+        self, rows: list[dict], edges: list, present: set[str], epoch: int
+    ) -> None:
+        """Queue the snapshot's schemas and evidence edges for graph projection,
+        one committed plan per scope, the way a received plan is queued."""
+        by_scope: dict[str, dict] = {}
+        meta_of = {row["id"]: row["meta"] for row in rows if row["id"] in present}
+        for nid, meta in meta_of.items():
+            scope = json.dumps([meta["app_id"], meta["user_id"], meta["agent_id"]])
+            by_scope.setdefault(scope, {"nodes": [], "patches": {}, "edges": []})
+            by_scope[scope]["nodes"].append({"id": nid, "meta": {"layer": meta["layer"]}})
+        for schema_id, fact_id in edges:
+            meta = meta_of.get(schema_id)
+            if meta is None:
+                continue
+            scope = json.dumps([meta["app_id"], meta["user_id"], meta["agent_id"]])
+            by_scope.setdefault(scope, {"nodes": [], "patches": {}, "edges": []})
+            by_scope[scope]["edges"].append([schema_id, fact_id])
+        for scope, payload in by_scope.items():
+            plan_id = f"snapshot:{epoch}:{scope}"
+            self._journal.execute(
+                "INSERT OR IGNORE INTO plans(id,scope,epoch,payload,done) VALUES (?,?,?,?,1)",
+                (plan_id, scope, 0, json.dumps(payload)),
+            )
+            self._journal.execute(
+                "INSERT OR IGNORE INTO projections(plan_id) VALUES (?)", (plan_id,)
+            )
+
+    def _all_ids(self) -> list[str]:
+        ids: list[str] = []
+        while True:
+            page = self.collection.get(limit=1000, offset=len(ids), include=[])["ids"]
+            if not page:
+                return ids
+            ids.extend(page)
+
+    def _ids_beyond(self, base: dict[str, int]) -> tuple[set[str], set[str]]:
+        """Node ids applied log entries past ``base`` created, and ones they changed."""
+        created: set[str] = set()
+        changed: set[str] = set()
+        for name, seq, kind, body in self._journal.execute(
+            "SELECT origin, seq, kind, body FROM log WHERE applied=1"
+        ).fetchall():
+            if seq <= base.get(name, 0):
+                continue
+            if kind == "nodes":
+                created.update(json.loads(body))
+            elif kind == "patch":
+                changed.update(json.loads(body))
+            elif kind == "plan":
+                (payload,) = self._journal.execute(
+                    "SELECT payload FROM plans WHERE id=?", (json.loads(body),)
+                ).fetchone()
+                plan = json.loads(payload)
+                created.update(n["id"] for n in plan["nodes"])
+                changed.update(plan["patches"])
+        return created, changed | created
+
+    def _set_meta(self, key: str, value: str) -> None:
+        self._journal.execute(
+            "INSERT INTO meta(key,value) VALUES (?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (key, value),
+        )
 
     def _node_rows(self, ids: list[str]) -> list[dict]:
         if not ids:
@@ -348,7 +640,9 @@ class ChromaVectorStore(VectorStore):
                             "origin": name,
                             "seq": seq,
                             "kind": kind,
-                            "data": self._entry_data(kind, json.loads(body), applied),
+                            "data": _packed(
+                                kind, self._entry_data(kind, json.loads(body), applied)
+                            ),
                         }
                     )
                 if len(out) >= limit:
@@ -398,7 +692,9 @@ class ChromaVectorStore(VectorStore):
                             entry["origin"],
                             entry["seq"],
                             entry["kind"],
-                            json.dumps(entry["data"], ensure_ascii=False),
+                            json.dumps(
+                                _unpacked(entry["kind"], entry["data"]), ensure_ascii=False
+                            ),
                         ),
                     )
                 received += cursor.rowcount
@@ -418,15 +714,19 @@ class ChromaVectorStore(VectorStore):
         """Apply in order; ``scopes`` collects scopes whose facts or versions changed."""
         applied = 0
         progress = True
+        base = self.log_base()
         while progress:
             progress = False
             for (origin,) in self._journal.execute(
                 "SELECT DISTINCT origin FROM log WHERE applied=0"
             ).fetchall():
-                done = self._journal.execute(
-                    "SELECT COALESCE(MAX(seq), 0) FROM log WHERE origin=? AND applied=1",
-                    (origin,),
-                ).fetchone()[0]
+                done = max(
+                    base.get(origin, 0),
+                    self._journal.execute(
+                        "SELECT COALESCE(MAX(seq), 0) FROM log WHERE origin=? AND applied=1",
+                        (origin,),
+                    ).fetchone()[0],
+                )
                 for seq, kind, body in self._journal.execute(
                     "SELECT seq, kind, body FROM log WHERE origin=? AND applied=0 ORDER BY seq",
                     (origin,),
@@ -458,6 +758,24 @@ class ChromaVectorStore(VectorStore):
             ).fetchall()
         }
 
+    def _forget_tombstones(self, ids: list[str]) -> None:
+        self._journal.executemany(
+            "DELETE FROM tombstones WHERE node_id=?", [(nid,) for nid in ids]
+        )
+
+    def _revive(self, ids: list[str]) -> None:
+        """A local write reusing a deleted id ends that deletion, on every replica.
+
+        Ids are derived from content, so a retried write can reuse one. Replicas
+        get a ``revive`` entry ahead of the write: a tombstone alone cannot tell
+        that write from a stale copy, which must stay out. Call inside a journal
+        transaction.
+        """
+        dead = sorted(self._tombstoned(ids))
+        if dead:
+            self._forget_tombstones(dead)
+            self._append_log("revive", json.dumps(dead))
+
     def _missing(self, ids: list[str], arriving: set[str]) -> bool:
         wanted = [i for i in ids if i not in arriving]
         if not wanted:
@@ -479,6 +797,10 @@ class ChromaVectorStore(VectorStore):
             if self._missing(list(data), set()):
                 return None
             self._merge_patches(data)
+            return data
+        if kind == "revive":
+            with self._journal:
+                self._forget_tombstones(data)
             return data
         if kind == "delete":
             with self._journal:
@@ -655,6 +977,7 @@ class ChromaVectorStore(VectorStore):
                 metadatas=[n.to_metadata() for n in nodes],
             )
             with self._journal:
+                self._revive([n.node_id for n in nodes])
                 self._append_log("nodes", json.dumps([n.node_id for n in nodes]))
             for scope in {
                 (n.app_id, n.user_id, n.agent_id)
@@ -1165,6 +1488,7 @@ class ChromaVectorStore(VectorStore):
                     "INSERT INTO plans(id,scope,epoch,payload) VALUES (?,?,?,?)",
                     (plan_id, scope_key, epoch, json.dumps(payload)),
                 )
+                self._revive([n.node_id for n in nodes])
                 self._append_log("plan", json.dumps(plan_id))
                 if request_key:
                     self._journal.execute(
