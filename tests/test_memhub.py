@@ -488,6 +488,13 @@ def test_install_uninstall_hosts_use_local_proxy(tmp_path: Path, monkeypatch) ->
         "open-island",
         "dual-mem-hub",
     ]
+    # Recall runs on each prompt; the pre-existing consumer is not drawn into it.
+    recall = hooks.consumers_for("prompt.submit")
+    assert [item.name for item in recall] == ["dual-mem-hub-recall"]
+    assert recall[0].command[-4:-2] == ["hub", "hook-search"]
+    assert "dual-mem-hub-recall" not in [
+        item.name for item in hooks.consumers_for("run.completed")
+    ]
     for host in HOSTS:
         uninstall_host(host, home=home)
     assert not any(
@@ -535,6 +542,7 @@ def test_agentica_yaml_install_keeps_comments_and_uninstall_restores_bytes(
     assert [c["name"] for c in yaml.safe_load(installed)["settings"]["hooks"]["consumers"]] == [
         "open-island",
         "dual-mem-hub",
+        "dual-mem-hub-recall",
     ]
 
     uninstall_host("agentica", home=home)
@@ -592,6 +600,25 @@ def test_cli_capture_hook_and_status(tmp_path: Path, monkeypatch) -> None:
     assert hook.exit_code == 0
     context = json.loads(hook.output)["hookSpecificOutput"]["additionalContext"]
     assert context.startswith("<relevant-memories>") and "PyTorch" in context
+    # agentica's prompt.submit: full message in ``query``, reply in its protocol.
+    agentica = runner.invoke(
+        cli_main.app,
+        ["hub", "hook-search", "--hub-dir", str(hub)],
+        input=json.dumps(
+            {
+                "hook_event_name": "prompt.submit",
+                "request_id": "r-1",
+                "prompt": "我的框架偏好",
+                "query": "我的框架偏好",
+            },
+            ensure_ascii=False,
+        ),
+    )
+    assert agentica.exit_code == 0
+    reply = json.loads(agentica.output)
+    assert reply["request_id"] == "r-1"
+    assert reply["additional_context"].startswith("<relevant-memories>")
+    assert "PyTorch" in reply["additional_context"]
     status = runner.invoke(
         cli_main.app,
         ["hub", "status", "--hub-dir", str(hub)],

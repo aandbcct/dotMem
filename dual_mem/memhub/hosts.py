@@ -47,8 +47,14 @@ AGENTICA_EVENTS = (
     "needs.approval",
     "needs.input",
     "needs.resolved",
+    "prompt.submit",
 )
 AGENTICA_CAPTURE_EVENTS = ("run.completed", "session.ended")
+# Each turn's message, answered with recalled memories; runs beside agentica's
+# own memory recall, which it never replaces.
+AGENTICA_RECALL_CONSUMER = "dual-mem-hub-recall"
+AGENTICA_RECALL_EVENTS = ("prompt.submit",)
+AGENTICA_CONSUMERS = (AGENTICA_CONSUMER, AGENTICA_RECALL_CONSUMER)
 
 
 @dataclass(frozen=True)
@@ -192,22 +198,30 @@ class TomlMcp:
 
 
 class AgenticaHooks:
-    """``settings.hooks.consumers`` in ~/.agentica/config.yaml (fire-and-forget notices)."""
+    """``settings.hooks.consumers`` in ~/.agentica/config.yaml: capture on run end,
+    recall on ``prompt.submit``.
+
+    Every event is listed: agentica turns an unlisted one on.
+    """
 
     def install(self, path: Path, launch: Launch) -> None:
         data = _load_yaml(path)
         hooks = data.setdefault("settings", {}).setdefault("hooks", {})
         hooks["enabled"] = True
         consumers = [
-            c for c in hooks.get("consumers") or [] if c.get("name") != AGENTICA_CONSUMER
+            c for c in hooks.get("consumers") or [] if c.get("name") not in AGENTICA_CONSUMERS
         ]
-        consumers.append(
-            {
-                "name": AGENTICA_CONSUMER,
-                "command": launch.capture(),
-                "events": {e: e in AGENTICA_CAPTURE_EVENTS for e in AGENTICA_EVENTS},
-            }
-        )
+        for name, command, events in (
+            (AGENTICA_CONSUMER, launch.capture(), AGENTICA_CAPTURE_EVENTS),
+            (AGENTICA_RECALL_CONSUMER, launch.recall_hook(), AGENTICA_RECALL_EVENTS),
+        ):
+            consumers.append(
+                {
+                    "name": name,
+                    "command": command,
+                    "events": {e: e in events for e in AGENTICA_EVENTS},
+                }
+            )
         hooks["consumers"] = consumers
         _dump_yaml(path, data)
 
@@ -215,7 +229,7 @@ class AgenticaHooks:
         data = _load_yaml(path)
         hooks = (data.get("settings") or {}).get("hooks") or {}
         consumers = hooks.get("consumers") or []
-        kept = [c for c in consumers if c.get("name") != AGENTICA_CONSUMER]
+        kept = [c for c in consumers if c.get("name") not in AGENTICA_CONSUMERS]
         if len(kept) == len(consumers):
             return False
         hooks["consumers"] = kept
@@ -224,7 +238,8 @@ class AgenticaHooks:
 
     def installed(self, path: Path) -> bool:
         hooks = (_load_yaml(path).get("settings") or {}).get("hooks") or {}
-        return any(c.get("name") == AGENTICA_CONSUMER for c in hooks.get("consumers") or [])
+        names = {c.get("name") for c in hooks.get("consumers") or []}
+        return set(AGENTICA_CONSUMERS) <= names
 
 
 class ClaudeStyleHooks:

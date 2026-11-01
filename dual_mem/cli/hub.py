@@ -452,9 +452,12 @@ def hub_hook_search(
     limit: int = typer.Option(8, "--limit"),
     hub_dir: str | None = HubDir,
 ) -> None:
-    """UserPromptSubmit：从 Core 召回并注入 additionalContext。"""
+    """每轮召回注入：Claude Code / Codex 的 UserPromptSubmit，agentica 的 prompt.submit。"""
     with _hook_errors_logged(hub_dir, "hook-search"):
-        prompt = json.loads(sys.stdin.read() or "{}").get("prompt", "").strip()
+        payload = json.loads(sys.stdin.read() or "{}")
+        agentica = payload.get("hook_event_name") == "prompt.submit"
+        # agentica clips ``prompt`` for display; the full message is ``query``.
+        prompt = (payload.get("query") if agentica else payload.get("prompt", "")).strip()
         if not prompt:
             return
 
@@ -473,6 +476,10 @@ def hub_hook_search(
         if context:
             # Tagged so strip_memory_injection drops it if a host echoes it back.
             context = f"<relevant-memories>\n{context}\n</relevant-memories>"
+            if agentica:
+                reply = {"request_id": payload["request_id"], "additional_context": context}
+                typer.echo(json.dumps(reply, ensure_ascii=False))
+                return
             typer.echo(
                 json.dumps(
                     {
