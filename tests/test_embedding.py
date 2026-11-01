@@ -5,7 +5,7 @@ import respx
 import pytest
 from openai import APIStatusError
 
-from dual_mem.config import CHARS_PER_TOKEN, EMBED_MAX_TOKENS
+from dual_mem.config import EMBED_CHARS_PER_TOKEN, EMBED_MAX_TOKENS
 from dual_mem.providers.embedding import EmbedService
 from dual_mem.providers.usage import UsageEvent
 
@@ -105,7 +105,7 @@ async def test_embed_batch_usage_callback():
 
 @respx.mock
 async def test_embed_batch_long_text_head_truncated():
-    max_chars = int(EMBED_MAX_TOKENS * CHARS_PER_TOKEN)
+    max_chars = int(EMBED_MAX_TOKENS * EMBED_CHARS_PER_TOKEN)
     long_text = "x" * (max_chars + 2000)
     captured: dict = {}
 
@@ -124,7 +124,7 @@ async def test_embed_batch_long_text_head_truncated():
         model="embed-test",
         dim=4,
         input_max_tokens=EMBED_MAX_TOKENS,
-        chars_per_token=CHARS_PER_TOKEN,
+        chars_per_token=EMBED_CHARS_PER_TOKEN,
     )
     vecs = await svc.embed_batch([long_text, "hi"])
     # Head-truncated, NOT chunked: exactly one input per text, no extra chunk rows.
@@ -146,6 +146,15 @@ def test_embed_max_tokens_derived_char_budget():
     )
     assert svc.input_max_chars == 20480
     assert svc.input_max_tokens == 8192
+
+
+def test_default_embed_budget_fits_dense_text_under_the_token_limit():
+    """Dense CJK/code runs near 1.2 chars/token; the default char cap must
+    keep such text under ``embed_max_tokens`` (the provider rejects, not cuts)."""
+    from dual_mem.config import Settings
+
+    s = Settings()
+    assert s.embed_input_max_chars / 1.21 <= s.embed_max_tokens
 
 
 @respx.mock

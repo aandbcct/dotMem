@@ -47,13 +47,13 @@ AGENTICA_EVENTS = (
     "needs.approval",
     "needs.input",
     "needs.resolved",
-    "prompt.submit",
+    "UserPromptSubmit",
 )
 AGENTICA_CAPTURE_EVENTS = ("run.completed", "session.ended")
 # Each turn's message, answered with recalled memories; runs beside agentica's
 # own memory recall, which it never replaces.
 AGENTICA_RECALL_CONSUMER = "dual-mem-hub-recall"
-AGENTICA_RECALL_EVENTS = ("prompt.submit",)
+AGENTICA_RECALL_EVENTS = ("UserPromptSubmit",)
 AGENTICA_CONSUMERS = (AGENTICA_CONSUMER, AGENTICA_RECALL_CONSUMER)
 
 
@@ -199,7 +199,7 @@ class TomlMcp:
 
 class AgenticaHooks:
     """``settings.hooks.consumers`` in ~/.agentica/config.yaml: capture on run end,
-    recall on ``prompt.submit``.
+    recall on ``UserPromptSubmit``.
 
     Every event is listed: agentica turns an unlisted one on.
     """

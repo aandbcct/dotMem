@@ -14,7 +14,7 @@ from dataclasses import asdict, dataclass, field, replace
 
 from dual_mem.coding.extractor import CodingMemoryExtractor
 from dual_mem.coding.judge import classify_messages_is_coding
-from dual_mem.coding.preproc import clip_tool_results
+from dual_mem.coding.preproc import coding_dialogue, extract_files, fit_dialogue
 from dual_mem.coding.reconciler import CodingMemoryReconciler
 from dual_mem.coding.types import (
     PROCEDURE_KIND,
@@ -82,7 +82,8 @@ class ProcedureWriter:
         self.reconciler = CodingMemoryReconciler(
             jev=factory.jev, candidate_limit=min(settings.reconcile_candidate_limit, 253)
         )
-        self.tool_result_max_chars = settings.procedure_tool_result_max_chars
+        self.source_max_chars = settings.procedure_source_max_chars
+        self.decision_max_state_chars = settings.jev_max_question_chars
 
     @staticmethod
     def request_key(raw: MemoryNode, request_id: str) -> str:
@@ -143,12 +144,18 @@ class ProcedureWriter:
                 decisions=[MemoryDecision(**d) for d in done["decisions"]],
                 committed=done["commit_passed"],
             )
-        source = clip_tool_results(messages, self.tool_result_max_chars)
+        # Only the dialogue is judged material: tool calls and their output are
+        # how the answer was reached, not what a later session needs. Fitting
+        # the budget here is what keeps long coding sessions inside the Jev
+        # state limit instead of being rejected.
+        dialogue = coding_dialogue(messages)
+        source = fit_dialogue(dialogue, self.source_max_chars)
         if not await classify_messages_is_coding(source, self.factory.jev):
             # Not coding is re-decided on retry; nothing is recorded.
             return ProcedureOutcome(coding=False)
         drafts = await self.extractor.extract(
             source,
+            files=extract_files(messages),
             workspace_id=workspace_id,
             branch=branch,
             session_id=raw.session_id,
@@ -159,7 +166,11 @@ class ProcedureWriter:
         async with self.factory.commit_locks.get("decision::" + "::".join(scope)):
             heads, histories = await asyncio.to_thread(self.snapshot, scope)
             ops = await self.reconciler.reconcile(
-                drafts, heads, source_messages=source, history_versions=histories
+                drafts,
+                heads,
+                source_messages=source,
+                history_versions=histories,
+                max_state_chars=self.decision_max_state_chars,
             )
             return await self._commit(
                 _settle(ops), drafts, heads, raw, scope, request_key

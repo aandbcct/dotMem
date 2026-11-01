@@ -16,10 +16,11 @@ blocks, harness markup tags); they never guess meaning from wording:
 
 A turn is the user's message plus the assistant's *last* text before the next
 user message — the answer, not the tool-call narration in between. Where a host
-records tool calls structurally (Claude Code ``tool_use`` / ``tool_result`` blocks,
-Codex ``function_call`` / ``function_call_output`` items) they are kept as the
-turn's steps, so the Core can store procedure memories from them; the working
-directory and git branch the host records become their version boundary.
+records tool calls structurally (Claude Code ``tool_use`` blocks, Codex
+``function_call`` items) they are kept as the turn's steps so the Core knows the
+files a session touched; tool *output* is never kept — it is how an answer was
+reached, not what a later session needs. The working directory and git branch
+the host records become the procedure's version boundary.
 """
 from __future__ import annotations
 
@@ -35,7 +36,6 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from dual_mem.client import strip_memory_injection
-from dual_mem.coding.preproc import clip_text
 from dual_mem.memhub.config import CursorStore
 
 SOURCES = ("agentica", "claude-code", "codex", "cursor", "hermes")
@@ -52,8 +52,6 @@ _CLAUDE_MARKUP = (
     "local-command-caveat",
 )
 _CURSOR_QUERY_RE = re.compile(r"<user_query>\s*(.*?)\s*</user_query>", re.DOTALL)
-# Tool output kept per step (head + tail); the transcript itself stays the source.
-TOOL_RESULT_MAX_CHARS = 4000
 
 
 class HubWriter(Protocol):
@@ -152,16 +150,6 @@ def _tool_call(call_id: str, name: str, arguments: Any) -> dict:
     }
 
 
-def _tool_result(call_id: str, output: Any) -> dict:
-    text = output if isinstance(output, str) else _blocks_text(output)
-    if not text and output:
-        text = json.dumps(output, ensure_ascii=False)
-    return {
-        "role": "tool",
-        "tool_call_id": call_id,
-        "content": clip_text(text, TOOL_RESULT_MAX_CHARS),
-    }
-
 
 def _parse_agentica(record: dict, state: dict) -> tuple[str, str, str, int | None] | None:
     kind = record.get("type")
@@ -174,10 +162,8 @@ def _parse_agentica(record: dict, state: dict) -> tuple[str, str, str, int | Non
     session_id = record.get("session_id") or state["session_id"]
     at = _iso_seconds(record.get("timestamp"))
     if kind == "tool":
-        state["steps"].append(
-            _tool_result(str(record.get("tool_call_id") or ""), record.get("content"))
-        )
-        return "assistant", "", session_id, at
+        # Tool output is how the answer was reached, never memory material.
+        return None
     for call in record.get("tool_calls") or []:
         function = call.get("function") or {}
         state["steps"].append(
@@ -201,10 +187,6 @@ def _parse_claude(record: dict, state: dict) -> tuple[str, str, str, int | None]
         if block.get("type") == "tool_use":
             state["steps"].append(
                 _tool_call(str(block.get("id") or ""), str(block.get("name") or ""), block.get("input") or {})
-            )
-        elif block.get("type") == "tool_result":
-            state["steps"].append(
-                _tool_result(str(block.get("tool_use_id") or ""), block.get("content"))
             )
     if record.get("cwd"):
         state["workspace"] = record["cwd"]
@@ -237,10 +219,6 @@ def _parse_codex(record: dict, state: dict) -> tuple[str, str, str, int | None] 
                 str(payload.get("name") or ""),
                 payload.get("arguments", payload.get("input")),
             ))
-        elif kind in ("function_call_output", "custom_tool_call_output"):
-            state["steps"].append(
-                _tool_result(str(payload.get("call_id") or ""), payload.get("output"))
-            )
         else:
             return None
         return "assistant", "", state["session_id"], _iso_seconds(record.get("timestamp"))

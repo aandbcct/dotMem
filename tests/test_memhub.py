@@ -489,7 +489,7 @@ def test_install_uninstall_hosts_use_local_proxy(tmp_path: Path, monkeypatch) ->
         "dual-mem-hub",
     ]
     # Recall runs on each prompt; the pre-existing consumer is not drawn into it.
-    recall = hooks.consumers_for("prompt.submit")
+    recall = hooks.consumers_for("UserPromptSubmit")
     assert [item.name for item in recall] == ["dual-mem-hub-recall"]
     assert recall[0].command[-4:-2] == ["hub", "hook-search"]
     assert "dual-mem-hub-recall" not in [
@@ -600,25 +600,25 @@ def test_cli_capture_hook_and_status(tmp_path: Path, monkeypatch) -> None:
     assert hook.exit_code == 0
     context = json.loads(hook.output)["hookSpecificOutput"]["additionalContext"]
     assert context.startswith("<relevant-memories>") and "PyTorch" in context
-    # agentica's prompt.submit: full message in ``query``, reply in its protocol.
+    # agentica speaks the same UserPromptSubmit wire as Claude Code / Codex, so
+    # the very same command and reply shape serve it — no per-host branch.
     agentica = runner.invoke(
         cli_main.app,
         ["hub", "hook-search", "--hub-dir", str(hub)],
         input=json.dumps(
             {
-                "hook_event_name": "prompt.submit",
-                "request_id": "r-1",
+                "hook_event_name": "UserPromptSubmit",
+                "session_id": "s-1",
                 "prompt": "我的框架偏好",
-                "query": "我的框架偏好",
             },
             ensure_ascii=False,
         ),
     )
     assert agentica.exit_code == 0
     reply = json.loads(agentica.output)
-    assert reply["request_id"] == "r-1"
-    assert reply["additional_context"].startswith("<relevant-memories>")
-    assert "PyTorch" in reply["additional_context"]
+    assert reply == json.loads(hook.output)
+    assert reply["hookSpecificOutput"]["hookEventName"] == "UserPromptSubmit"
+    assert "PyTorch" in reply["hookSpecificOutput"]["additionalContext"]
     status = runner.invoke(
         cli_main.app,
         ["hub", "status", "--hub-dir", str(hub)],
@@ -976,7 +976,7 @@ async def test_unreachable_core_leaves_cursor_in_place(tmp_path: Path) -> None:
 # --- coding scene: tool steps, version boundary, idle digest ---------------------
 
 
-def test_claude_and_codex_tool_steps_become_turn_steps(tmp_path: Path) -> None:
+def test_tool_calls_become_turn_steps_and_tool_output_is_dropped(tmp_path: Path) -> None:
     roots = default_source_roots(tmp_path)
     agentica = roots["agentica"] / "default" / "proj" / "ag-tools.jsonl"
     # Shape of a real agentica session log: tool_calls on the assistant record,
@@ -1009,11 +1009,11 @@ def test_claude_and_codex_tool_steps_become_turn_steps(tmp_path: Path) -> None:
     assert (turn.user, turn.assistant) == ("slugify does nothing", "fixed slugify")
     assert (turn.workspace, turn.branch) == ("/proj", "fix/slug")
     msgs = turn.messages()
-    assert [m["role"] for m in msgs] == ["user", "assistant", "assistant", "tool", "tool", "assistant"]
+    # Tool calls are kept (the files they touch); tool output never is.
+    assert [m["role"] for m in msgs] == ["user", "assistant", "assistant", "assistant"]
     assert [m["tool_calls"][0]["function"]["name"] for m in msgs[1:3]] == ["read_file", "glob"]
     assert json.loads(msgs[1]["tool_calls"][0]["function"]["arguments"]) == {"file_path": "t.py"}
-    assert msgs[3] == {"role": "tool", "tool_call_id": "a1", "content": "def slugify(s): return s"}
-    assert msgs[4] == {"role": "tool", "tool_call_id": "a2", "content": "[]"}
+    assert "def slugify" not in json.dumps(msgs)
 
     claude = roots["claude-code"] / "proj" / "cc-tools.jsonl"
     _jsonl(
@@ -1043,11 +1043,11 @@ def test_claude_and_codex_tool_steps_become_turn_steps(tmp_path: Path) -> None:
     assert (turn.user, turn.assistant) == ("fix the flaky test", "fixed the race")
     assert (turn.workspace, turn.branch) == ("/repo", "fix")
     msgs = turn.messages()
-    assert [m["role"] for m in msgs] == ["user", "assistant", "tool", "assistant"]
+    assert [m["role"] for m in msgs] == ["user", "assistant", "assistant"]
     call = msgs[1]["tool_calls"][0]
     assert call["function"]["name"] == "Bash"
     assert json.loads(call["function"]["arguments"]) == {"command": "pytest -q tests/test_x.py"}
-    assert msgs[2] == {"role": "tool", "tool_call_id": "t1", "content": "1 failed: race in setup"}
+    assert "race in setup" not in json.dumps(msgs)
     assert open_turn is not None and open_turn.user == "thanks"
 
     codex = roots["codex"] / "2026" / "10" / "04" / "rollout-tools.jsonl"
@@ -1074,9 +1074,8 @@ def test_claude_and_codex_tool_steps_become_turn_steps(tmp_path: Path) -> None:
     (turn,), _ = build_turns(messages)
     assert (turn.session_id, turn.workspace, turn.branch) == ("cx", "/svc", "dev")
     roles = [m["role"] for m in turn.messages()]
-    assert roles == ["user", "assistant", "tool", "assistant"]
-    output = turn.messages()[2]["content"]
-    assert len(output) < 9000 and output.startswith("x") and output.endswith("x")
+    assert roles == ["user", "assistant", "assistant"]
+    assert "xxxx" not in json.dumps(turn.messages())
 
 
 async def test_scan_forwards_tool_steps_and_boundary(tmp_path: Path) -> None:
@@ -1106,7 +1105,7 @@ async def test_scan_forwards_tool_steps_and_boundary(tmp_path: Path) -> None:
                     cursors=CursorStore(tmp_path / "cursors.db"))
     (call,) = sent
     assert (call["workspace_id"], call["branch"]) == ("/w", "b")
-    assert [m["role"] for m in call["messages"]] == ["user", "assistant", "tool", "assistant"]
+    assert [m["role"] for m in call["messages"]] == ["user", "assistant", "assistant"]
 
 
 def test_last_digest_due_follows_the_stamp(tmp_path: Path) -> None:

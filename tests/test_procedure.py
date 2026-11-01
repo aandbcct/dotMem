@@ -16,7 +16,7 @@ from conftest import FakeJev, FakeLLMClient
 
 from dual_mem import MemoryClient
 from dual_mem.coding.extractor import CodingMemoryExtractor
-from dual_mem.coding.preproc import render_transcript
+from dual_mem.coding.preproc import coding_dialogue, fit_dialogue
 from dual_mem.coding.reconciler import CodingMemoryReconciler
 from dual_mem.coding.types import (
     PROCEDURE_KIND,
@@ -116,11 +116,14 @@ async def test_tool_trajectory_yields_chat_and_procedure_memories_from_one_raw(
     chat_extract = [c for c in llm.calls if c not in procedure_calls(llm)]
     assert "BEGIN IMMEDIATE" not in json.dumps([c["user"] for c in chat_extract])
 
-    # L0_RAW keeps the trajectory, without the host's system turn.
+    # L0_RAW keeps the dialogue: the request and the answer, no tool output,
+    # no host system turn.
     raw = c.factory.vector.get(r.memory_id)
     assert raw.layer == Layer.L0_RAW
-    assert "BEGIN IMMEDIATE fixed the lock" in raw.content
-    assert "edit_file" in raw.content and "Host secret" not in raw.content
+    assert "Fix the SDK transaction" in raw.content
+    assert "the publish path now locks first" in raw.content
+    assert "BEGIN IMMEDIATE fixed the lock" not in raw.content
+    assert "edit_file" not in raw.content and "Host secret" not in raw.content
     assert original[0]["content"] == "Host secret instructions"  # caller data untouched
     assert len(procedure_calls(llm)) == 1 and len(scene_calls(jev)) == 1
     await c.aclose()
@@ -260,21 +263,14 @@ async def test_delete_archives_and_skip_keeps_the_head(
     await c.aclose()
 
 
-@pytest.mark.parametrize(
-    "action,passed,status", [("DELETE", True, "committed"), ("SKIP", False, "known")]
-)
-async def test_tool_only_write_reports_the_procedure_outcome(
-    tmp_storage, fake_embed, action, passed, status
-):
-    """Without user text the chat path keeps only the source; the status is the procedure's."""
+async def test_tool_steps_without_dialogue_store_nothing(tmp_storage, fake_embed):
+    """Tool calls alone carry no request and no answer: nothing to remember."""
     jev = FakeJev({"scene": "CODING"})
-    c = client(tmp_storage, fake_embed, jev)
-    tools_only = trajectory()[2:4]
-    head = (await c.add(messages=tools_only, user_id="u")).procedure_ids[0]
-    jev.responses = {"scene": "CODING", "0:target": head, "0:action": action}
-    r = await c.add(messages=tools_only, user_id="u")
-    assert (r.commit_passed, r.status) == (passed, status)
-    assert r.extracted_count == 0
+    llm = FakeLLMClient({"json": {"candidates": [CANDIDATE]}})
+    c = client(tmp_storage, fake_embed, jev, llm)
+    r = await c.add(messages=trajectory()[2:4], user_id="u")
+    assert r.memory_id == "" and r.status == "raw_only"
+    assert jev.calls == [] and llm.calls == []
     await c.aclose()
 
 
@@ -307,7 +303,7 @@ async def test_generation_failure_keeps_the_trajectory_and_retry_completes(
     with pytest.raises(RuntimeError, match="generator unavailable"):
         await c.add(messages=trajectory(), user_id="u", request_id="t1")
     raws = c.factory.vector.get_many({"layer": "L0_RAW"})
-    assert len(raws) == 1 and "BEGIN IMMEDIATE" in raws[0].content
+    assert len(raws) == 1 and "Fix the SDK transaction" in raws[0].content
     assert c.factory.vector.get_many({"kind": PROCEDURE_KIND}) == []
 
     state["fail"] = False
@@ -513,10 +509,65 @@ def test_candidate_limit_is_validated():
         CodingMemoryReconciler(jev=FakeJev(), candidate_limit=254)
 
 
-def test_transcript_renders_tool_calls_and_results():
-    text = render_transcript(trajectory()[1:])
-    assert "[user]:" in text and "[tool]:" in text
-    assert "edit_file" in text and "dual_mem/store.py" in text
+def test_dialogue_keeps_requests_and_final_answers_only():
+    msgs = trajectory()[1:] + [
+        {"role": "user", "content": "and the reader path?"},
+        {"role": "assistant", "content": "checking", "tool_calls": [
+            {"id": "c2", "type": "function",
+             "function": {"name": "grep", "arguments": "{}"}}]},
+        {"role": "tool", "tool_call_id": "c2", "content": "noise " * 1000},
+        {"role": "assistant", "content": "Readers use WAL snapshots."},
+    ]
+    assert coding_dialogue(msgs) == [
+        {"role": "user", "content": "I always use uv, never pip. Fix the SDK transaction"},
+        {"role": "assistant", "content": "Done: the publish path now locks first."},
+        {"role": "user", "content": "and the reader path?"},
+        {"role": "assistant", "content": "Readers use WAL snapshots."},
+    ]
+
+
+def test_fit_dialogue_keeps_every_message_and_user_text_first():
+    msgs = [
+        {"role": "user", "content": "short ask"},
+        {"role": "assistant", "content": "a" * 50_000},
+        {"role": "user", "content": "u" * 3_000},
+        {"role": "assistant", "content": "b" * 50_000},
+    ]
+    out = fit_dialogue(msgs, 10_000)
+    assert [m["role"] for m in out] == ["user", "assistant", "user", "assistant"]
+    assert sum(len(m["content"]) for m in out) <= 10_000
+    # User text fits its share untouched; the answers absorb the cut.
+    assert out[0]["content"] == "short ask" and out[2]["content"] == "u" * 3_000
+    assert out[1]["content"].startswith("a") and out[1]["content"].endswith("a")
+
+
+async def test_long_coding_session_is_decided_within_the_jev_budget(tmp_storage, fake_embed):
+    """A real agentica session is hundreds of tool steps; none may reach Jev."""
+    steps = []
+    for i in range(300):
+        steps += [
+            {"role": "assistant", "content": "", "tool_calls": [
+                {"id": f"c{i}", "type": "function",
+                 "function": {"name": "read_file", "arguments": json.dumps({"path": f"f{i}.py"})}}]},
+            {"role": "tool", "tool_call_id": f"c{i}", "content": "代码" * 2000},
+        ]
+    long = [
+        {"role": "user", "content": "修一下事务提交的锁问题"},
+        *steps,
+        {"role": "assistant", "content": "改成 BEGIN IMMEDIATE 了。" * 2000},
+    ]
+    jev = FakeJev({"scene": "CODING", "0:action": "ADD_SUPPLEMENT"})
+    c = client(tmp_storage, fake_embed, jev)
+    r = await c.add(messages=long, user_id="u", request_id="long")
+    assert r.scene == "coding" and len(r.procedure_ids) == 1
+    for call in jev.calls:
+        assert len(json.dumps(call["state"], ensure_ascii=False)) < 60_000
+        assert "代码代码" not in json.dumps(call["state"], ensure_ascii=False)
+    raw = c.factory.vector.get(r.memory_id)
+    assert "代码代码" not in raw.content and "修一下事务提交的锁问题" in raw.content
+    proc = c.factory.vector.get(r.procedure_ids[0])
+    assert proc.custom["procedure"]["files"][:2] == ["f0.py", "f1.py"]
+    await c.aclose()
 
 
 @respx.mock
@@ -544,7 +595,9 @@ async def test_extractor_uses_a_json_object_envelope():
         )
     )
     llm = LLMClient(base_url="https://api.test/v1", api_key="k", model="m")
-    drafts = await CodingMemoryExtractor(llm=llm).extract(trajectory()[1:], branch="b")
+    drafts = await CodingMemoryExtractor(llm=llm).extract(
+        coding_dialogue(trajectory()[1:]), files=["dual_mem/store.py"], branch="b"
+    )
     body = json.loads(route.calls.last.request.content)
     assert body["response_format"] == {"type": "json_object"}
     assert [(d.task, d.branch, d.files) for d in drafts] == [

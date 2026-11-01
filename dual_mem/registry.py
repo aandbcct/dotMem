@@ -73,7 +73,7 @@ class ComponentFactory:
                 queue_batch_size=self.settings.embed_queue_batch_size,
                 queue_batch_window_ms=self.settings.embed_queue_window_ms,
                 input_max_tokens=self.settings.embed_max_tokens,
-                chars_per_token=self.settings.chars_per_token,
+                chars_per_token=self.settings.embed_chars_per_token,
                 cache_size=self.settings.embed_cache_size,
             )
         return self._embed

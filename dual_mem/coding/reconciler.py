@@ -1,5 +1,6 @@
 """JEV owns source support, value, action and current target."""
 
+import json
 from typing import Any
 
 from dual_mem.coding.judge import evaluate_decisions
@@ -43,6 +44,12 @@ _WITHOUT_TARGET = (
     "NEED_CONTEXT",
 )
 _NEEDS_TARGET = set(_WITH_TARGET) - {"INVALID", "NEED_CONTEXT"}
+# Room the questions and the envelope take next to the state.
+_QUESTION_OVERHEAD = 4_000
+
+
+def _size(state: dict) -> int:
+    return len(json.dumps(state, ensure_ascii=False, default=str)) + _QUESTION_OVERHEAD
 
 
 def _action_question(draft_idx: int, *, has_target: bool) -> dict:
@@ -81,6 +88,14 @@ class CodingMemoryReconciler:
         self.jev = jev
         self.candidate_limit = candidate_limit
 
+    @staticmethod
+    def _fit(state: dict[str, Any], max_state_chars: int) -> dict[str, Any]:
+        """``state`` with the oldest current heads dropped until it fits the budget."""
+        current = list(state["current"])
+        while current and _size(dict(state, current=current)) > max_state_chars:
+            current.pop()
+        return dict(state, current=current)
+
     async def reconcile(
         self,
         drafts: list[CodingMemoryDraft],
@@ -88,6 +103,7 @@ class CodingMemoryReconciler:
         *,
         source_messages: list[dict],
         history_versions: dict[str, list[dict[str, Any]]] | None = None,
+        max_state_chars: int = 60_000,
     ) -> list[CodingReconcileOp]:
         if not source_messages:
             raise CodingDecisionError("coding reconciliation requires source evidence")
@@ -111,17 +127,24 @@ class CodingMemoryReconciler:
             # spending a model call on whether the extractor missed something.
             return []
         proposals = [dict(d.to_dict(), id=i) for i, d in enumerate(drafts)]
+        if _size({"source": source_messages, "drafts": proposals}) > max_state_chars:
+            raise CodingDecisionError(
+                "coding source and drafts exceed the Jev context budget"
+            )
+        # A head outside every draft's version boundary can never be a target,
+        # so it is not material for any question.
+        boundaries = {version_boundary(d) for d in drafts}
+        current = [m for m in current if version_boundary(by_id[m["memory_id"]]) in boundaries]
         if len(current) > self.candidate_limit:
             selected = []
             for start in range(0, len(current), self.candidate_limit):
                 page = current[start : start + self.candidate_limit]
                 answers = await evaluate_decisions(
                     self.jev,
-                    state={
-                        "source": source_messages,
-                        "drafts": proposals,
-                        "current": page,
-                    },
+                    state=self._fit(
+                        {"source": source_messages, "drafts": proposals, "current": page},
+                        max_state_chars,
+                    ),
                     questions={
                         m["memory_id"]: {
                             "type": "choice",
@@ -147,6 +170,12 @@ class CodingMemoryReconciler:
                 )
             current = selected
 
+        # Heads are newest first; the oldest are dropped until the state fits.
+        state = self._fit(
+            {"source": source_messages, "drafts": proposals, "current": current},
+            max_state_chars,
+        )
+        current = state["current"]
         # No coverage gate (as in the chat path): a rejected extraction would discard
         # every candidate of the write; extraction runs once and the source is kept.
         questions: dict[str, dict[str, Any]] = {}
@@ -181,11 +210,6 @@ class CodingMemoryReconciler:
                 }
             else:
                 questions[f"{i}:action"] = _action_question(i, has_target=False)
-        state = {
-            "source": source_messages,
-            "drafts": proposals,
-            "current": current,
-        }
         answers = await evaluate_decisions(self.jev, state=state, questions=questions)
         chosen: dict[int, str | None] = {}
         for i in range(len(drafts)):

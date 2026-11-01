@@ -2,6 +2,7 @@ import pytest
 
 from dual_mem.config import (
     CHARS_PER_TOKEN,
+    EMBED_CHARS_PER_TOKEN,
     EMBED_MAX_TOKENS,
     LLM_COMPLETION_RESERVE,
     LLM_CONTEXT_WINDOW,
@@ -21,7 +22,7 @@ def test_defaults():
     assert s.llm_input_max_chars == int(
         (LLM_CONTEXT_WINDOW - LLM_COMPLETION_RESERVE) * CHARS_PER_TOKEN
     )
-    assert s.embed_input_max_chars == int(EMBED_MAX_TOKENS * CHARS_PER_TOKEN)
+    assert s.embed_input_max_chars == int(EMBED_MAX_TOKENS * EMBED_CHARS_PER_TOKEN)
     assert s.auth_disabled is True
     assert s.default_app_id == "default"
     assert s.reconcile_concurrency == 4

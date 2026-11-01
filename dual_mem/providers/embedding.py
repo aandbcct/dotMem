@@ -14,7 +14,7 @@ from openai import AsyncOpenAI
 import httpx
 
 from dual_mem.config import (
-    CHARS_PER_TOKEN,
+    EMBED_CHARS_PER_TOKEN,
     EMBED_MAX_TOKENS,
 )
 from dual_mem.providers.usage import UsageCallback, UsageEvent
@@ -54,7 +54,7 @@ class EmbedService:
         queue_batch_window_ms: float = DEFAULT_BATCH_WINDOW_MS,
         cache_size: int = DEFAULT_CACHE_SIZE,
         input_max_tokens: int = EMBED_MAX_TOKENS,
-        chars_per_token: float = CHARS_PER_TOKEN,
+        chars_per_token: float = EMBED_CHARS_PER_TOKEN,
         usage_callback: UsageCallback | None = None,
     ) -> None:
         self.model = model

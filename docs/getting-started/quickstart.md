@@ -135,7 +135,9 @@ for m in res.memories.procedures:
 
 - **消息格式**：OpenAI 风格。`tool_calls` 支持嵌套 `function.name / function.arguments`
   （字符串或对象）和扁平 `name / arguments`；`files` 从 `path`、`file_path` 等路径参数结构化
-  提取。单条工具结果超过 `procedure_tool_result_max_chars`（默认 4000）时保留头尾。
+  提取。工具输出不进模型、不进 L0；procedure 抽取和 JEV 裁决只看对话正文。对话超过
+  `procedure_source_max_chars`（默认 30000）时，用户消息全文优先保留、assistant 回答截短，
+  仍超出则从最早的轮次开始丢弃，保证 JEV 请求不超出上下文预算。
 - **一条经验**（`MemoryItem.procedure`）：`task`（检索问题）、`solution`、`search_keys`、
   `boundary_envs`、`boundary_scope`（`strict` / `project` / `user` / `global`）、`files`、
   `workspace_id`、`branch`。`content` 是 task + solution 的可读文本；向量由 task 和

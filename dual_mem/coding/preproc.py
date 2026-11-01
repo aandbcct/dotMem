@@ -1,9 +1,16 @@
 # -*- coding: utf-8 -*-
-"""Tool-trajectory preprocessing — structural message routing, zero LLM.
+"""Coding-session preprocessing — structural message routing, zero LLM.
 
 Messages are OpenAI-style dicts: role/content, optional assistant ``tool_calls``
 (flat ``name``/``arguments`` or nested under ``function``), and ``role="tool"``
 results.
+
+What a coding session is remembered by is what the user asked and what the
+assistant finally told them. The tool trajectory in between (reads, greps, test
+runs and their output) is how the answer was reached, not what is worth
+recalling, and it is most of the bytes. So the trajectory contributes only two
+structured facts — that this was tool work, and which files it touched — and
+the memory pipeline sees the dialogue.
 """
 import json
 from typing import Any
@@ -19,6 +26,8 @@ PATH_KEYS: tuple[str, ...] = (
     "src_path",
     "dst_path",
 )
+# Space a clipped message's elision marker takes; ``fit_dialogue`` budgets for it.
+_MARKER_RESERVE = 48
 
 
 def has_any_tool_message(messages: list[dict]) -> bool:
@@ -27,22 +36,6 @@ def has_any_tool_message(messages: list[dict]) -> bool:
         m.get("role") == "tool" or (m.get("role") == "assistant" and m.get("tool_calls"))
         for m in messages
     )
-
-
-def strip_tool_messages(messages: list[dict]) -> list[dict]:
-    """Remove tool messages + tool_calls field for chat-path consumption."""
-    out: list[dict] = []
-    for m in messages:
-        role = m.get("role", "")
-        if role == "tool":
-            continue
-        if role == "assistant" and m.get("tool_calls"):
-            content = (m.get("content") or "").strip()
-            if content:
-                out.append({"role": "assistant", "content": content})
-            continue
-        out.append(m)
-    return out
 
 
 def extract_files(messages: list[dict]) -> list[str]:
@@ -75,47 +68,68 @@ def _text(content: Any) -> str:
 
 
 def clip_text(text: str, max_chars: int) -> str:
-    """Keep head and tail of an oversized tool result; the middle is elided."""
+    """Keep head and tail of an oversized text; the middle is elided."""
     if max_chars <= 0 or len(text) <= max_chars:
         return text
     half = max_chars // 2
     return f"{text[:half]}\n[… {len(text) - 2 * half} chars elided …]\n{text[-half:]}"
 
 
-def clip_tool_results(messages: list[dict], max_chars: int) -> list[dict]:
-    """Bound each ``role="tool"`` result for model input.
+def coding_dialogue(messages: list[dict]) -> list[dict]:
+    """Every user message, and the assistant's last text before the next one.
 
-    Long build logs and file dumps dominate a trajectory; the decisions and the
-    error lines that matter sit at the head (command echo) and tail (exit status,
-    traceback). The lossless trajectory stays in L0_RAW.
+    Tool results, tool-call messages and the narration between calls are
+    dropped; what is left is the request and the answer the user read.
     """
     out: list[dict] = []
+    answer: dict | None = None
     for m in messages:
-        if m.get("role") == "tool":
-            m = dict(m, content=clip_text(_text(m.get("content")), max_chars))
-        out.append(m)
+        role = m.get("role")
+        text = _text(m.get("content")).strip()
+        if role == "user":
+            if answer is not None:
+                out.append(answer)
+                answer = None
+            if text:
+                out.append({"role": "user", "content": text})
+        elif role == "assistant" and text:
+            answer = {"role": "assistant", "content": text}
+    if answer is not None:
+        out.append(answer)
     return out
 
 
-def _call_text(call: dict) -> str:
-    function = call.get("function") or {}
-    name = call.get("name") or function.get("name") or ""
-    args = call.get("arguments", function.get("arguments"))
-    return f"{name}({_text(args)})"
+def _caps(lengths: list[int], budget: int) -> list[int]:
+    """Water-filling: short items stay whole, long ones share what is left equally."""
+    caps = list(lengths)
+    order = sorted(range(len(lengths)), key=lambda i: lengths[i])
+    left, remaining = budget, len(lengths)
+    for i in order:
+        share = max(left // remaining, 0) if remaining else 0
+        caps[i] = min(lengths[i], share)
+        left -= caps[i]
+        remaining -= 1
+    return caps
 
 
-def render_transcript(messages: list[dict]) -> str:
-    """Role-labelled text of a full trajectory (tool calls and results included).
+def fit_dialogue(messages: list[dict], max_chars: int) -> list[dict]:
+    """Bound a dialogue to ``max_chars`` of content, keeping every message.
 
-    Uses the same ``[role]: text`` lines as chat dialogue, so the raw route and
-    excerpting work unchanged on coding sources.
+    The user's words carry the memory, so they keep up to three quarters of the
+    budget (all of it they need, if less); the answers share the rest. An
+    oversized message keeps its head and tail.
     """
-    lines: list[str] = []
-    for m in messages:
-        role = str(m.get("role") or "user")
-        text = _text(m.get("content")).strip()
-        if text:
-            lines.append(f"[{role}]: {text}")
-        for call in m.get("tool_calls") or []:
-            lines.append(f"[{role}]: {_call_text(call)}")
-    return "\n".join(lines)
+    if max_chars <= 0:
+        return messages
+    lengths = [len(m["content"]) for m in messages]
+    if sum(lengths) <= max_chars:
+        return messages
+    budget = max(max_chars - _MARKER_RESERVE * len(messages), 0)
+    users = [i for i, m in enumerate(messages) if m["role"] == "user"]
+    others = [i for i, m in enumerate(messages) if m["role"] != "user"]
+    user_caps = _caps([lengths[i] for i in users], min(sum(lengths[i] for i in users), budget * 3 // 4))
+    other_caps = _caps([lengths[i] for i in others], budget - sum(user_caps))
+    caps = dict(zip(users, user_caps)) | dict(zip(others, other_caps))
+    return [
+        dict(m, content=clip_text(m["content"], caps[i])) for i, m in enumerate(messages)
+    ]

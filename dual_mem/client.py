@@ -23,10 +23,8 @@ from dataclasses import asdict
 from typing import Any
 
 from dual_mem.coding.preproc import (
-    clip_tool_results,
+    coding_dialogue,
     has_any_tool_message,
-    render_transcript,
-    strip_tool_messages,
 )
 from dual_mem.coding.types import PROCEDURE_KIND, revised_procedure
 from dual_mem.coding.writer import ProcedureWriter
@@ -262,8 +260,11 @@ class MemoryClient:
         Coding scene: when ``messages`` carry a tool trace (``role="tool"`` or assistant
         ``tool_calls``) and JEV judges the conversation to be engineering work, the
         same write also decides procedure memories (``kind="procedure"``). Chat
-        memories of the conversation are extracted as usual; both cite one L0_RAW
-        that keeps the (clipped) tool trajectory. ``workspace_id`` / ``branch`` are the
+        memories of the conversation are extracted as usual. A coding session is
+        remembered by its dialogue — the user's requests and the answers they
+        read: that is what L0_RAW keeps and what both extractors see; tool calls
+        only contribute the files they touched, tool output is not kept.
+        ``workspace_id`` / ``branch`` are the
         version boundary of those procedures: one only replaces another inside the
         same workspace and branch.
 
@@ -289,11 +290,12 @@ class MemoryClient:
                 for turn in turns:
                     if isinstance(turn.get("content"), str):
                         turn["content"] = strip_memory_injection(turn["content"])
-                trajectory = clip_tool_results(
-                    turns, self.settings.procedure_tool_result_max_chars
-                )
-                # The chat extractor sees the conversation without tool turns.
-                messages = strip_tool_messages(turns)
+                trajectory = turns
+                # A coding session is remembered by its dialogue: what the user
+                # asked and the answers they read. That is what L0_RAW keeps and
+                # what both extractors see; the tool trajectory only tells the
+                # procedure writer which files were touched.
+                messages = coding_dialogue(turns)
 
         normalized: list[ChatMessage] | None = None
         user_turn_count = 0
@@ -303,10 +305,6 @@ class MemoryClient:
             )
         else:
             content = strip_memory_injection(content)
-        if trajectory is not None:
-            # L0_RAW keeps the trajectory: tool calls and results are the evidence
-            # procedures cite. Chat extraction still reads ``normalized``.
-            content = render_transcript(trajectory)
 
         if not content.strip():
             return WriteResult(
@@ -340,11 +338,7 @@ class MemoryClient:
             "memory_at": memory_at,
         }
         async with self._user_write_lock_ctx(resolved_app_id, user_id):
-            if trajectory is not None and not normalized:
-                # Tool turns only: nothing for the chat extractor, keep the source.
-                result = await self.writer.write_raw(**write_kwargs)
-            else:
-                result = await self.writer.write(**write_kwargs, messages=normalized)
+            result = await self.writer.write(**write_kwargs, messages=normalized)
             procedure = None
             if trajectory is not None:
                 raw = self.factory.vector.get(result.memory_id)

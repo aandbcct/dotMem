@@ -4,7 +4,6 @@ import json
 import math
 from typing import Any
 
-from dual_mem.coding.preproc import extract_files
 from dual_mem.coding.types import (
     BOUNDARY_SCOPES,
     CodingDecisionError,
@@ -13,17 +12,20 @@ from dual_mem.coding.types import (
 from dual_mem.providers.llm import LLMClient
 
 _EXTRACT_PROMPT = """Generate candidate procedure memories from the source JSON.
-A procedure is reusable engineering experience from a coding-agent trajectory: how a
-task was solved, the root cause, the working commands/configuration, a decision with
-its reason, or an approach that failed and why.
+The source is a coding session between a user and a coding agent: the user's
+requests and the answers the agent gave (tool calls are already left out).
+A procedure is reusable engineering experience from it: how a task was solved, the
+root cause, the working commands/configuration, a decision with its reason, or an
+approach that failed and why. The user's requests and decisions are the primary
+evidence; take details from the answers only as far as the user saw them.
 Only produce candidate text, never decide persistence value, knownness, updates,
 actions or targets. Include every potentially useful explicit engineering fact,
 constraint, decision, changed solution and distinct event. Do not filter trivial
 or already documented information: JEV will decide its value and coverage.
 Personal preferences, identity and plans of the user are stored by another
 extractor; do not restate them here unless they are an engineering constraint.
-Preserve complete commands, paths, numbers, reasons, tool arguments/results,
-environment boundaries and qualifications. Do not invent missing details.
+Preserve complete commands, paths, numbers, reasons, environment boundaries and
+qualifications. Do not invent missing details.
 Write every text field in the language of the user's messages; do not translate.
 
 Output a JSON object {"candidates": [...]}, each candidate an object with:
@@ -47,6 +49,7 @@ class CodingMemoryExtractor:
         self,
         messages: list[dict],
         *,
+        files: list[str],
         workspace_id: str | None = None,
         branch: str | None = None,
         session_id: str = "",
@@ -63,7 +66,6 @@ class CodingMemoryExtractor:
             raise CodingDecisionError(
                 'coding extraction requires a {"candidates": [...]} object'
             )
-        files = extract_files(messages)
         drafts: list[CodingMemoryDraft] = []
         for item in items:
             if not isinstance(item, dict):

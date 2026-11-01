@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **coding 会话的记忆只从对话正文来，工具输出不再进模型**。破坏性变更：删除 `procedure_tool_result_max_chars`，新增 `procedure_source_max_chars`（默认 30000）。
+  - 原因：真实 agentica 编码会话导入 36 个批次失败 26 个。一类是 L0_RAW 把整段工具轨迹（文件内容、命令输出）当 embedding 输入，中文、代码与日志混排时实际 token 数超过按 2.5 字符/token 估算的上限，被上游以 8192 token 拒绝；另一类是 procedure 裁决把整段轨迹作为 JEV `state`，超出 `jev_max_question_chars`。
+  - 现在：L0_RAW、procedure 抽取和 JEV 裁决都只看用户消息与 assistant 回答；工具调用只用来结构化提取 `files`。超出预算时用户消息全文优先保留，assistant 回答截到 2000 字，仍超出才从最早的轮次丢弃，最后一轮一定保留。MemHub 采集端也不再读取工具输出。
+  - 只有工具消息、没有对话正文的写入直接按空内容返回，不再单独存一份工具轨迹。
+  - embedding 输入的字符上限改为按 1.2 字符/token（`embed_chars_per_token`）估算：真实会话里代码与日志密集段实测约 1.2，原先的 2.5 会让截断后的输入仍然超限。LLM 预算仍用 `chars_per_token`。
+- **`hook-search` 只说 `UserPromptSubmit` 一种协议**：agentica 改为原生支持与 Claude Code / Codex 相同的 `UserPromptSubmit` hook，删除为 agentica 单独写的 `prompt.submit` 回复分支；`install-host agentica` 的召回 consumer 订阅 `UserPromptSubmit`。需要 agentica 包含 `UserPromptSubmit` 支持的版本；旧配置重新运行 `dual-mem hub install-host agentica` 即可。
 - **MemHub 多设备同步改为「每台本地检索 + 变更日志复制」，删除 SSH 隧道接入**。破坏性变更：`hub attach` / `hub detach`、`hub connect user@server` 建的常驻 `ssh -N -L` 隧道服务（`com.dual-mem.hub-tunnel` / `dual-mem-hub-tunnel.service`）、`DUAL_MEM_HUB_BASE_URL` / `DUAL_MEM_HUB_API_KEY` 全部删除；`hub.json` 改为同步目标配置，旧文件要删掉后重新 `connect`。已装的隧道服务需手动卸载（macOS `launchctl unload ~/Library/LaunchAgents/com.dual-mem.hub-tunnel.plist` 后删除该文件；Linux `systemctl --user disable --now dual-mem-hub-tunnel.service`）。
   - 原因：原方案每台电脑只是瘦客户端，每次输入提示词的 `hook-search` 都要经隧道到服务器做向量检索；隧道断开（合盖、换网络，最多 90 秒才判定断线）时记忆完全不可用，没有服务器的用户则根本用不了。
   - 现在每台电脑跑自己的 Core、保留完整的本地库，召回只读本机。`store/versions.db` 新增复制日志：每次变更（版本计划、L0 Evidence、元数据补丁、删除）按 `(origin, seq)` 记录并带向量，接收方直接写入、不调任何模型。合并按字段进行且与顺序无关（`is_latest` 只能变假，`supersedes` / `superseded_by` 取并集，删除留墓碑）；离线时两台电脑改了同一条记忆，同步后结果一致，两个新版本都保留。

@@ -142,8 +142,9 @@ chat 和 coding 不是两套系统。场景是每条数据的属性：带工具�
 除了 chat 抽取，还另外产出 `kind="procedure"` 的 L1 记忆。存储、scope、版本链、
 演化链接、`apply_version_plan`、幂等和 System 2 队列全部复用主路径。
 
-1. **先留来源**：完整 messages（含 tool arguments / results；单条工具结果超过
-   `procedure_tool_result_max_chars` 时保留头尾）写入 L0_RAW，之后任何模型调用失败都不丢来源。
+1. **先留来源**：L0_RAW 只存用户与 assistant 的对话正文，之后任何模型调用失败都不丢来源。
+   工具输出（文件内容、命令日志）是过程材料，不进 L0、不进任何模型调用；工具调用只用来
+   结构化提取 `files`（`path` / `file_path` 等参数）。
 2. **scene**：`messages` 里有 `role="tool"` 或 assistant `tool_calls`（结构条件）时，一次
    JEV choice 判 CODING / CHAT。CHAT 去掉工具消息后只走主路径；CODING 两路都走。
 3. **两路抽取并行**：chat 抽取输入与没有工具轨迹时相同（工具消息剔除），prompt 不变；

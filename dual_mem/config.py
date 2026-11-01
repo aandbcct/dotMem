@@ -83,6 +83,10 @@ def resolve_app_ids(settings: Settings, app_ids: list[str] | None) -> list[str]:
 # Token→char estimate shared by LLM prompt budgeting and embed chunk sizing.
 CHARS_PER_TOKEN = 2.5
 LLM_CHARS_PER_TOKEN = CHARS_PER_TOKEN
+# Embedding input sizing. Deliberately below any real text: dense code and CJK
+# run near 1.2 chars/token, and the provider rejects an over-long input instead
+# of truncating it, so this budget must err on the safe side.
+EMBED_CHARS_PER_TOKEN = 1.2
 
 # LLM context budgeting — override via YAML or DUAL_MEM_LLM_CONTEXT_WINDOW etc.
 LLM_CONTEXT_WINDOW = 32768
@@ -143,6 +147,7 @@ class Settings(BaseSettings):
     embed_timeout: int = 30
     # Max input tokens per embed API call; longer texts are head-truncated (L1 anchors only).
     embed_max_tokens: int = EMBED_MAX_TOKENS
+    embed_chars_per_token: float = EMBED_CHARS_PER_TOKEN
 
     auth_disabled: bool = True
     app_whitelist: list[str] = ["default"]
@@ -253,9 +258,11 @@ class Settings(BaseSettings):
     # assistant tool_calls) and that JEV judges to be engineering work also yields
     # procedure memories (L1, kind="procedure") next to its chat memories.
     procedure_enabled: bool = True
-    # Each tool result is clipped to head+tail of this many chars for model input;
-    # the stored L0_RAW trajectory keeps the same clipped form.
-    procedure_tool_result_max_chars: int = 4000
+    # A coding session's dialogue (user requests + the answers they read) is
+    # bounded to this many chars before procedure extraction and decisions;
+    # user text is kept first. Leaves room for drafts and heads inside
+    # ``jev_max_question_chars``.
+    procedure_source_max_chars: int = 24_000
 
     @field_validator(
         "jev_timeout",
@@ -346,6 +353,13 @@ class Settings(BaseSettings):
             raise ValueError("embed_max_tokens must be positive")
         return v
 
+    @field_validator("embed_chars_per_token")
+    @classmethod
+    def _embed_chars_per_token_positive(cls, v: float) -> float:
+        if v <= 0:
+            raise ValueError("embed_chars_per_token must be positive")
+        return v
+
     @property
     def llm_input_max_chars(self) -> int:
         """Estimated prompt char budget from context window minus completion reserve."""
@@ -356,8 +370,8 @@ class Settings(BaseSettings):
 
     @property
     def embed_input_max_chars(self) -> int:
-        """Char chunk size derived from ``embed_max_tokens`` × ``chars_per_token``."""
-        return int(self.embed_max_tokens * self.chars_per_token)
+        """Char budget of one embedding input, from a deliberately low ratio."""
+        return int(self.embed_max_tokens * self.embed_chars_per_token)
 
     @classmethod
     def settings_customise_sources(
