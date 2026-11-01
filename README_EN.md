@@ -108,7 +108,7 @@ It remembers that alice no longer eats spicy food and is about to move to Beijin
 
 ### Coding memory
 
-No switch and no second search entry point. A tool trace in `messages` (a `role="tool"` turn, or assistant `tool_calls`) is the structural condition; JEV then decides whether the session is engineering work, and only then extracts `task` / `solution` / `files` as an L1 memory with `kind="procedure"`. Preferences the user mentions in the same session ("I always use uv") still become facts and profile.
+No switch and no second search entry point. A tool trace in `messages` (a `role="tool"` turn, or assistant `tool_calls`) is the structural condition; JEV then decides whether the session is engineering work, and only then extracts `task` / `solution` / `files` as an L1 memory with `kind="procedure"`. `L0_RAW`, procedure extraction, and JEV adjudication only read the user's requests and the final assistant answers; tool calls only contribute the touched `files`, and tool output never enters any model. Preferences the user mentions in the same session ("I always use uv") still become facts and profile.
 
 Putting the text of a few `.py` files into `add(content=...)` or a plain user message has no tool trace, so it stays chat memory only.
 

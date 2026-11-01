@@ -54,13 +54,40 @@ dual-mem hub status
 
 ```bash
 dual-mem hub connect dir "~/Library/Mobile Documents/com~apple~CloudDocs/dual-mem"   # iCloud 等同步文件夹
-dual-mem hub connect git git@github.com:you/my-memory.git                          # 私有 git 仓库
+dual-mem hub connect git git@github.com:you/my-vibecoding-memory.git               # 私有 git 仓库
 dual-mem hub connect ssh user@your-server                                          # 服务器上的 Core
 ```
 
 每台电脑保留完整的本地记忆，检索只查本机；Core 在写入后、定时、以及检索发现数据旧了时在后台交换变更。完整说明（怎么选、谁来归纳、冲突怎么合并）见 [多设备同步](memhub-server.md)。
 
 不想同步了：`dual-mem hub disconnect`。本机记忆和同步目标上的数据都保留。
+
+### 开发者实操：Agentica CLI + dual-mem MCP + 私有 Git 仓库
+
+如果你日常用 `agentica` CLI（或同时用 Claude Code、Codex）写代码，想让每次排障经验、项目规矩自动沉淀，并备份/同步到自己的 GitHub 私有仓库（如 `my-vibecoding-memory`），按下面 4 步配好即可：
+
+```bash
+# 1. 启动本机常驻 Core（确保 ~/.dual-mem/config.yaml 已填好三把 API key）
+dual-mem hub install-service
+
+# 2. 接入 agentica CLI（同时写好 MCP、Skill 与 Hook，保留原 YAML 注释）
+dual-mem hub install-host agentica
+
+# 3. 导入已有的 agentica 历史编码会话（可选）
+dual-mem hub scan --source agentica
+
+# 4. 关联到你的 GitHub 私有仓库（先建一个私有空仓库，如 my-vibecoding-memory）
+gh repo create my-vibecoding-memory --private
+dual-mem hub connect git git@github.com:<你的用户名>/my-vibecoding-memory.git
+```
+
+`install-host agentica` 会自动为你配好三件事（无需手改配置文件）：
+
+1. **MCP 工具（`~/.agentica/mcp_config.json`）**：注册 `dual-mem` MCP 服务，Agent 可主动调用 `memory_search`、`memory_add`、`conversation_search`、`memory_status`。
+2. **每轮提问前自动召回（`~/.agentica/config.yaml` → `dual-mem-hub-recall`）**：订阅 `UserPromptSubmit` 事件。你每次在 `agentica` 输入提示词时，几十毫秒内从本机库召回相关画像、事实与最多 3 条 `[procedure]` 工程排障经验，以 `<relevant-memories>` 注入上下文（与 Agentica 原生的 `<memory_recall>` / `<session_recall>` 并存，直接给出抽取好的结论与最新路径，减少翻查原始日志的工具调用与 token 消耗）。
+3. **每轮结束后台沉淀（`~/.agentica/config.yaml` → `dual-mem-hub`）**：订阅 `run.completed` 与 `session.ended`。每轮结束后后台增量读取用户请求、最终回答以及 `tool_calls` 涉及的文件路径（工具输出不采集），连同当前工作目录 `cwd` 和 `git_branch` 交给本机 Core 沉淀，并在几秒后自动把新增的变更日志（含算好的向量）推送到 `my-vibecoding-memory` 仓库。
+
+换到第二台电脑（例如家里的 Mac）时，装好 `dual-mem`、跑完上面第 1、2 步后，执行同一条 `dual-mem hub connect git git@github.com:<你的用户名>/my-vibecoding-memory.git`，之前所有的记忆和向量就会直接拉回新电脑本机库，不重新调任何模型。
 
 ### 记忆是怎么流动的
 
@@ -133,7 +160,7 @@ dual-mem hub serve（唯一写者）
 - 本机库的每次变更（裁决后的版本计划、L0 Evidence、元数据补丁、删除）按 `(origin, seq)` 记在 `store/versions.db` 的 `log` 表，带完整内容和向量。同步只搬这些条目，接收方不调模型。
 - 同一来源的条目严格按序应用；条目引用了本机还没有的记忆（来自第三台设备）时先等待，那条记忆到了再应用。
 - 合并按字段进行，与到达顺序无关：`is_latest` 只能从真变假，`supersedes` / `superseded_by` 取并集，删除留墓碑。
-- `dir` / `git` 目标里每台设备只写自己的 `log/<origin>/` 目录，两台设备永远不会写同一个文件；`manifest.json` 记录 Embedding 配置和负责归纳的设备。
+- `dir` / `git` 目标里每台设备只写自己的 `log/<origin>/` 目录，两台设备永远不会写同一个文件；`manifest.json` 记录负责归纳的设备。
 - `ssh` 每次同步是一条 `ssh <server> dual-mem hub relay ...` 命令，不常驻隧道。`http` 目标必须是 HTTPS（loopback 除外）。
 
 ### 其他命令

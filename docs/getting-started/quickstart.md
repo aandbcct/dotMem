@@ -135,9 +135,10 @@ for m in res.memories.procedures:
 
 - **消息格式**：OpenAI 风格。`tool_calls` 支持嵌套 `function.name / function.arguments`
   （字符串或对象）和扁平 `name / arguments`；`files` 从 `path`、`file_path` 等路径参数结构化
-  提取。工具输出不进模型、不进 L0；procedure 抽取和 JEV 裁决只看对话正文。对话超过
-  `procedure_source_max_chars`（默认 30000）时，用户消息全文优先保留、assistant 回答截短，
-  仍超出则从最早的轮次开始丢弃，保证 JEV 请求不超出上下文预算。
+  提取。工具输出（`role="tool"`）不进模型、也不进 L0；L0_RAW、procedure 抽取和 JEV 裁决都只看
+  用户的请求和 assistant 的最终回答。对话超过 `procedure_source_max_chars`（默认 24000）时，
+  优先完整保留用户消息，assistant 回答按剩余预算截短（保留头尾）；裁决材料若仍超出
+  `jev_max_question_chars`，则从最早的旧 head 开始丢弃，确保长会话不超出 JEV 预算。
 - **一条经验**（`MemoryItem.procedure`）：`task`（检索问题）、`solution`、`search_keys`、
   `boundary_envs`、`boundary_scope`（`strict` / `project` / `user` / `global`）、`files`、
   `workspace_id`、`branch`。`content` 是 task + solution 的可读文本；向量由 task 和
@@ -157,7 +158,7 @@ for m in res.memories.procedures:
   建议会话结束时整段写入，不要每轮调用。`procedure_enabled=False` 可整体关闭。
 - **接口**：REST `POST /v1/memories/`（`workspace_id` / `branch`）与 `POST /v1/memories/search`
   （`procedure_limit` / `procedure_min_score`）、MCP 同名参数、CLI `dual-mem add --workspace-id`
-  和 `dual-mem search --procedure-limit`。MemHub 采集 Claude Code / Codex 会话时保留工具轨迹。
+  和 `dual-mem search --procedure-limit`。MemHub 采集 Claude Code / Codex / Agentica 会话时保留对话正文与工具调用涉及的文件路径（不读取工具输出）。
 
 完整可运行示例（含方案演化）：[`examples/06_coding_memory.py`](https://github.com/shibing624/dual-mem/blob/main/examples/06_coding_memory.py)。
 
@@ -302,5 +303,7 @@ REST 契约：`POST /v1/memories/`、`POST /v1/memories/search`、`GET|DELETE /v
 | 配置 | 默认 | 说明 |
 |---|---|---|
 | `reconcile_relation_threshold` | `0.6` | 新记忆与已有记忆的相似度达到阈值，才请决策模型判断"重复 / 更新 / 新增"；低于阈值直接新增 |
+| `procedure_source_max_chars` | `24000` | coding 会话送入 procedure 抽取与 JEV 裁决的对话字符预算（优先保留用户消息） |
+| `embed_chars_per_token` | `1.2` | Embedding 输入字符上限的换算系数（`embed_max_tokens × 1.2`），兼容代码与日志密集文本，防止超出上游 8192 token 限制 |
 
 在意决策模型费用时可以设成 `0.7`：调用次数少约 27%，写入时间少约 10%，评测上没有测到掉分。

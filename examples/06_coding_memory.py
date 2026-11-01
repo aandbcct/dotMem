@@ -1,7 +1,7 @@
 """Demo 6 — Coding 记忆：同一次 add 同时沉淀对话记忆和工程经验（procedure）。
 
 `add(messages=[...])` 里出现工具轨迹（`role="tool"` 或 assistant `tool_calls`）时：
-1. L0_RAW 保存整段轨迹（工具结果按 head+tail 截断），是 chat 与 procedure 共同的来源；
+1. L0_RAW 只保存用户请求与最终回答的对话正文，是 chat 与 procedure 共同的来源（工具调用只用来提取涉及的文件，工具输出不进模型）；
 2. chat 抽取照常进行（看不到工具噪声），用户说的偏好、事实照样进 L1/L2；
 3. JEV 判定场景（CODING / CHAT），是 CODING 才生成 procedure 候选
    （`task`、`solution`、`search_keys`、`boundary_envs`、`files`）；

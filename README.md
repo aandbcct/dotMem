@@ -108,7 +108,7 @@ with SyncMemoryClient() as memory:
 
 ### Coding 记忆
 
-不需要开关，也没有第二个检索入口。`messages` 里出现工具轨迹（某条是 `role="tool"`，或者 assistant 带了 `tool_calls`）是结构条件；接着 JEV 判断整段是不是工程会话，是才另外抽出 `task` / `solution` / `files`，作为 `kind="procedure"` 的 L1 记忆。同一段会话里用户顺口说的偏好（例如「我习惯用 uv」）照常进事实和画像。
+不需要开关，也没有第二个检索入口。`messages` 里出现工具轨迹（某条是 `role="tool"`，或者 assistant 带了 `tool_calls`）是结构条件；接着 JEV 判断整段是不是工程会话，是才另外抽出 `task` / `solution` / `files`，作为 `kind="procedure"` 的 L1 记忆。L0_RAW、procedure 抽取和 JEV 裁决都只看用户请求与最终回答；工具调用只用来提取涉及的 `files`，工具输出不进入任何模型。同一段会话里用户顺口说的偏好（例如「我习惯用 uv」）照常进事实和画像。
 
 把几个 `.py` 文件的正文放进 `add(content=...)` 或普通 user 消息，没有工具轨迹，只走 chat 记忆。
 

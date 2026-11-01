@@ -58,7 +58,7 @@ Agent / Cursor  ──MCP──▶  MCP Server（受 Skill 指导）  ──▶ 
 
 | 层 | 含义 | 产生方 |
 | --- | --- | --- |
-| L0_RAW | 原始来源证据（含工具轨迹） | 写入即保留 |
+| L0_RAW | 原始对话证据（用户请求与最终回答） | 写入即保留 |
 | L1_FACT | 明确事实、独立事件、明确意图、工程经验（`procedure`） | 生成候选 → JEV 关系裁决 |
 | L2_PROFILE | 身份、画像、状态维度 | 生成候选分拣 → JEV 关系裁决 |
 | L3_DERIVED | 跨证据模式（`schema` / `core_schema`）、人格目录（`persona_catalog`） | 显式 digest → 聚类生成与证据校验 |

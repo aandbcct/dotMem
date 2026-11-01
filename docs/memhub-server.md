@@ -32,7 +32,7 @@ S3 / R2、Cloudflare D1 这类对象存储没有内置：普通用户不会去�
 dual-mem hub connect dir "~/Library/Mobile Documents/com~apple~CloudDocs/dual-mem"
 
 # 或者：私有 git 仓库
-dual-mem hub connect git git@github.com:you/my-memory.git
+dual-mem hub connect git git@github.com:you/my-vibecoding-memory.git
 
 # 或者：服务器上的 Core（每次同步是一条 ssh 命令，不常驻隧道）
 dual-mem hub connect ssh user@your-server
@@ -51,6 +51,30 @@ dual-mem hub disconnect  # 停止同步；本机记忆和同步目标上的数�
 ```
 
 已经用了一段时间、本机已有记忆的电脑，第一次 `connect` 时会把已有的记忆也发出去。
+
+## 私有 Git 仓库（`connect git`，推荐开发者）
+
+不需要任何云服务器，用一个 GitHub / GitLab **私有仓库**就能在多台开发机之间同步，同时作为个人记忆的云端冷备：
+
+```bash
+# 1. 创建一个私有空仓库（用 gh CLI 或在 GitHub 网页上新建 Private 仓库）
+gh repo create my-vibecoding-memory --private
+
+# 2. 在第一台电脑上接入工具并关联该仓库（确保本机 git 能免密 push）
+dual-mem hub install-service
+dual-mem hub install-host agentica   # 或 claude-code / codex / all
+dual-mem hub connect git git@github.com:<你的用户名>/my-vibecoding-memory.git
+
+# 3. 验证同步状态
+dual-mem hub status
+```
+
+工作原理与多机接入：
+
+- Core 在 `~/.dual-mem/sync-git/` 下维护该仓库的本地克隆（`main` 分支）。
+- 仓库结构为 `manifest.json` 加 `log/<origin>/<seq>.json`。每台电脑拥有独立的 `origin` UUID，**只往自己的子目录追加新文件**，因此多台电脑并发 `git pull --rebase` + `git push` 永远不会产生文件冲突。
+- `~/.dual-mem/config.yaml`（含你的 API key）**不会**进入这个仓库；仓库里只有记忆正文、元数据和向量。
+- 在第二台电脑上，装好 `dual-mem`、配好 `~/.dual-mem/config.yaml` 并启动 `install-service` 后，执行**完全相同**的一行 `dual-mem hub connect git git@github.com:<你的用户名>/my-vibecoding-memory.git`，即刻拉回全部记忆与向量。
 
 ## 服务器（`connect ssh` / `connect http`）
 
@@ -99,7 +123,6 @@ System 2 的 `digest()` 用 LLM 从多条事实归纳 L3。两台电脑各自归
 
 ## 要求与限制
 
-- **所有电脑的 Embedding 配置要一致**（`embed_model`、`embed_dim`）：同步的是向量。不一致时同步报错并拒绝，不会把两种向量混进一个库。
 - 同步目标上是你的全部记忆原文。git 仓库必须是私有的；网盘目录不要共享给别人。
 - 游标（`cursors.db`）在每台电脑本地，各自只采集本机的会话。
 - 同步目标只增不减，不做压缩。

@@ -4,7 +4,7 @@
 
 | 层 | 内容 | producer | 读取 |
 | --- | --- | --- | --- |
-| `L0_RAW` | 原始输入证据（含工具轨迹） | writer，每次写入先保留 | `get` / `search_conversation` / `raw_limit > 0` |
+| `L0_RAW` | 原始对话证据（用户请求与最终回答） | writer，每次写入先保留 | `get` / `search_conversation` / `raw_limit > 0` |
 | `L1_FACT` | 显式事实、独立事件、明确意图、工程经验（`procedure`） | 生成模型提供候选，JEV 裁决 | normal；`kind=intention` 进入 proactive；`kind=procedure` 进入 procedures |
 | `L2_PROFILE` | 状态、身份、画像维度 | 生成模型分拣 + JEV 关系裁决 | profile；关闭 profile 路时进入 normal |
 | `L3_DERIVED` | 跨证据模式（`schema` / `core_schema`）、人格目录（`persona_catalog`） | dual 的 `digest()` | catalog（默认开启）与 schema（`derived_context_limit > 0` 时）；带实际 evidence IDs |

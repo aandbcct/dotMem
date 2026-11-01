@@ -16,6 +16,37 @@ dual-mem 可以接进你已经在用的 Agent 框架和 AI 工具。所有集成
 
 ### Agentica
 
+#### 方式一：Agentica CLI（MemHub MCP + Hook + 私有 Git 同步，推荐）
+
+日常使用 `agentica` 命令行写代码时，直接通过 MemHub 接入，无需写任何 Python 代码：
+
+```bash
+pip install "dual-mem[all]"
+
+# 1. 启动本机常驻记忆服务（模型 key 配在 ~/.dual-mem/config.yaml）
+dual-mem hub install-service
+
+# 2. 一键把 dual-mem 接入 agentica CLI
+dual-mem hub install-host agentica
+
+# 3. 导入过往的 agentica 会话记录（可选）
+dual-mem hub scan --source agentica
+
+# 4. 关联到你的 GitHub 私有仓库，自动备份与跨机同步（可选）
+dual-mem hub connect git git@github.com:<你的用户名>/my-vibecoding-memory.git
+```
+
+`install-host agentica` 会在保留你原有配置注释的前提下，自动完成两处集成：
+
+- **MCP 工具（`~/.agentica/mcp_config.json`）**：挂载 `dual-mem` MCP 服务（`memory_search`、`memory_add`、`conversation_search`、`memory_status`）。
+- **自动召回与采集 Hook（`~/.agentica/config.yaml`）**：
+  - `UserPromptSubmit`（`dual-mem-hub-recall`）：每轮提问前从本机库毫秒级召回画像、事实与 `[procedure]` 工程排障经验，以 `<relevant-memories>` 注入（与 Agentica 内置的 `<memory_recall>` / `<session_recall>` 并存）。
+  - `run.completed` / `session.ended`（`dual-mem-hub`）：每轮结束后台采集用户请求、最终回答与工具调用涉及的文件路径（工具输出不采集），沉淀记忆并在后台同步到你的私有 Git 仓库。
+
+#### 方式二：Agentica Python SDK（`DualMemWorkspace`）
+
+用 Agentica 框架在代码里构建自定义 Agent 时，可用 `DualMemWorkspace` 适配器：
+
 ```bash
 pip install "dual-mem[agentica]"
 ```
