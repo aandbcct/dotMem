@@ -6,6 +6,7 @@
   - 向量在同步时用 float16 + base64 传输，文件体积降到约 1/3，接收方仍然不调模型。
   - 负责 digest 的设备在日志累积到 400 条后，把日志折叠成 `snapshot/state-<epoch>.json`（也可以用 `dual-mem hub sync --compact` 手动触发）。`git` 目标用新的根提交加 `--force-with-lease` 替换历史，新设备只需拉一份快照；已有设备下次同步时自动跟随，本机未覆盖的条目不丢。
   - 被删除的节点 id 再次写入时追加 `revive` 日志条目，否则各设备的 tombstone 会把它拦下，导致设备之间不一致。
+- **重启 Core 就是再执行一次 `dual-mem hub install-service`**。没有单独的 restart 命令。macOS 会 `launchctl unload` 后再 `load`，Linux 会 `systemctl --user restart`。
 - **`hub connect git` 的同步提交只包含记忆日志**。`close` 不再 `git add -A`，只暂存 `log/` 和 `manifest.json`。同一仓库里的脚本、README、词云不会被导入记忆库，也不会被检索到，同步时也不会把它们的改动提交上去。拉取时用 `--autostash`，这些文件在本地有改动也不会挡住记忆同步。
 
 ## [0.2.1] — 2026-11-01
