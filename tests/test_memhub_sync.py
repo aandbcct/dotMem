@@ -546,12 +546,12 @@ def test_vectors_travel_as_float16_and_keep_their_direction(tmp_path):
 
 
 def test_folder_in_the_old_format_is_refused(tmp_path):
-    folder = tmp_path / "cloud"
-    folder.mkdir()
-    (folder / "manifest.json").write_text(json.dumps(
+    target = tmp_path / "cloud"
+    target.mkdir()
+    (target / "manifest.json").write_text(json.dumps(
         {"format": 1, "embed": EMBED, "digester": "x"}))
     with pytest.raises(SyncError, match="format 1"):
-        sync(store(tmp_path / "a"), DirBackend(folder))
+        sync(store(tmp_path / "a"), DirBackend(target))
 
 
 def _log_files(root: Path) -> set[str]:
