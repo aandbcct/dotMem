@@ -209,9 +209,19 @@ def hub_connect(
 @hub_app.command("disconnect")
 def hub_disconnect(hub_dir: str | None = HubDir) -> None:
     """停止同步。本机记忆保持不变，同步目标上的数据也不删除。"""
+    previous = load_sync_config(hub_dir)
     removed = clear_sync_config(hub_dir)
     asyncio.run(_local_core(hub_dir, "POST", "/v1/hub/sync/reload"))
-    _echo({"hub_dir": str(hub_root(hub_dir)), "disconnected": removed})
+    _echo(
+        {
+            "hub_dir": str(hub_root(hub_dir)),
+            "sync_enabled": False,
+            "removed_sync": previous.public_dict() if previous else None,
+            "message": "sync disconnected"
+            if removed
+            else "already disconnected (no sync target was configured)",
+        }
+    )
 
 
 @hub_app.command("sync")

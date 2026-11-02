@@ -478,8 +478,17 @@ def test_connect_disconnect_and_status_without_a_running_core(tmp_path):
     assert load_sync_config(hub).kind == "dir"
 
     done = runner.invoke(cli_main.app, ["hub", "disconnect", "--hub-dir", str(hub)])
-    assert json.loads(done.output)["disconnected"] is True
+    done_out = json.loads(done.output)
+    assert done_out["sync_enabled"] is False
+    assert done_out["removed_sync"]["kind"] == "dir"
+    assert done_out["message"] == "sync disconnected"
     assert load_sync_config(hub) is None
+
+    again = runner.invoke(cli_main.app, ["hub", "disconnect", "--hub-dir", str(hub)])
+    again_out = json.loads(again.output)
+    assert again_out["sync_enabled"] is False
+    assert again_out["removed_sync"] is None
+    assert "already disconnected" in again_out["message"]
 
 
 def test_relay_only_forwards_the_log_api(tmp_path):
