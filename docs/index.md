@@ -2,11 +2,10 @@
 
 **多个 Agent 共用一份个人记忆；当场记下事实，事后看出规律。**
 
-- 🔗 **跨工具记忆中枢（Hub）**：[MemHub](memhub.md) 让 Claude Code、Codex、Cursor、Hermes、Agentica、CodeBuddy、OpenCode、WorkBuddy 8 种工具读写同一份本地记忆，支持 `memhub ui` 可视化管理与跨设备同步（[多设备同步](memhub-server.md)）。
-- ⚡ **System 1（实时分层写入）**：对话进行时写入。原话（`L0_RAW`）、事实与意图（`L1_FACT`）、个人画像（`L2_PROFILE`）分层存放，专用决策模型（JEV）裁决新增与更新；你改了主意，它追加新版本并保留历史。
-- 🧠 **System 2 / dual（跨证据规律归纳）**：`mode="dual"` 下显式调用 `digest()`，跨多条证据聚类归纳行为规律（`schema` / `core_schema`）和长期画像目录（`persona_catalog`，`L3_DERIVED`）。
-- 🛠️ **Coding 记忆（工程排障经验）**：带工具调用的编码会话自动沉淀可复用的 `procedure` 经验（问题、方案、涉及文件、适用边界），与日常对话共用同一个 `add()` / `search()`。
+- 🔗 **跨工具记忆中枢（Hub）**：[MemHub](memhub.md) 让 Claude Code、Codex、Cursor、Agentica、Hermes、CodeBuddy、OpenCode、WorkBuddy 8 种工具读写同一份本地记忆，支持 `memhub ui` 可视化管理与跨设备同步（[多设备同步](memhub-server.md)）。
 - 🏆 **同场评测领先**：同模型、同题集，LoCoMo **74.7**（hy-memory 66.6、mem0 65.6）、LongMemEval **91.7**、PersonaMem-v2 **50.0**，写入耗时约为 hy-memory 的五分之一，详见 [评测说明](benchmarks.md)。
+- 🧠 **快慢双系统**：System 1 在对话时实时记住你的事实、偏好和状态变化（旧说法自动保留在历史链）；System 2 在后台跨多次对话归纳你的长期习惯与行事风格。
+- 🛠️ **工程排障自动沉淀**：编码会话自动把「问题 → 根因与方案 → 涉及文件」提炼为可复用的工程经验，下次遇到类似问题直接带出。
 
 ## 从哪里开始
 
@@ -18,15 +17,24 @@
 | 通过 MCP 或 REST 接入 | [MCP / REST](mcp_integration.md) |
 | 看效果对比与复现方法 | [评测说明](benchmarks.md) |
 
-## 三步接入本机 AI 工具
+## 接入本机 AI 工具
 
 ```bash
 pip install "memhub[all]"
 
-memhub install-service       # 后台常驻 Core，开机自启
-memhub install-host all      # 一键接入 Claude Code / Codex / Cursor / Agentica 等 8 种工具
-memhub scan --source all     # 导入已有历史会话
-memhub ui                    # 在浏览器按项目浏览、搜索、编辑、删除记忆
+# 1. 启动后台常驻服务（开机自启）
+memhub install-service
+
+# 2. 按需接入你正在用的 AI 工具（或用 memhub install-host all 一键接入全部 8 种）
+memhub install-host claude-code
+memhub install-host codex
+
+# 3.（可选）导入已有历史会话
+memhub scan --source claude-code
+
+# 4. 在浏览器可视化管理记忆，或绑定私有 Git 仓库跨设备同步
+memhub ui
+memhub connect git git@github.com:you/my-memory.git
 ```
 
 ## 三行 Python SDK

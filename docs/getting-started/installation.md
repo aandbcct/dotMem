@@ -29,7 +29,9 @@ embed_base_url: https://api.openai.com/v1
 
 构造需要三组凭证：JEV（`jev_api_key`）、生成 LLM（`llm_api_key`）、Embedding（`embed_api_key`）。缺任何一组都无法启动。
 
-配置优先级：显式传参 > `MEMHUB_*` 环境变量 > YAML > 默认值。默认 `storage_dir` 是 `./.memhub_data`。
+这六个配置项也支持环境变量：`MEMHUB_JEV_API_KEY` / `MEMHUB_JEV_ENDPOINT`、`MEMHUB_LLM_API_KEY` / `MEMHUB_LLM_BASE_URL`、`MEMHUB_EMBED_API_KEY` / `MEMHUB_EMBED_BASE_URL`。
+
+配置优先级：显式传参 > `MEMHUB_*` 环境变量 > YAML（`~/.memhub/config.yaml`，可通过 `MEMHUB_CONFIG_FILE` 覆盖） > 默认值。默认 `storage_dir` 是 `./.memhub_data`。
 
 <details markdown="1">
 <summary>可选阅读：改源码、依赖分别是什么</summary>

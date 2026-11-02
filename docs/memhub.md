@@ -30,13 +30,15 @@ pip install "memhub[all]"
 # 1. 启动记忆服务（登录后自动运行）
 memhub install-service
 
-# 2. 接入本机的 AI 工具。all 会写入上面八个的配置；只用其中几个就写出名字
-memhub install-host all
-# memhub install-host claude-code
-# memhub install-host codex
+# 2. 按需接入你本机正在用的 AI 工具（卸载用 memhub uninstall-host <工具名>）
+memhub install-host claude-code
+memhub install-host codex
+memhub install-host cursor
+# 支持：claude-code | codex | cursor | agentica | hermes | codebuddy | opencode | workbuddy
+# 也可以一键接入全部：memhub install-host all
 
-# 3. 导入过去的对话
-memhub scan --source all
+# 3.（可选）导入过去的对话历史
+memhub scan --source claude-code   # 或 --source all 导入全部
 ```
 
 然后就可以问了：
@@ -70,12 +72,17 @@ memhub ui
 
 ## 多台电脑共用一份记忆
 
-每台电脑一条命令，连到同一个同步目标：
+每台电脑一条命令，连到同一个同步目标（任选一种）：
 
 ```bash
-memhub connect dir "~/Library/Mobile Documents/com~apple~CloudDocs/memhub"   # iCloud 等同步文件夹
-memhub connect git git@github.com:you/my-vibecoding-memory.git               # 私有 git 仓库
-memhub connect ssh user@your-server                                          # 服务器上的 Core
+# 方式一（推荐）：私有 Git 仓库（自带云端冷备，多机自动合并）
+memhub connect git git@github.com:you/my-vibecoding-memory.git
+
+# 方式二：iCloud Drive / Dropbox 等网盘同步文件夹
+memhub connect dir "~/Library/Mobile Documents/com~apple~CloudDocs/memhub"
+
+# 方式三：自建服务器上的 Core
+memhub connect ssh user@your-server
 ```
 
 每台电脑保留完整的本地记忆，检索只查本机；Core 在写入后、定时、以及检索发现数据旧了时在后台交换变更。完整说明（怎么选、谁来归纳、冲突怎么合并）见 [多设备同步](memhub-server.md)。

@@ -14,8 +14,8 @@
 
 | 你的情况 | 用法 | 需要什么 |
 |---|---|---|
-| 普通用户，几台电脑都登录了同一个网盘 | `memhub connect dir <文件夹>` | iCloud Drive、Dropbox、OneDrive、坚果云、Syncthing、NAS 挂载……任何会自动同步的文件夹 |
-| 开发者，有 GitHub / GitLab 账号 | `memhub connect git <仓库地址>` | 一个**私有**空仓库，本机 `git` 能免密推送 |
+| **推荐**：有 GitHub / GitLab 账号 | `memhub connect git <仓库地址>` | 一个**私有**空仓库，本机 `git` 能免密推送 |
+| 几台电脑都登录了同一个网盘 | `memhub connect dir <文件夹>` | iCloud Drive、Dropbox、OneDrive、坚果云、Syncthing、NAS 挂载……任何会自动同步的文件夹 |
 | 有一台常开的服务器 | `memhub connect ssh user@server` | 服务器上跑着 `memhub install-service`，SSH 免密登录 |
 | 服务器已经有 HTTPS 反代 | `memhub connect http https://... --api-key ...` | 服务器 Core 的 `runtime-token` |
 
@@ -28,13 +28,13 @@ S3 / R2、Cloudflare D1 这类对象存储没有内置：普通用户不会去�
 每台电脑上（先完成 [MemHub 三步开始](memhub.md#三步开始)）：
 
 ```bash
-# macOS iCloud Drive
-memhub connect dir "~/Library/Mobile Documents/com~apple~CloudDocs/memhub"
-
-# 或者：私有 git 仓库
+# 方式一（推荐）：私有 git 仓库
 memhub connect git git@github.com:you/my-vibecoding-memory.git
 
-# 或者：服务器上的 Core（每次同步是一条 ssh 命令，不常驻隧道）
+# 方式二：macOS iCloud Drive 等同步文件夹
+memhub connect dir "~/Library/Mobile Documents/com~apple~CloudDocs/memhub"
+
+# 方式三：服务器上的 Core（每次同步是一条 ssh 命令，不常驻隧道）
 memhub connect ssh user@your-server
 ```
 

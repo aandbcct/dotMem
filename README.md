@@ -1,6 +1,6 @@
 <h1 align="center">memhub</h1>
 
-<p align="center"><b>多个 Agent 共用一份个人记忆；当场记下事实，事后看出规律。</b><br />Claude Code、Codex、Cursor、Agentica 等 8 种工具读写同一份本地记忆，支持跨设备同步；底层由 System 1（实时分层写入与版本演化）与 System 2（跨证据规律归纳）双系统驱动。</p>
+<p align="center"><b>多个 Agent 共用一份个人记忆；当场记下事实，事后看出规律。</b><br />Claude Code、Codex、Cursor、Agentica 等 8 种 AI 工具共享同一份本地记忆，支持跨设备同步与可视化管理。</p>
 
 <p align="center">
   <a href="https://badge.fury.io/py/memhub"><img src="https://badge.fury.io/py/memhub.svg" alt="PyPI version" /></a>
@@ -16,36 +16,51 @@
 
 在 Cursor 里交代过的代码规范，Codex 并不知道；你已经告诉 AI 三次「我现在不吃辣了」，它还在推荐川菜馆；聊了几十轮，它背得出每一句原话，却说不出你做事的稳定习惯。
 
-### 1. 🔗 多个 Agent，一份记忆（Memory Hub）
+### 1. 🔗 多个 Agent，一份记忆
 
-`memhub` 把本机上的多个 AI 工具连到同一份个人记忆：Claude Code、Codex、Cursor、Hermes、Agentica、CodeBuddy、OpenCode、WorkBuddy 读写同一个本地库，数据默认留在你的电脑上。
+`memhub` 把本机上的多个 AI 工具连到同一份个人记忆：**Claude Code、Codex、Cursor、Agentica、Hermes、CodeBuddy、OpenCode、WorkBuddy** 读写同一个本地库，数据默认留在你的电脑上。
 
 ```bash
 pip install "memhub[all]"
 
-memhub install-service       # 后台常驻，开机自启（卸载用 uninstall-service）
-memhub install-host all      # 一键接入本机已安装的 AI 工具（卸载用 uninstall-host all）
-memhub scan --source all     # 把过去的对话也变成记忆
+# 1. 启动后台常驻服务（开机自启；卸载用 memhub uninstall-service）
+memhub install-service
 
+# 2. 按需接入你正在用的 AI 工具（卸载用 memhub uninstall-host <工具名>）
+memhub install-host claude-code
+memhub install-host codex
+memhub install-host cursor
+# 支持：claude-code | codex | cursor | agentica | hermes | codebuddy | opencode | workbuddy
+# 也可以一键接入全部：memhub install-host all
+
+# 3.（可选）把已有的历史会话导入为记忆
+memhub scan --source claude-code   # 或 --source all 导入全部已安装工具的历史
+
+# 4. 随时检索，或在浏览器可视化管理记忆
 memhub recall "我之前做过哪些技术选择"
-memhub ui                    # 在浏览器打开 http://127.0.0.1:8765/ui 按项目查看、搜索、编辑、删除记忆
+memhub ui                          # 打开 http://127.0.0.1:8765/ui 按项目查看、搜索、编辑、删除记忆
 ```
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/shibing624/memhub/main/docs/public/ui-mem.png" width="820" alt="memhub ui 记忆管理页" />
 </p>
 
-零配置发现本机服务，对话先存下来立刻返回，整理在后台进行。一轮对话结束时宿主的 Hook 把新增内容交给本机 Core，你下一次输入提示词时按当前项目召回相关记忆自动注入；Agent 也能通过 MCP 主动查。写代码的会话连同工具调用涉及的文件路径一起送达，沉淀成可复用的工程经验。
+接入后无需额外操作：每轮对话结束自动在后台沉淀记忆，下次开口提问时自动按当前项目召回相关记忆注入上下文，Agent 也能通过 MCP 主动查询。
 
-多台电脑共用一份记忆：每台电脑都留一份完整的本地记忆，检索只查本机（断网照常），各台之间同步变更日志。普通人用 iCloud / Dropbox 之类的同步文件夹，开发者用一个私有 git 仓库，有服务器的连服务器上的 Core——
+**多台电脑共用一份记忆**：每台电脑都保留完整的本地记忆，检索只查本机（断网照常秒回），后台自动同步变更与向量，接收方不调任何模型。支持 3 种同步方式，任选其一：
 
 ```bash
-memhub connect dir "~/Library/Mobile Documents/com~apple~CloudDocs/memhub"
+# 方式一（最推荐）：用私有 Git 仓库保存与同步记忆（自带云端冷备，多机自动合并）
 memhub connect git git@github.com:you/my-memory.git
+
+# 方式二：用网盘同步文件夹（iCloud Drive / Dropbox / OneDrive / Syncthing）
+memhub connect dir "~/Library/Mobile Documents/com~apple~CloudDocs/memhub"
+
+# 方式三：连接自建服务器
 memhub connect ssh user@your-server
 ```
 
-同步交换的是已经裁决好的记忆和压缩向量，接收方不调任何模型。见 [跨工具记忆中枢（Hub）](https://github.com/shibing624/memhub/blob/main/docs/memhub.md) 与 [多设备同步](https://github.com/shibing624/memhub/blob/main/docs/memhub-server.md)。
+详见 [跨工具记忆中枢（Hub）](https://github.com/shibing624/memhub/blob/main/docs/memhub.md) 与 [多设备同步指南](https://github.com/shibing624/memhub/blob/main/docs/memhub-server.md)。
 
 ### 2. 🏆 同一个模型，记得更准、写得更快
 
@@ -57,131 +72,66 @@ memhub connect ssh user@your-server
 | hy-memory 2.0.4 | 66.6 | 70.8 | 43.5 | 2485 |
 | mem0 | 65.6 | 83.3 | 47.9 | 808 |
 
-**三场公开评测都排第一，写入大约是 hy-memory 的五分之一。** 协议、显著性、题型细分和复现命令见 [评测说明](https://github.com/shibing624/memhub/blob/main/docs/benchmarks.md)。
+**三场公开评测全部第一，写入耗时约为 hy-memory 的五分之一。** 评测协议、题型细分和复现命令见 [评测说明](https://github.com/shibing624/memhub/blob/main/docs/benchmarks.md)。
 
 ### 3. 🧠 快慢双系统：当场记事实，事后看规律
 
-`memhub` 的底层记忆引擎采用快慢双系统分层架构：
-
-- **System 1（默认 `mode="system1"`）**：对话进行时实时写入。原话（`L0_RAW`）、事实与意图（`L1_FACT`）、个人画像（`L2_PROFILE`）分层存放，由专用决策模型（JEV）裁决新增、更新与冲突；你改了主意、换了城市或更新了方案，它追加新版本并保留历史，回答默认用最新的。
-- **System 2 / dual（`mode="dual"`，再调用 `digest()`）**：会话告一段落时，跨多条证据聚类归纳行为规律（`schema` / `core_schema`）和长期画像目录（`persona_catalog`，`L3_DERIVED`）。
-
-对应示例：[`examples/02_dual.py`](https://github.com/shibing624/memhub/blob/main/examples/02_dual.py)。
+- **快系统（System 1）**：对话时实时记住你的事实、偏好和状态变化。你改了主意、换了城市或更新了技术方案，它自动用新版本替换旧说法并保留演化历史，回答永远用最新状态。
+- **慢系统（System 2）**：在后台跨多次对话归纳你的长期习惯与行事风格，越用越懂你。
 
 ### 4. 🛠️ 工程排障也能留下来
 
-chat 和 coding 是同一个 `add()` / `search()`。`messages` 里带工具轨迹（`role="tool"` 或 assistant 的 `tool_calls`）、且 JEV 判成工程会话时，除了照常写入的事实和画像，还会抽出可复用的工程经验（`kind="procedure"`：任务、方案、文件、适用边界）。它和对话记忆共用存储、版本链和 JEV 裁决，`search(procedure_limit=3)` 单独返回 `procedures` 组；`dual` 模式下也参与 `digest()` 归纳。用法见 [快速开始 · Coding 记忆](https://github.com/shibing624/memhub/blob/main/docs/getting-started/quickstart.md#coding)。
+修完一个棘手的 Bug、定下一条项目规范，不用手动记笔记。写代码的会话会自动把「问题 → 根因与方案 → 涉及文件」提炼成可复用的工程经验；下次遇到类似报错，直接把之前验证过的解法带出来。
 
-## 安装
+## 安装与配置
 
 ```bash
-pip install memhub
+pip install "memhub[all]"
 ```
 
-含 REST / CLI / MCP / MemHub：`pip install "memhub[all]"`；各 extra 也可以单独装，MCP 基于 mcp 2.x。首次运行会把包内 [`config.default.yaml`](https://github.com/shibing624/memhub/blob/main/memhub/config.default.yaml) 复制成 `~/.memhub/config.yaml`。启动要三把钥匙，缺一就拒绝构造：
+配置 `~/.memhub/config.yaml`（首次运行自动生成），填入模型密钥即可：
 
 ```yaml
-jev_api_key: ""    # 写入裁决。System One，不是 Chat Completions
+jev_api_key: ""    # 写入裁决模型密钥
 jev_endpoint: https://api.typesafe.ai/v1/systemone
 
-llm_api_key: ""    # 抽取与 System 2。OpenAI 兼容，地址可改
+llm_api_key: ""    # 抽取与归纳模型密钥（OpenAI 兼容，地址可改）
 llm_base_url: https://api.openai.com/v1
 
-embed_api_key: ""  # 向量索引与检索。OpenAI 兼容，地址可改
+embed_api_key: ""  # 向量索引与检索密钥（OpenAI 兼容，地址可改）
 embed_base_url: https://api.openai.com/v1
 ```
 
-三把钥匙和三个地址都可以改成环境变量：`MEMHUB_JEV_API_KEY` / `MEMHUB_JEV_ENDPOINT`、`MEMHUB_LLM_API_KEY` / `MEMHUB_LLM_BASE_URL`、`MEMHUB_EMBED_API_KEY` / `MEMHUB_EMBED_BASE_URL`。
+> 详细的安装说明、环境变量与进阶配置见 [安装与配置文档](https://github.com/shibing624/memhub/blob/main/docs/getting-started/installation.md)。
 
-## 快速开始
+## 开发者接入（Python SDK / Agent 框架 / MCP / REST）
 
-### 日常记忆
+想在自己的应用或 Agent 里直接集成 `memhub`？请看开发者文档：
 
-```python
-from memhub import SyncMemoryClient
-
-with SyncMemoryClient() as memory:
-    memory.add(content="我住在上海，最近开始不吃辣了。", user_id="alice")
-    memory.add(content="下个月我要搬去北京工作。", user_id="alice")
-
-    res = memory.search(query="给 alice 推荐一家餐厅", user_id="alice")
-    for m in res.memories.profile + res.memories.normal:
-        print(m.content)
-```
-
-它会记住 alice 不吃辣、即将搬去北京，并且知道「上海」已经是过去时。
-
-### Coding 记忆
-
-不需要开关，也没有第二个检索入口。`messages` 里出现工具轨迹（某条是 `role="tool"`，或者 assistant 带了 `tool_calls`）是结构条件；接着 JEV 判断整段是不是工程会话，是才另外抽出 `task` / `solution` / `files`，作为 `kind="procedure"` 的 L1 记忆。L0_RAW、procedure 抽取和 JEV 裁决都只看用户请求与最终回答；工具调用只用来提取涉及的 `files`，工具输出不进入任何模型。同一段会话里用户顺口说的偏好（例如「我习惯用 uv」）照常进事实和画像。
-
-把几个 `.py` 文件的正文放进 `add(content=...)` 或普通 user 消息，没有工具轨迹，只走 chat 记忆。
-
-```python
-from memhub import SyncMemoryClient
-
-with SyncMemoryClient() as memory:
-    memory.add(
-        messages=[
-            {"role": "user", "content": "高并发写入 SQLite 偶发 database is locked，帮我排查。"},
-            {
-                "role": "assistant",
-                "content": "我先读取存储层代码查看事务开启方式。",
-                "tool_calls": [{"id": "t1", "name": "read_file", "arguments": {"path": "app/db.py"}}],
-            },
-            {
-                "role": "tool",
-                "tool_call_id": "t1",
-                "content": "conn = sqlite3.connect(db_path, timeout=5.0)  # default DEFERRED transaction",
-            },
-            {
-                "role": "assistant",
-                "content": "原因：DEFERRED 事务先读后写，升级写锁时若另一连接已持有写锁，SQLite 直接返回 SQLITE_BUSY 而不等待 timeout。改为 BEGIN IMMEDIATE 提前获取写锁，并将 timeout 调至 30s。",
-            },
-        ],
-        user_id="alice",
-        workspace_id="~/code/app",  # procedure 的版本边界，可省略
-    )
-
-    res = memory.search(
-        query="SQLite 并发写入报 database is locked 怎么解决",
-        user_id="alice",
-        procedure_limit=3,  # 默认 0：chat 检索结果和以前完全一样
-    )
-    for m in res.memories.procedures:
-        print(m.procedure.task, "->", m.procedure.solution, m.procedure.files)
-```
-
-### 示例
-
-两条最值得看的：[`examples/02_dual.py`](https://github.com/shibing624/memhub/blob/main/examples/02_dual.py) 是 `digest()` 归纳 L3，[`examples/06_coding_memory.py`](https://github.com/shibing624/memhub/blob/main/examples/06_coding_memory.py) 是工具轨迹写入、方案演化和 `procedures` 组检索。REST、CLI、生命周期在 [`examples/`](https://github.com/shibing624/memhub/tree/main/examples) 目录里。异步客户端见 [快速开始](https://github.com/shibing624/memhub/blob/main/docs/getting-started/quickstart.md)。
+- **Python SDK 快速开始**（日常对话记忆、Coding 工程经验、同步/异步客户端）：[快速开始](https://github.com/shibing624/memhub/blob/main/docs/getting-started/quickstart.md)
+- **Agent 框架集成**（Agentica、Claude Code Hook、Hermes、OpenClaw）：[生态集成](https://github.com/shibing624/memhub/blob/main/docs/integrations.md)
+- **MCP 与 REST API 服务**：[MCP / REST 接入](https://github.com/shibing624/memhub/blob/main/docs/mcp_integration.md)
+- **可运行端到端示例**：[`examples/`](https://github.com/shibing624/memhub/tree/main/examples)
 
 ## 功能特性
 
-**记忆**
-
-- **版本演化** — 「住上海 → 搬北京」是一次更新，旧版本留作历史，回答默认用最新的
-- **分层存放** — 原话（L0）、事实与意图（L1）、画像（L2）、跨证据规律（L3）分开，按需取用
-- **决策模型(Jev)把关写入** — 新信息、重复，还是更新，由轻量模型判断
-- **原话可查** — 整理过的记忆之外，原始对话始终保留
-
-**接入**
-
-- **跨工具记忆中枢（Hub）** — `memhub install-service`、`memhub install-host all`、`memhub ui`、`memhub connect`
-- **Python SDK** — `pip install memhub`（`MemoryClient` / `SyncMemoryClient`）
-- **MCP / REST / CLI** — `memhub-mcp`、`memhub serve-api`、`memhub add` / `memhub search`
-- **框架插件** — Agentica、Claude Code Hook、Hermes、OpenClaw，见 [集成文档](https://github.com/shibing624/memhub/blob/main/docs/integrations.md)
+- **多工具共享与多端同步** — 8 种 AI 工具共用本地记忆，支持通过私有 Git 仓库、网盘文件夹或自建服务器跨设备同步
+- **浏览器可视化管理** — `memhub ui` 按项目和类型浏览、语义搜索、在线编辑（自动重算向量并同步）与删除记忆
+- **版本演化** — 「住上海 → 搬北京」自动更新版本，旧版本留作历史，回答默认用最新的
+- **分层存放** — 原始对话（L0）、事实与工程经验（L1）、个人画像（L2）、跨证据规律（L3）分层管理，按需召回
+- **专用决策模型把关** — 新信息、重复还是更新，由轻量决策模型（JEV）精准裁决
 
 ## Roadmap
 
 - [x] System 1 分层记忆 + 版本演化
-- [x] dual / System 2：显式 `digest()` 归纳 L3
+- [x] System 2：跨证据归纳长期规律与画像目录（L3）
 - [x] 专用决策模型把关写入
-- [x] 跨工具记忆中枢：8 个 AI 工具（Claude Code / Codex / Cursor / Hermes / Agentica / CodeBuddy / OpenCode / WorkBuddy）共享记忆、历史会话导入、后台整理
-- [x] 多设备同步：每台本地检索、离线可用，经同步文件夹 / git / 服务器交换变更
-- [x] chat 与 coding 统一：工程会话沉淀 procedure 经验，`dual` 也归纳工程习惯
+- [x] 跨工具记忆中枢：8 个 AI 工具（Claude Code / Codex / Cursor / Agentica / Hermes / CodeBuddy / OpenCode / WorkBuddy）共享记忆、历史会话导入、后台整理
+- [x] 多设备同步：每台本地检索、离线可用，经私有 Git 仓库 / 同步文件夹 / 服务器交换变更
+- [x] 工程排障经验自动沉淀与按项目召回
 - [x] LoCoMo / LongMemEval / PersonaMem-v2 同场评测领先
 - [x] 记忆可视化管理：`memhub ui` 按项目查看、搜索、编辑、删除记忆
+- [ ] 接入更多工具：Gemini CLI、Windsurf、Trae 等，目标 10+ 种
 - [ ] 云端 HTTP MCP：远程 Agent 直接连接托管记忆
 - [ ] 多跳推理类问题的检索增强（LoCoMo multi-hop 仍有提升空间）
 - [ ] 补充更多公开评测（CodeMemoryBench 等，待数据公开）
@@ -190,16 +140,16 @@ with SyncMemoryClient() as memory:
 
 ## News
 
-- [2026/11/02] **v0.2.2**：项目与 PyPI 包名正式升级为 **`memhub`**（`pip install memhub`、`import memhub`、CLI `memhub`、配置 `~/.memhub/config.yaml`、默认存储 `./.memhub_data`），所有 Hub 命令提升为 `memhub` 一级子命令（`memhub install-service`、`memhub install-host`、`memhub ui`、`memhub connect` 等，独立多租户 REST 服务为 `memhub serve-api`）。新增本机可视化管理页 `memhub ui`（按项目浏览、混合检索、编辑生成新版本、删除同步）；新增支持 CodeBuddy、OpenCode、WorkBuddy（共 8 种宿主工具）；同步目标升级为 float16 向量压缩 + 快照折叠（不再无限增长）；每轮召回按项目限定并只截取相关对话段落，离线评测达到 35/36。详见 [Release-v0.2.2](https://github.com/shibing624/memhub/releases/tag/v0.2.2)。
-- [2026/11/01] **v0.2.1**：多设备改为每台电脑本地检索，用网盘文件夹、私有 git 仓库或服务器交换变更日志，删掉了常驻 SSH 隧道。模型配置与 Hub 目录统一。工程记忆只保留问题和最终回答，工具输出不再送进模型。自动归纳改为一天最多一次。详见 [Release-v0.2.1](https://github.com/shibing624/memhub/releases/tag/v0.2.1)。
-- [2026/10/24] **v0.2.0**：chat 与 coding 统一成同一套 `add()` / `search()`。带工具轨迹的工程会话在对话记忆之外沉淀 `kind="procedure"` 工程经验，共用存储、版本链和 JEV 裁决，`search(procedure_limit=3)` 单独返回 `procedures` 组；`dual` 的 `digest()` 也覆盖工程经验。删除 `search_coding` 与独立的 coding 库。chat 路径的 prompt、裁决与召回不变。采集 Claude Code / Codex / Agentica 的工具轨迹，dual 模式空闲时自动 digest；MCP 迁移到 mcp 2.x；`install-host` 改写 YAML 时保留注释。详见 [Release-v0.2.0](https://github.com/shibing624/memhub/releases/tag/v0.2.0)。
+- [2026/11/02] **v0.2.2**：项目与 PyPI 包名正式升级为 **`memhub`**（`pip install memhub`、`import memhub`、CLI `memhub`、配置 `~/.memhub/config.yaml`），所有 Hub 命令提升为 `memhub` 一级子命令（`memhub install-service`、`memhub install-host`、`memhub ui`、`memhub connect` 等）。新增本机可视化管理页 `memhub ui`（按项目浏览、混合检索、编辑生成新版本、删除同步）；新增支持 CodeBuddy、OpenCode、WorkBuddy（共 8 种宿主工具）；同步目标升级为 float16 向量压缩 + 快照折叠（不再无限增长）；每轮召回按项目限定并只截取相关对话段落，离线评测达到 35/36。详见 [Release-v0.2.2](https://github.com/shibing624/memhub/releases/tag/v0.2.2)。
+- [2026/11/01] **v0.2.1**：多设备改为每台电脑本地检索，用私有 git 仓库、网盘文件夹或服务器交换变更日志，删掉了常驻 SSH 隧道。模型配置与 Hub 目录统一。工程记忆只保留问题和最终回答，工具输出不再送进模型。自动归纳改为一天最多一次。详见 [Release-v0.2.1](https://github.com/shibing624/memhub/releases/tag/v0.2.1)。
+- [2026/10/24] **v0.2.0**：chat 与 coding 统一成同一套 `add()` / `search()`。带工具轨迹的工程会话在对话记忆之外沉淀 `kind="procedure"` 工程经验，共用存储、版本链和 JEV 裁决；`dual` 的 `digest()` 也覆盖工程经验。采集 Claude Code / Codex / Agentica 的工具轨迹，dual 模式空闲时自动 digest；`install-host` 改写 YAML 时保留注释。详见 [Release-v0.2.0](https://github.com/shibing624/memhub/releases/tag/v0.2.0)。
 
 <details>
 <summary>更早版本</summary>
 
-- [2026/10/23] **v0.1.5**：修复 Coding 记忆接真实模型时写不进去的问题。抽取改为返回 `{"candidates": [...]}` 对象，适配默认 `llm_json_mode`；去掉 coverage 硬门槛；同一批写入可以覆盖同一条旧方案；裁决只看当前版本边界内的记录；同一用户的并发写入按 scope 串行。快速上手补充 Coding 记忆章节，`examples/06_coding_memory.py` 增加方案更新后只返回当前版本的示例。详见 [Release-v0.1.5](https://github.com/shibing624/memhub/releases/tag/v0.1.5)。
-- [2026/10/23] **v0.1.4**：新增本地单 Core 跨工具记忆中枢（支持 Claude Code / Codex / Cursor / Hermes / Agentica 会话增量导入、后台持久队列写入、开机自启与云端隧道连接）；升级 System 2 v3 聚类认知与版本桥召回；补充 Coding 记忆示例并精简无收益配置项；在 LoCoMo（74.7）、LongMemEval（91.7）、PersonaMem-v2（50.0）同场评测中全面领先 hy-memory 2.0.4 与 mem0。详见 [Release-v0.1.4](https://github.com/shibing624/memhub/releases/tag/v0.1.4)。
-- [2026/10/15] **v0.1.3**：升级为 L0_RAW / L1_FACT / L2_PROFILE / L3_DERIVED 四层记忆架构与 JEV 专用决策模型写路径，支持 target-first 关系裁决、版本演化链与历史回溯；新增 Agentica / Claude Code / Hermes / OpenClaw 原生生态集成与 Coding 记忆子系统（存储格式不兼容旧版，需使用新目录）。详见 [Release-v0.1.3](https://github.com/shibing624/memhub/releases/tag/v0.1.3)。
+- [2026/10/23] **v0.1.5**：修复 Coding 记忆接真实模型时写不进去的问题。抽取改为返回 `{"candidates": [...]}` 对象；去掉 coverage 硬门槛；同一批写入可以覆盖同一条旧方案；裁决只看当前版本边界内的记录；同一用户的并发写入按 scope 串行。详见 [Release-v0.1.5](https://github.com/shibing624/memhub/releases/tag/v0.1.5)。
+- [2026/10/23] **v0.1.4**：新增本地单 Core 跨工具记忆中枢（支持 Claude Code / Codex / Cursor / Hermes / Agentica 会话增量导入、后台持久队列写入、开机自启）；升级 System 2 v3 聚类认知与版本桥召回；在 LoCoMo（74.7）、LongMemEval（91.7）、PersonaMem-v2（50.0）同场评测中全面领先 hy-memory 2.0.4 与 mem0。详见 [Release-v0.1.4](https://github.com/shibing624/memhub/releases/tag/v0.1.4)。
+- [2026/10/15] **v0.1.3**：升级为四层记忆架构与 JEV 专用决策模型写路径，支持 target-first 关系裁决、版本演化链与历史回溯；新增 Agentica / Claude Code / Hermes / OpenClaw 原生生态集成与 Coding 记忆子系统。详见 [Release-v0.1.3](https://github.com/shibing624/memhub/releases/tag/v0.1.3)。
 - [2026/06/20] **v0.1.2**：新增 `SyncMemoryClient` 同步客户端封装，支持首次运行自动生成默认配置，完善 REST / MCP / CLI 统一契约与在线文档站点。详见 [Release-v0.1.2](https://github.com/shibing624/memhub/releases/tag/v0.1.2)。
 - [2026/06/19] **v0.1.1**：发布双系统分层记忆 SDK，支持语义 + BM25 + RRF 混合检索及 CLI / REST / MCP 接口。详见 [Release-v0.1.1](https://github.com/shibing624/memhub/releases/tag/v0.1.1)。
 - [2026/06/18] **v0.1.0**：首版开源。
@@ -214,19 +164,15 @@ with SyncMemoryClient() as memory:
 
 | 文档 | 内容 |
 |---|---|
-| [安装与配置](https://github.com/shibing624/memhub/blob/main/docs/getting-started/installation.md) | extras、配置文件、凭证与优先级 |
-| [快速开始](https://github.com/shibing624/memhub/blob/main/docs/getting-started/quickstart.md) | 同步 / 异步客户端、Coding 记忆、多轮写入、Agent 集成 |
-| [跨工具记忆中枢（Hub）](https://github.com/shibing624/memhub/blob/main/docs/memhub.md) | 本地 Core、8 个宿主接入、历史会话导入、`memhub ui` |
-| [多设备同步](https://github.com/shibing624/memhub/blob/main/docs/memhub-server.md) | `dir` / `git` / `ssh` / `http` 变更日志复制，每台本地检索 |
-| [生态集成](https://github.com/shibing624/memhub/blob/main/docs/integrations.md) | Agentica / Claude Code / Hermes / OpenClaw |
-| [MCP / REST](https://github.com/shibing624/memhub/blob/main/docs/mcp_integration.md) | 工具 ↔ HTTP ↔ SDK 对照 |
+| [跨工具记忆中枢（Hub）](https://github.com/shibing624/memhub/blob/main/docs/memhub.md) | 8 个宿主工具接入、历史会话导入、`memhub ui` 可视化管理 |
+| [多设备同步](https://github.com/shibing624/memhub/blob/main/docs/memhub-server.md) | 私有 `git` 仓库 / 网盘 `dir` / `ssh` / `http` 同步，每台本地检索 |
+| [安装与配置](https://github.com/shibing624/memhub/blob/main/docs/getting-started/installation.md) | 安装方式、配置文件、环境变量与优先级 |
+| [SDK 快速开始](https://github.com/shibing624/memhub/blob/main/docs/getting-started/quickstart.md) | Python 同步 / 异步客户端、Coding 记忆、多轮写入 |
+| [生态集成](https://github.com/shibing624/memhub/blob/main/docs/integrations.md) | Agentica / Claude Code / Hermes / OpenClaw 接入 |
+| [MCP / REST](https://github.com/shibing624/memhub/blob/main/docs/mcp_integration.md) | MCP 工具与 HTTP REST 接口对照 |
 | [评测说明](https://github.com/shibing624/memhub/blob/main/docs/benchmarks.md) | 协议、题集、复现与结果细分 |
-| [架构说明](https://github.com/shibing624/memhub/blob/main/docs/architecture.md) | 可选阅读：SDK 与各接入层的关系、存储 |
-| [四层记忆](https://github.com/shibing624/memhub/blob/main/docs/memory_layers.md) | 可选阅读：L0 原文 / L1 事实 / L2 画像 / L3 推导 |
-| [写入决策设计](https://github.com/shibing624/memhub/blob/main/docs/jev-memory-design.md) | 可选阅读：决策模型动作与关系、版本链 |
 | [示例说明](https://github.com/shibing624/memhub/blob/main/examples/README.md) | 6 个可运行的端到端示例脚本说明 |
-
-本地预览：`pip install -r requirements-docs.txt && mkdocs serve`
+| [架构与设计原理](https://github.com/shibing624/memhub/blob/main/docs/architecture.md) | 可选阅读：[架构说明](https://github.com/shibing624/memhub/blob/main/docs/architecture.md) · [四层记忆](https://github.com/shibing624/memhub/blob/main/docs/memory_layers.md) · [写入决策设计](https://github.com/shibing624/memhub/blob/main/docs/jev-memory-design.md) |
 
 ## 社区与支持
 

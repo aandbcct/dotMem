@@ -6,14 +6,22 @@ JEV 凭据用 yaml 的 jev_api_key，或环境变量 MEMHUB_JEV_API_KEY / MEMHUB
 """
 import os
 import shutil
+import sys
 from pathlib import Path
 
 import yaml
 
+EXAMPLES_DIR = Path(__file__).resolve().parent
+REPO_ROOT = EXAMPLES_DIR.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+_py_paths = [p for p in os.environ.get("PYTHONPATH", "").split(os.pathsep) if p]
+if str(REPO_ROOT) not in _py_paths:
+    os.environ["PYTHONPATH"] = os.pathsep.join([str(REPO_ROOT), *_py_paths])
+
 from memhub.config import DEFAULT_CONFIG_PATH, Settings, config_path
 from memhub.sdk_models import MemoryItem, SearchMemories, WriteResult
 
-EXAMPLES_DIR = Path(__file__).resolve().parent
 DATA_ROOT = EXAMPLES_DIR / ".data"
 
 
