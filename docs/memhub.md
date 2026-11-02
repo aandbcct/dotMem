@@ -44,6 +44,7 @@ dual-mem hub scan --source all
 ```bash
 dual-mem hub recall "我之前做过哪些技术选择"
 dual-mem hub status
+dual-mem hub ui        # 在浏览器里按项目浏览、搜索、编辑、删除记忆
 ```
 
 > 自启服务不继承 shell 环境变量，模型 API key 请写在 `~/.dual-mem/config.yaml`。
@@ -117,6 +118,7 @@ dual-mem hub connect git git@github.com:<你的用户名>/my-vibecoding-memory.g
 | 快速导入、稍后再整理 | `dual-mem hub scan --source all --raw-only`，之后 `dual-mem hub extract` |
 | 重试失败的整理任务 | `dual-mem hub retry` |
 | 立刻跨设备同步一次 | `dual-mem hub sync` |
+| 查看、搜索、编辑、删除记忆 | `dual-mem hub ui` |
 | 重启 Core | 再执行一次 `dual-mem hub install-service` |
 | 停止开机自启 | `dual-mem hub uninstall-service` |
 

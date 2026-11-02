@@ -8,6 +8,7 @@ import json
 import logging
 import subprocess
 import sys
+import webbrowser
 from collections import Counter
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -29,6 +30,7 @@ from dual_mem.memhub.config import (
     hub_root,
     hub_settings,
     load_sync_config,
+    resolve_hub_config,
     runtime_status,
     save_sync_config,
 )
@@ -351,6 +353,20 @@ def hub_status(hub_dir: str | None = HubDir) -> None:
         }
     )
     _echo(data)
+
+
+@hub_app.command("ui")
+def hub_ui(
+    no_open: bool = typer.Option(False, "--no-open", help="只打印地址，不打开浏览器"),
+    hub_dir: str | None = HubDir,
+) -> None:
+    """在浏览器里按项目查看、搜索、编辑、删除记忆（页面由本机 Core 提供）。"""
+    cfg = resolve_hub_config(hub_dir)
+    # The token rides in the fragment: it never reaches a server log or a referer.
+    url = f"{cfg.base_url}/ui#token={cfg.api_key}"
+    typer.echo(f"{cfg.base_url}/ui")
+    if not no_open:
+        webbrowser.open(url)
 
 
 @hub_app.command("install-host")

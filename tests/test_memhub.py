@@ -1397,3 +1397,115 @@ def test_hook_install_replaces_hooks_written_as_cli_main(tmp_path: Path) -> None
     assert old not in commands
     ours = [c for c in commands if "-m dual_mem.cli" in c]
     assert len(ours) == 1 and "-m dual_mem.cli hub" in ours[0]
+
+
+async def test_memory_browser_groups_by_project_and_edits_through_versions(
+    tmp_path: Path, fake_embed
+) -> None:
+    """``/v1/hub/memories`` gives each memory its project; edit and delete keep history."""
+    from conftest import FakeJev, FakeLLMClient
+
+    candidate = {"task": "How to fix the flaky race in setup",
+                 "solution": "Serialize fixture setup with a lock", "search_keys": []}
+    core = MemoryClient(
+        settings=Settings(storage_dir=str(tmp_path / "hub" / "store"), mode="system1"),
+        embed=fake_embed,
+        llm=FakeLLMClient({
+            "json": {"candidates": [candidate]},
+            "extract": lambda system, user: {
+                "facts": [{"content": f"记录：{user[:40]}", "tags": []}],
+                "identity": [], "intentions": [], "is_ephemeral": False,
+                "basic_info": {},
+            },
+        }),
+        jev=FakeJev({"scene": "CODING"}),
+    )
+    app = create_hub_app(api_key="secret", hub_dir=tmp_path / "hub", client=core,
+                         settings=core.settings)
+    async with app.router.lifespan_context(app):
+        transport = httpx.ASGITransport(app=app)
+        async with HubClient(base_url="http://hub", api_key="secret",
+                             transport=transport) as remote:
+            coding = await remote.write(
+                messages=[
+                    {"role": "user", "content": "fix the flaky test"},
+                    {"role": "assistant", "content": "", "tool_calls": [
+                        {"id": "t", "type": "function",
+                         "function": {"name": "Bash", "arguments": "{}"}}]},
+                    {"role": "tool", "tool_call_id": "t", "content": "race in setup"},
+                    {"role": "assistant", "content": "fixed"},
+                ],
+                session_id="codex:s1", request_id="r1", wait=True,
+                workspace_id="/w/repo", branch="main",
+            )
+            chat = await remote.write(
+                messages=[{"role": "user", "content": "随便聊聊"},
+                          {"role": "assistant", "content": "好"}],
+                session_id="agentica:s2", request_id="r2", wait=True,
+            )
+            rows = (await remote.relay("GET", "/v1/hub/memories"))["memories"]
+            by_id = {row["id"]: row for row in rows}
+            proc_id = coding["result"]["procedure_ids"][0]
+            coding_raw = coding["result"]["memory_id"]
+            chat_raw = chat["result"]["memory_id"]
+            # The procedure carries the workspace; its dialogue and the facts
+            # extracted from that dialogue inherit it through source_ids.
+            assert by_id[proc_id]["project"] == "/w/repo"
+            assert by_id[proc_id]["procedure"]["task"] == candidate["task"]
+            assert by_id[coding_raw]["project"] == "/w/repo"
+            assert by_id[coding_raw]["source"] == "codex"
+            coding_facts = [r for r in rows if r["kind"] == "fact"
+                            and r["source_ids"] == [coding_raw]]
+            assert coding_facts and all(r["project"] == "/w/repo" for r in coding_facts)
+            assert by_id[chat_raw]["project"] == ""
+            assert [r for r in rows if r["source_ids"] == [chat_raw]]
+            assert all(r["project"] == "" for r in rows if r["source_ids"] == [chat_raw])
+
+            edited = await remote.relay("PUT", f"/v1/hub/memories/{proc_id}",
+                                        {"content": "Use a session-scoped lock"})
+            rows = (await remote.relay("GET", "/v1/hub/memories"))["memories"]
+            by_id = {row["id"]: row for row in rows}
+            new = by_id[edited["memory_id"]]
+            assert new["is_latest"] and new["supersedes"] == [proc_id]
+            assert new["procedure"]["solution"] == "Use a session-scoped lock"
+            assert new["procedure"]["task"] == candidate["task"]
+            assert new["project"] == "/w/repo"
+            old = by_id[proc_id]
+            assert not old["is_latest"] and not old["deleted"]
+            assert old["superseded_by"] == [new["id"]]
+
+            fact_id = coding_facts[0]["id"]
+            await remote.relay("DELETE", f"/v1/hub/memories/{fact_id}")
+            rows = (await remote.relay("GET", "/v1/hub/memories"))["memories"]
+            gone = next(r for r in rows if r["id"] == fact_id)
+            assert not gone["is_latest"] and gone["deleted"]
+
+            with pytest.raises(httpx.HTTPStatusError) as stale:
+                await remote.relay("PUT", f"/v1/hub/memories/{proc_id}", {"content": "x"})
+            assert stale.value.response.status_code == 409
+            with pytest.raises(httpx.HTTPStatusError) as missing:
+                await remote.relay("DELETE", "/v1/hub/memories/nope")
+            assert missing.value.response.status_code == 404
+
+        async with httpx.AsyncClient(base_url="http://hub", transport=transport) as anon:
+            assert (await anon.get("/v1/hub/memories")).status_code == 401
+            page = await anon.get("/ui")
+            assert page.status_code == 200
+            # The page holds no data; it reads the token from its own URL.
+            assert "/v1/hub/memories" in page.text and "secret" not in page.text
+    await core.aclose()
+
+
+def test_hub_ui_opens_the_page_with_the_token_in_the_fragment(
+    tmp_path: Path, monkeypatch
+) -> None:
+    opened: list[str] = []
+    monkeypatch.setattr(
+        cli_hub, "resolve_hub_config",
+        lambda _dir: SimpleNamespace(base_url="http://127.0.0.1:8765", api_key="tok"),
+    )
+    monkeypatch.setattr(cli_hub.webbrowser, "open", opened.append)
+    result = runner.invoke(cli_hub.hub_app, ["ui", "--hub-dir", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+    assert result.output.strip() == "http://127.0.0.1:8765/ui"
+    assert opened == ["http://127.0.0.1:8765/ui#token=tok"]

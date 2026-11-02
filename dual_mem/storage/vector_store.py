@@ -684,6 +684,15 @@ class ChromaVectorStore(VectorStore):
             for entry in entries:
                 if entry["origin"] == self.origin:
                     continue
+                try:
+                    data = _unpacked(entry["kind"], entry["data"])
+                except (TypeError, ValueError) as exc:
+                    raise ValueError(
+                        f"log entry {entry['origin']}/{entry['seq']} is not in the "
+                        "current sync format (vectors must be packed): that device "
+                        "runs an older dual-mem. Upgrade it, delete its log/"
+                        f"{entry['origin']}/ from the target, and it pushes again"
+                    ) from exc
                 with self._journal:
                     cursor = self._journal.execute(
                         "INSERT OR IGNORE INTO log(origin,seq,kind,body,applied) "
@@ -692,9 +701,7 @@ class ChromaVectorStore(VectorStore):
                             entry["origin"],
                             entry["seq"],
                             entry["kind"],
-                            json.dumps(
-                                _unpacked(entry["kind"], entry["data"]), ensure_ascii=False
-                            ),
+                            json.dumps(data, ensure_ascii=False),
                         ),
                     )
                 received += cursor.rowcount

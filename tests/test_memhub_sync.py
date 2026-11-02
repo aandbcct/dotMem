@@ -540,7 +540,7 @@ def test_vectors_travel_as_float16_and_keep_their_direction(tmp_path):
     b.import_log([entry])
     assert b.get("v").embedding == pytest.approx(vec, abs=1e-3)
     # Decimal text vectors are no longer accepted on the wire.
-    with pytest.raises(Exception):
+    with pytest.raises(ValueError, match="o/1 is not in the current sync format"):
         store(tmp_path / "c").import_log([{**entry, "seq": 1, "origin": "o",
                                            "data": [{**entry["data"][0], "embedding": vec}]}])
 

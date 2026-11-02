@@ -67,7 +67,7 @@ dual-mem-hook = "dual_mem.integrations.claude_code:main"
 include = ["dual_mem*"]
 
 [tool.setuptools.package-data]
-dual_mem = ["config.default.yaml"]
+dual_mem = ["config.default.yaml", "memhub/ui.html"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

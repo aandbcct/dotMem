@@ -19,13 +19,14 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
 from dual_mem import __version__
 from dual_mem.client import MemoryClient
 from dual_mem.config import Settings
 from dual_mem.errors import IdempotencyConflictError
+from dual_mem.memhub.browse import browse_rows
 from dual_mem.memhub.config import (
     SyncConfig,
     hub_root,
@@ -73,6 +74,13 @@ class HubLogExport(BaseModel):
 
 class HubLogImport(BaseModel):
     entries: list[dict]
+
+
+class HubMemoryEdit(BaseModel):
+    content: str
+
+
+UI_PAGE = Path(__file__).with_name("ui.html")
 
 
 class HubProcessLock:
@@ -393,6 +401,47 @@ def create_hub_app(
     def embed_identity() -> dict[str, Any]:
         resolved = app.state.client.settings
         return {"model": resolved.embed_model, "dim": resolved.embed_dim}
+
+    @app.get("/ui", response_class=HTMLResponse)
+    async def ui():
+        """The memory browser; it calls the API below with the token from its URL."""
+        return UI_PAGE.read_text(encoding="utf-8")
+
+    @app.get("/v1/hub/memories", dependencies=[Depends(verify)])
+    async def list_memories():
+        """Every version in the Hub scope, newest first, with project and host."""
+        core_client: MemoryClient = app.state.client
+        nodes = await asyncio.to_thread(
+            core_client.factory.vector.get_many,
+            build_filter(
+                app_ids=[core_client.settings.default_app_id],
+                user_id=HUB_USER_ID,
+                agent_ids=[""],
+                statuses=[MemoryStatus.ACTIVE],
+            ),
+            None,
+        )
+        return {"memories": browse_rows(nodes)}
+
+    def changed(result) -> dict[str, Any]:
+        if not result.success:
+            detail = {404: "memory not found", 409: "memory is not the current version"}
+            raise HTTPException(
+                status_code=result.error_code, detail=detail[result.error_code]
+            )
+        if app.state.syncer is not None:
+            app.state.syncer.kick()
+        return result.to_dict()
+
+    @app.put("/v1/hub/memories/{memory_id}", dependencies=[Depends(verify)])
+    async def edit_memory(memory_id: str, body: HubMemoryEdit):
+        """A user correction: a new current version; the old one stays as history."""
+        return changed(await app.state.client.update(memory_id, body.content))
+
+    @app.delete("/v1/hub/memories/{memory_id}", dependencies=[Depends(verify)])
+    async def delete_memory(memory_id: str):
+        """Retire the current version; it stays in the history."""
+        return changed(await app.state.client.delete(memory_id))
 
     @app.get("/v1/hub/log/heads", dependencies=[Depends(verify)])
     async def log_heads():
