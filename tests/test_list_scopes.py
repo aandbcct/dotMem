@@ -1,7 +1,7 @@
 import pytest
 
-from dual_mem import MemoryClient
-from dual_mem.config import Settings
+from memhub import MemoryClient
+from memhub.config import Settings
 
 
 async def test_list_scopes(tmp_storage, fake_embed, fake_llm):

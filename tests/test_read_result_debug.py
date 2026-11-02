@@ -1,8 +1,8 @@
 """R7: ReadResult 暴露 — debug=True 走 reader.search(collect_trace=True) 返回完整 trace。"""
 
-from dual_mem.client import MemoryClient
-from dual_mem.config import Settings
-from dual_mem.types import Layer, MemoryNode, MemoryStatus
+from memhub.client import MemoryClient
+from memhub.config import Settings
+from memhub.types import Layer, MemoryNode, MemoryStatus
 
 from conftest import FakeLLMClient
 

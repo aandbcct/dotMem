@@ -1,4 +1,4 @@
-import dual_mem.agent.prompts as prompts
+import memhub.agent.prompts as prompts
 
 
 def test_extract_prompts_format():

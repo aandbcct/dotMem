@@ -1,7 +1,7 @@
-from dual_mem.retrieval.bm25 import (
+from memhub.retrieval.bm25 import (
     compute_bm25_confidences, compute_bm25_scores, score_and_rank, tokenize,
 )
-from dual_mem.retrieval.rrf import rrf_fuse
+from memhub.retrieval.rrf import rrf_fuse
 
 
 def test_tokenize_mixed():

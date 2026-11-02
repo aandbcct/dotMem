@@ -1,4 +1,4 @@
-# dual-mem
+# memhub
 
 **当场记下事实，事后看出规律。** System 1 在对话里写下事实和变化，dual（System 2）再把它们归纳成稳定规律。
 
@@ -20,11 +20,11 @@
 ## 三行代码
 
 ```bash
-pip install dual-mem
+pip install memhub
 ```
 
 ```python
-from dual_mem import SyncMemoryClient
+from memhub import SyncMemoryClient
 
 with SyncMemoryClient() as memory:
     memory.add(content="我住在上海，最近开始不吃辣了。", user_id="alice")

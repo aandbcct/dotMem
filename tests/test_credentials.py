@@ -1,12 +1,12 @@
 """Tests for credential validation in MemoryClient.
 
-dual-mem requires LLM, embedding, and JEV API keys; missing credentials raise on construction.
+memhub requires LLM, embedding, and JEV API keys; missing credentials raise on construction.
 Injected ``embed=`` / ``llm=`` / ``jev=`` clients bypass the api_key check.
 """
 import pytest
 
-from dual_mem.client import MemoryClient, MissingCredentialsError
-from dual_mem.config import Settings
+from memhub.client import MemoryClient, MissingCredentialsError
+from memhub.config import Settings
 
 from conftest import FakeLLMClient
 

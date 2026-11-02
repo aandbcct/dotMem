@@ -1,8 +1,8 @@
 """Structured messages input is normalized and sent intact to L0_RAW and the extractor."""
 
-from dual_mem.client import MemoryClient, _format_dialogue, _normalize_messages
-from dual_mem.config import Settings
-from dual_mem.sdk_models import ChatMessage
+from memhub.client import MemoryClient, _format_dialogue, _normalize_messages
+from memhub.config import Settings
+from memhub.sdk_models import ChatMessage
 
 from conftest import FakeLLMClient
 

@@ -1,7 +1,7 @@
 import pytest
 from conftest import FakeJev, FakeLLMClient
-from dual_mem import MemoryClient
-from dual_mem.config import Settings
+from memhub import MemoryClient
+from memhub.config import Settings
 
 
 @pytest.mark.parametrize(

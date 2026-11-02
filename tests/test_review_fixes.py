@@ -2,10 +2,10 @@
 
 import pytest
 
-from dual_mem.client import MemoryClient
-from dual_mem.config import Settings
-from dual_mem.locks import LockRegistry
-from dual_mem.types import Layer, MemoryNode, MemoryStatus
+from memhub.client import MemoryClient
+from memhub.config import Settings
+from memhub.locks import LockRegistry
+from memhub.types import Layer, MemoryNode, MemoryStatus
 
 from conftest import FakeLLMClient, FakeJev
 
@@ -50,7 +50,7 @@ async def test_lock_registry_never_evicts_a_held_lock():
 
 async def test_reconcile_excludes_given_node_ids(tmp_storage, fake_embed):
     """The just-written originals must not appear as 'existing' candidates."""
-    from dual_mem.agent.reconciler import Reconciler
+    from memhub.agent.reconciler import Reconciler
 
     settings = Settings(mode="system1", storage_dir=tmp_storage)
     client = MemoryClient(

@@ -2,7 +2,7 @@ import httpx
 import pytest
 import respx
 
-from dual_mem.providers.llm import (
+from memhub.providers.llm import (
     LLMClient,
     TRUNC_MARKER,
     chunk_text_for_llm,
@@ -11,7 +11,7 @@ from dual_mem.providers.llm import (
     merge_extract_results,
     truncate_middle,
 )
-from dual_mem.providers.usage import UsageEvent
+from memhub.providers.usage import UsageEvent
 
 
 def _make_client():

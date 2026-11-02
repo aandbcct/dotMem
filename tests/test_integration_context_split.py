@@ -2,9 +2,9 @@
 
 import asyncio
 
-from dual_mem import MemoryClient
-from dual_mem.config import Settings
-from dual_mem.integrations._base import (
+from memhub import MemoryClient
+from memhub.config import Settings
+from memhub.integrations._base import (
     MEMORY_TOOLS_GUIDE,
     MemoryBackend,
     RenderedMemoryContext,
@@ -12,8 +12,8 @@ from dual_mem.integrations._base import (
     format_profile_block,
     format_topic_catalog,
 )
-from dual_mem.sdk_models import MemoryItem, SearchMemories, SearchResult
-from dual_mem.types import Layer, MemoryNode, MemoryStatus
+from memhub.sdk_models import MemoryItem, SearchMemories, SearchResult
+from memhub.types import Layer, MemoryNode, MemoryStatus
 
 from conftest import FakeLLMClient
 
@@ -63,7 +63,7 @@ def _provider_with_backend(backend, *, runner=None) -> _SyncMemoryProvider:
     provider._max_search_calls_per_turn = 3
     provider._search_calls_this_turn = 0
     provider._stable_profile = ""
-    provider.name = "dual-mem"
+    provider.name = "memhub"
     return provider
 
 

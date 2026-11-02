@@ -58,7 +58,7 @@ SKIP 是“当前事实已覆盖”，RAW_ONLY 是“没有持久增量”。原
 
 仍然抛错的只有：provider 契约错误（缺题、越界选项）、动作与 target 不匹配、来源本身超出 JEV
 预算（`DecisionContextError`，REST 422）；外部写入改动了已链接的 head（`StaleDecisionError`，REST 409，
-可原样重试）；`request_id` 复用不同输入（`IdempotencyConflictError`，REST 409）。异常从 `dual_mem` 顶层导出。
+可原样重试）；`request_id` 复用不同输入（`IdempotencyConflictError`，REST 409）。异常从 `memhub` 顶层导出。
 
 ## dual / digest
 
@@ -110,7 +110,7 @@ System2（v3，对齐 hy-memory 2.0.4）产出三类 L3：
 ## 配置与限制
 
 JEV 可使用 `jev=` 注入 provider，或配置 `jev_api_key` / `jev_endpoint` / `jev_model`。
-`Settings.from_dict({"jev_api_key": ..., "jev_endpoint": ...})` 只接受规范平铺配置。密钥放 `jev_api_key` 或 `DUAL_MEM_JEV_API_KEY`。
+`Settings.from_dict({"jev_api_key": ..., "jev_endpoint": ...})` 只接受规范平铺配置。密钥放 `jev_api_key` 或 `MEMHUB_JEV_API_KEY`。
 默认并发 4，HTTP 客户端复用，429/529/502/503/504 有限重试；按问题数量和字符预算拆包。
 字符预算是保守配置，不是 tokenizer 实测 token 数。
 
@@ -120,7 +120,7 @@ JEV 可使用 `jev=` 注入 provider，或配置 `jev_api_key` / `jev_endpoint` 
 
 删除配置：reconcile_sync、reconcile_skip_llm、reconcile_weak_candidate_score、
 reconcile_policy、reconcile_non_destructive、content_hash_dedup 以及 cluster 写入门控。
-旧键及嵌套 mem0 配置不再兼容，Settings 校验直接报错。默认 `storage_dir` 是 `./.dual_mem_v4`，旧的 `.dual_mem_data` 不再使用。显式打开 `layer_schema_version` 不是 4、或状态不是 `ACTIVE` 的目录时抛 `ValueError` 并且不改写文件。
+旧键及嵌套 mem0 配置不再兼容，Settings 校验直接报错。默认 `storage_dir` 是 `./.memhub_v4`，旧的 `.memhub_data` 不再使用。显式打开 `layer_schema_version` 不是 4、或状态不是 `ACTIVE` 的目录时抛 `ValueError` 并且不改写文件。
 
 ## Coding 场景：procedure 记忆
 

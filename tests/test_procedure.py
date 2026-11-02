@@ -14,20 +14,20 @@ import pytest
 import respx
 from conftest import FakeJev, FakeLLMClient
 
-from dual_mem import MemoryClient
-from dual_mem.coding.extractor import CodingMemoryExtractor
-from dual_mem.coding.preproc import coding_dialogue, fit_dialogue
-from dual_mem.coding.reconciler import CodingMemoryReconciler
-from dual_mem.coding.types import (
+from memhub import MemoryClient
+from memhub.coding.extractor import CodingMemoryExtractor
+from memhub.coding.preproc import coding_dialogue, fit_dialogue
+from memhub.coding.reconciler import CodingMemoryReconciler
+from memhub.coding.types import (
     PROCEDURE_KIND,
     CodingDecisionError,
     CodingMemoryDraft,
     CodingReconcileOp,
 )
-from dual_mem.coding.writer import _settle
-from dual_mem.config import Settings
-from dual_mem.providers.llm import LLMClient
-from dual_mem.types import Layer
+from memhub.coding.writer import _settle
+from memhub.config import Settings
+from memhub.providers.llm import LLMClient
+from memhub.types import Layer
 
 CANDIDATE = {
     "task": "How to publish SQLite transactions safely",
@@ -55,7 +55,7 @@ def trajectory(result="BEGIN IMMEDIATE fixed the lock"):
                     "type": "function",
                     "function": {
                         "name": "edit_file",
-                        "arguments": json.dumps({"path": "dual_mem/store.py"}),
+                        "arguments": json.dumps({"path": "memhub/store.py"}),
                     },
                 }
             ],
@@ -98,8 +98,8 @@ async def test_tool_trajectory_yields_chat_and_procedure_memories_from_one_raw(
     assert proc.custom["source_ids"] == [r.memory_id]
     assert proc.custom["procedure"]["workspace_id"] == "/repo"
     assert proc.custom["procedure"]["branch"] == "main"
-    assert proc.custom["procedure"]["files"] == ["dual_mem/store.py"]
-    assert proc.tags == ["dual_mem/store.py"]
+    assert proc.custom["procedure"]["files"] == ["memhub/store.py"]
+    assert proc.tags == ["memhub/store.py"]
     assert proc.content.startswith(CANDIDATE["task"])
     # The embedding is the question side (task + alternative phrasings).
     expected = await fake_embed.embed_batch(
@@ -429,8 +429,8 @@ async def test_concurrent_writes_see_each_others_heads(tmp_storage, fake_embed):
 async def test_dual_digest_covers_procedures_but_catalog_does_not(
     tmp_storage, fake_embed, monkeypatch
 ):
-    from dual_mem.system2 import system2_agent
-    from dual_mem.system2.system2_agent import System2Agent
+    from memhub.system2 import system2_agent
+    from memhub.system2.system2_agent import System2Agent
 
     jev = FakeJev({"scene": "CODING"})
     c = client(tmp_storage, fake_embed, jev, mode="dual")
@@ -507,7 +507,7 @@ def test_settle_gives_each_head_one_retiring_claim():
 
 
 async def test_multiple_target_must_resolve_to_exactly_one_head():
-    from dual_mem.coding.types import CodingMemory
+    from memhub.coding.types import CodingMemory
 
     heads = [CodingMemory(memory_id=i, user_id="u", task=i) for i in ("a", "b")]
     draft = CodingMemoryDraft(task="t", solution="s")
@@ -616,18 +616,18 @@ async def test_extractor_uses_a_json_object_envelope():
     )
     llm = LLMClient(base_url="https://api.test/v1", api_key="k", model="m")
     drafts = await CodingMemoryExtractor(llm=llm).extract(
-        coding_dialogue(trajectory()[1:]), files=["dual_mem/store.py"], branch="b"
+        coding_dialogue(trajectory()[1:]), files=["memhub/store.py"], branch="b"
     )
     body = json.loads(route.calls.last.request.content)
     assert body["response_format"] == {"type": "json_object"}
     assert [(d.task, d.branch, d.files) for d in drafts] == [
-        (CANDIDATE["task"], "b", ["dual_mem/store.py"])
+        (CANDIDATE["task"], "b", ["memhub/store.py"])
     ]
     await llm.aclose()
 
 
 def test_format_memories_labels_procedures_by_kind() -> None:
-    from dual_mem.retrieval.formatter import format_memories
+    from memhub.retrieval.formatter import format_memories
 
     text = format_memories(
         {

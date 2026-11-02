@@ -1,8 +1,8 @@
-site_name: dual-mem
+site_name: memhub
 site_description: Dual-system layered memory SDK for LLM applications and agents
-site_url: https://shibing624.github.io/dual-mem
-repo_url: https://github.com/shibing624/dual-mem
-repo_name: shibing624/dual-mem
+site_url: https://shibing624.github.io/memhub
+repo_url: https://github.com/shibing624/memhub
+repo_name: shibing624/memhub
 
 exclude_docs: |
   hy-memory-test/**

@@ -1,7 +1,7 @@
 from conftest import FakeJev, FakeLLMClient
-from dual_mem import MemoryClient
-from dual_mem.config import Settings
-from dual_mem.types import Layer
+from memhub import MemoryClient
+from memhub.config import Settings
+from memhub.types import Layer
 
 
 async def test_new_profile_dimension_does_not_retire_other_dimension(

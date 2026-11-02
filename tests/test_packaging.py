@@ -22,8 +22,8 @@ def _normalize(name: str) -> str:
 
 def _core_imports() -> dict[str, set[str]]:
     found: dict[str, set[str]] = {}
-    for path in (ROOT / "dual_mem").rglob("*.py"):
-        rel = path.relative_to(ROOT / "dual_mem")
+    for path in (ROOT / "memhub").rglob("*.py"):
+        rel = path.relative_to(ROOT / "memhub")
         if rel.parts[0] in OPTIONAL_SUBPACKAGES:
             continue
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
@@ -35,7 +35,7 @@ def _core_imports() -> dict[str, set[str]]:
                 continue
             for name in names:
                 top = name.split(".")[0]
-                if top not in sys.stdlib_module_names and top != "dual_mem":
+                if top not in sys.stdlib_module_names and top != "memhub":
                     found.setdefault(top, set()).add(str(rel))
     return found
 
@@ -47,13 +47,13 @@ _EXTRA_ENTRY_POINTS = {
     "mcp": (
         ["fastapi", "uvicorn", "typer"],
         [
-            "from dual_mem.mcp.server import build_mcp; build_mcp(ops=object())",
+            "from memhub.mcp.server import build_mcp; build_mcp(ops=object())",
             "import tempfile; from pathlib import Path; "
-            "from dual_mem.memhub.mcp import build_hub_mcp; "
+            "from memhub.memhub.mcp import build_hub_mcp; "
             "build_hub_mcp(hub_dir=Path(tempfile.mkdtemp()))",
         ],
     ),
-    "api": (["mcp", "typer"], ["from dual_mem.api import create_app; create_app"]),
+    "api": (["mcp", "typer"], ["from memhub.api import create_app; create_app"]),
 }
 
 

@@ -13,13 +13,13 @@ import httpx
 import pytest
 from typer.testing import CliRunner
 
-from dual_mem import MemoryClient
-from dual_mem.cli import main as cli_main
-from dual_mem.config import Settings
-from dual_mem.memhub import HubClient
-from dual_mem.memhub.config import SyncConfig, load_sync_config
-from dual_mem.memhub.server import create_hub_app
-from dual_mem.memhub.sync import (
+from memhub import MemoryClient
+from memhub.cli import main as cli_main
+from memhub.config import Settings
+from memhub.memhub import HubClient
+from memhub.memhub.config import SyncConfig, load_sync_config
+from memhub.memhub.server import create_hub_app
+from memhub.memhub.sync import (
     CoreBackend,
     DirBackend,
     GitBackend,
@@ -27,14 +27,14 @@ from dual_mem.memhub.sync import (
     ssh_call,
     sync_once,
 )
-from dual_mem.storage.history_store import HistoryStore
-from dual_mem.storage.vector_store import (
+from memhub.storage.history_store import HistoryStore
+from memhub.storage.vector_store import (
     ChromaVectorStore,
     merge_metadata,
     pack_vector,
     unpack_vector,
 )
-from dual_mem.types import Layer, MemoryNode
+from memhub.types import Layer, MemoryNode
 
 EMBED = {"model": "m", "dim": 2}
 SCOPE = ("app", "u", "")
@@ -192,8 +192,8 @@ def test_a_plan_retiring_a_since_deleted_node_does_not_stall_its_origin(tmp_path
 
 
 def test_received_evidence_edges_reach_the_replica_graph(tmp_path, fake_embed):
-    from dual_mem.memhub.sync import project_received
-    from dual_mem.registry import ComponentFactory
+    from memhub.memhub.sync import project_received
+    from memhub.registry import ComponentFactory
 
     def factory(path):
         return ComponentFactory(settings=Settings(mode="dual", storage_dir=str(path)),
@@ -337,14 +337,14 @@ def test_ssh_backend_sends_one_command_per_call():
         calls.append((argv, input))
         return SimpleNamespace(returncode=0, stdout='{"ok": true}', stderr="")
 
-    call = ssh_call("me@box", ssh_args=["-p", "2222"], remote_command="dual-mem", run=run)
+    call = ssh_call("me@box", ssh_args=["-p", "2222"], remote_command="memhub", run=run)
     assert call("POST", "/v1/hub/log/export", {"after": {}}) == {"ok": True}
     (argv, body), = calls
     assert argv[:5] == ["ssh", "-o", "BatchMode=yes", "-p", "2222"] and argv[5] == "me@box"
-    assert argv[6] == "dual-mem hub relay POST /v1/hub/log/export"
+    assert argv[6] == "memhub hub relay POST /v1/hub/log/export"
     assert json.loads(body) == {"after": {}}
 
-    failed = ssh_call("box", ssh_args=[], remote_command="dual-mem",
+    failed = ssh_call("box", ssh_args=[], remote_command="memhub",
                       run=lambda *a, **k: SimpleNamespace(returncode=255, stdout="",
                                                          stderr="Connection refused"))
     with pytest.raises(SyncError, match="Connection refused"):
@@ -462,7 +462,7 @@ async def test_only_the_digester_queues_received_facts(tmp_path, fake_embed, fak
 
 def test_connect_disconnect_and_status_without_a_running_core(tmp_path):
     hub = tmp_path / "hub"
-    sync_dir = tmp_path / "iCloud" / "dual-mem"
+    sync_dir = tmp_path / "iCloud" / "memhub"
     result = runner.invoke(cli_main.app, ["hub", "connect", "dir", str(sync_dir),
                                           "--hub-dir", str(hub)])
     assert result.exit_code == 0, result.output
@@ -618,7 +618,7 @@ def test_only_the_digester_compacts(tmp_path):
 
 
 def test_compaction_waits_for_the_threshold(tmp_path, monkeypatch):
-    from dual_mem.memhub import sync as sync_mod
+    from memhub.memhub import sync as sync_mod
 
     monkeypatch.setattr(sync_mod, "COMPACT_AFTER", 3)
     a = store(tmp_path / "a")
@@ -669,8 +669,8 @@ def test_a_device_that_already_has_everything_is_unchanged_by_the_snapshot(tmp_p
 
 
 def test_snapshot_carries_schemas_and_edges_to_a_new_replica(tmp_path, fake_embed):
-    from dual_mem.memhub.sync import project_received
-    from dual_mem.registry import ComponentFactory
+    from memhub.memhub.sync import project_received
+    from memhub.registry import ComponentFactory
 
     def factory(path):
         return ComponentFactory(settings=Settings(mode="dual", storage_dir=str(path)),
@@ -722,7 +722,7 @@ def test_git_compaction_drops_the_old_history_and_other_clones_follow(tmp_path):
     sync_once(a, ga, embed=EMBED, compact=True)
     log = subprocess.run(["git", "log", "--format=%s", "main"], cwd=remote,
                          capture_output=True, text=True, check=True).stdout.splitlines()
-    assert log == ["dual-mem snapshot 1"]
+    assert log == ["memhub snapshot 1"]
     # The old commits and their log blobs are gone from the remote.
     objects = subprocess.run(["git", "rev-list", "--all", "--objects"], cwd=remote,
                              capture_output=True, text=True, check=True).stdout
@@ -742,7 +742,7 @@ def test_git_compaction_drops_the_old_history_and_other_clones_follow(tmp_path):
     assert set(state(a)) == set(state(b)) == {*(f"n{i}" for i in range(6)), "from-b-offline"}
     history = subprocess.run(["git", "log", "--format=%s", "main"], cwd=tmp_path / "gb",
                              capture_output=True, text=True, check=True).stdout.splitlines()
-    assert history[-1] == "dual-mem snapshot 1"
+    assert history[-1] == "memhub snapshot 1"
 
 
 def test_git_compaction_loses_its_lease_to_a_concurrent_push(tmp_path, monkeypatch):

@@ -7,12 +7,12 @@ import asyncio
 
 import pytest
 
-from dual_mem.config import Settings
-from dual_mem.registry import ComponentFactory
-from dual_mem.storage.cache_store import CacheStore
-from dual_mem.storage.graph_store import GraphNode, KuzuGraphStore
-from dual_mem.storage.history_store import HistoryStore
-from dual_mem.types import Layer, MemoryNode, MemoryStatus
+from memhub.config import Settings
+from memhub.registry import ComponentFactory
+from memhub.storage.cache_store import CacheStore
+from memhub.storage.graph_store import GraphNode, KuzuGraphStore
+from memhub.storage.history_store import HistoryStore
+from memhub.types import Layer, MemoryNode, MemoryStatus
 
 
 async def test_chroma_parallel_query_under_lock(tmp_storage, fake_embed):

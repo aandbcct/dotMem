@@ -2,9 +2,9 @@ import asyncio
 import json
 import pytest
 from conftest import FakeLLMClient, FakeJev
-from dual_mem import MemoryClient
-from dual_mem.config import Settings
-from dual_mem.system2.system2_agent import System2Agent
+from memhub import MemoryClient
+from memhub.config import Settings
+from memhub.system2.system2_agent import System2Agent
 
 
 def make(tmp_storage, embed):

@@ -1,13 +1,13 @@
 import pytest
 from conftest import FakeJev, FakeLLMClient
-from dual_mem import MemoryClient
-from dual_mem.agent.reconciler import DecisionContextError
-from dual_mem.config import Settings
-from dual_mem.types import Layer, MemoryStatus
+from memhub import MemoryClient
+from memhub.agent.reconciler import DecisionContextError
+from memhub.config import Settings
+from memhub.types import Layer, MemoryStatus
 
 
 def _head(embed, content, nid="seed"):
-    from dual_mem.types import MemoryNode
+    from memhub.types import MemoryNode
 
     return MemoryNode(
         node_id=nid, content=content, layer=Layer.L1_FACT, app_id="default",
@@ -189,9 +189,9 @@ async def test_conflicting_batch_targets_replan_with_jev_feedback(
     tmp_storage, fake_embed
 ):
     from conftest import FakeLLMClient, FakeJev
-    from dual_mem import MemoryClient
-    from dual_mem.config import Settings
-    from dual_mem.types import MemoryNode, Layer
+    from memhub import MemoryClient
+    from memhub.config import Settings
+    from memhub.types import MemoryNode, Layer
 
     def script(state, questions):
         ids = [n["id"] for n in state["current"]]
@@ -245,8 +245,8 @@ async def test_conflicting_batch_targets_replan_with_jev_feedback(
 
 async def test_most_confident_claim_wins_the_target(tmp_storage, fake_embed):
     """When two proposals claim one head, the higher-confidence relation is kept."""
-    from dual_mem.providers.jev import JevAnswer
-    from dual_mem.types import MemoryNode
+    from memhub.providers.jev import JevAnswer
+    from memhub.types import MemoryNode
 
     def script(state, questions):
         ids = [n["id"] for n in state["current"]]
@@ -295,7 +295,7 @@ async def test_stale_cas_raises_without_internal_retry(
     tmp_storage, fake_embed, monkeypatch
 ):
     """A lost CAS surfaces immediately; the caller owns retrying."""
-    from dual_mem import StaleDecisionError
+    from memhub import StaleDecisionError
     c = client(tmp_storage, fake_embed, {"facts": [{"content": "Lives in Beijing"}]})
     c.factory.vector.upsert([_head(fake_embed, "Lives in Shanghai")])
     c.factory.jev.responses = {"p0:target": "seed", "p0:action": "ADD_OVERRIDE"}

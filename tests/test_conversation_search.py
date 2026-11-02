@@ -1,8 +1,8 @@
 """L0_RAW evidence search is opt-in and never mixed into default QA search."""
 
-from dual_mem import MemoryClient
-from dual_mem.config import Settings
-from dual_mem.types import Layer, MemoryNode, MemoryStatus
+from memhub import MemoryClient
+from memhub.config import Settings
+from memhub.types import Layer, MemoryNode, MemoryStatus
 
 from conftest import FakeLLMClient
 

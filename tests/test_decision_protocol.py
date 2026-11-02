@@ -4,12 +4,12 @@ import pytest
 from fastapi.testclient import TestClient
 
 from conftest import FakeJev, FakeLLMClient
-from dual_mem import DecisionContextError, MemoryClient, StaleDecisionError
-from dual_mem.api import create_app
-from dual_mem.config import Settings
-from dual_mem.providers.jev import JevAnswer
-from dual_mem.retrieval.formatter import format_memories, format_search_hit_line
-from dual_mem.types import Layer, MemoryNode
+from memhub import DecisionContextError, MemoryClient, StaleDecisionError
+from memhub.api import create_app
+from memhub.config import Settings
+from memhub.providers.jev import JevAnswer
+from memhub.retrieval.formatter import format_memories, format_search_hit_line
+from memhub.types import Layer, MemoryNode
 
 
 def make(tmp_storage, embed, extract, jev=None, **kw):

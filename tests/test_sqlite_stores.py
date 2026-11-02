@@ -1,5 +1,5 @@
-from dual_mem.storage.cache_store import CacheStore
-from dual_mem.storage.history_store import HistoryStore
+from memhub.storage.cache_store import CacheStore
+from memhub.storage.history_store import HistoryStore
 
 
 def test_profile_roundtrip(tmp_storage):

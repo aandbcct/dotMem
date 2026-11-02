@@ -1,5 +1,5 @@
-from dual_mem.retrieval.evolution import expand_evolution_chains
-from dual_mem.types import Layer, MemoryNode
+from memhub.retrieval.evolution import expand_evolution_chains
+from memhub.types import Layer, MemoryNode
 
 
 class FakeVector:

@@ -1,6 +1,6 @@
 import pytest
 
-from dual_mem.agent.extractor import Extractor
+from memhub.agent.extractor import Extractor
 
 from conftest import FakeLLMClient
 

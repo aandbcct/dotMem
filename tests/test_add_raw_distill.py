@@ -1,8 +1,8 @@
 """add_raw writes L0_RAW only; distill extracts without a second raw row."""
 
-from dual_mem import MemoryClient
-from dual_mem.config import Settings
-from dual_mem.types import Layer, MemoryStatus
+from memhub import MemoryClient
+from memhub.config import Settings
+from memhub.types import Layer, MemoryStatus
 
 from conftest import FakeLLMClient
 

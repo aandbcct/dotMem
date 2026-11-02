@@ -19,7 +19,7 @@ import json
 
 from _common import example_settings, section, show_write
 
-from dual_mem import MemoryClient
+from memhub import MemoryClient
 
 USER = "dev_alice"
 

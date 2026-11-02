@@ -1,11 +1,11 @@
-from dual_mem.integrations._base import format_memories_for_prompt
-from dual_mem.retrieval.formatter import (
+from memhub.integrations._base import format_memories_for_prompt
+from memhub.retrieval.formatter import (
     format_evolution_timeline,
     format_memories,
     format_memory_timestamp,
     format_search_hit_line,
 )
-from dual_mem.sdk_models import EvolutionItem, MemoryItem, SearchMemories
+from memhub.sdk_models import EvolutionItem, MemoryItem, SearchMemories
 
 
 def test_speaker_and_derived_provenance_are_visible_in_context():

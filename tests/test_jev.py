@@ -1,7 +1,7 @@
 import asyncio
 import httpx
 import pytest
-from dual_mem.providers.jev import JevClient
+from memhub.providers.jev import JevClient
 
 
 def reply(request):

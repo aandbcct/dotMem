@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Unit tests for the hybrid fusion helpers (evidence boost + semantic/BM25 fusion)."""
-from dual_mem.retrieval.hybrid_scoring import compute_evidence_boost, score_vdb_node
+from memhub.retrieval.hybrid_scoring import compute_evidence_boost, score_vdb_node
 
 
 def test_evidence_boost_zero_when_no_evidence():

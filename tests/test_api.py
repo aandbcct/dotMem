@@ -1,9 +1,9 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from dual_mem import MemoryClient
-from dual_mem.api import create_app
-from dual_mem.config import Settings
+from memhub import MemoryClient
+from memhub.api import create_app
+from memhub.config import Settings
 
 
 @pytest.fixture

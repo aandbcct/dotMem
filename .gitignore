@@ -225,7 +225,7 @@ docs/superpowers/
 
 # Local experiments and design artifacts
 /docs/design/
-/dual_mem_flow_visualization.html
+/memhub_flow_visualization.html
 /exp/
 /node_modules/
 /package-lock.json
@@ -239,6 +239,8 @@ conversation_*.json
 
 # example & runtime data
 examples/.data/
+.memhub_data/
+.memhub_v4/
 .dual_mem_data/
 .dual_mem_v4/
 AGENTS.md

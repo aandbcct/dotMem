@@ -5,13 +5,13 @@ import pytest
 
 pytest.importorskip(
     "mcp.server.mcpserver",
-    reason="dual-mem's MCP server requires mcp 2.x (install the 'mcp' extra)",
+    reason="memhub's MCP server requires mcp 2.x (install the 'mcp' extra)",
 )
 
-from dual_mem import MemoryClient  # noqa: E402
-from dual_mem.operations import MemoryOperations  # noqa: E402
-from dual_mem.config import Settings  # noqa: E402
-from dual_mem.mcp.server import build_mcp, run_server  # noqa: E402
+from memhub import MemoryClient  # noqa: E402
+from memhub.operations import MemoryOperations  # noqa: E402
+from memhub.config import Settings  # noqa: E402
+from memhub.mcp.server import build_mcp, run_server  # noqa: E402
 
 
 @pytest.fixture
@@ -126,7 +126,7 @@ def test_run_server_rejects_unknown_transport():
 
 
 async def test_stdio_round_trip_with_a_real_client(tmp_path):
-    """Spawn ``python -m dual_mem.mcp.server`` and speak MCP to it over stdio.
+    """Spawn ``python -m memhub.mcp.server`` and speak MCP to it over stdio.
 
     Pins the wiring the in-process tests cannot see: the stdio transport, the
     initialize handshake and the stdout discipline (one stray print breaks JSON-RPC).
@@ -138,12 +138,13 @@ async def test_stdio_round_trip_with_a_real_client(tmp_path):
 
     params = StdioServerParameters(
         command=sys.executable,
-        args=["-m", "dual_mem.mcp.server"],
+        args=["-m", "memhub.mcp.server"],
         env={
-            "DUAL_MEM_STORAGE_DIR": str(tmp_path / "store"),
-            "DUAL_MEM_AUTH_DISABLED": "true",
-            "DUAL_MEM_LLM_API_KEY": "unused",
-            "DUAL_MEM_EMBED_API_KEY": "unused",
+            "MEMHUB_STORAGE_DIR": str(tmp_path / "store"),
+            "MEMHUB_AUTH_DISABLED": "true",
+            "MEMHUB_JEV_API_KEY": "unused",
+            "MEMHUB_LLM_API_KEY": "unused",
+            "MEMHUB_EMBED_API_KEY": "unused",
             "PATH": "/usr/bin:/bin",
         },
     )

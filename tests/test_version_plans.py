@@ -1,8 +1,8 @@
 from dataclasses import replace
 import pytest
-from dual_mem.storage.vector_store import ChromaVectorStore
-from dual_mem.storage.history_store import HistoryStore
-from dual_mem.types import Layer, MemoryNode, MemoryStatus
+from memhub.storage.vector_store import ChromaVectorStore
+from memhub.storage.history_store import HistoryStore
+from memhub.types import Layer, MemoryNode, MemoryStatus
 
 
 def node(nid, **kw):

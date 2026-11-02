@@ -3,9 +3,9 @@
 ## 同步（脚本 / REPL，推荐入门）
 
 ```python
-from dual_mem import SyncMemoryClient
+from memhub import SyncMemoryClient
 
-with SyncMemoryClient(mode="system1", storage_dir="./.dual_mem_v4") as client:
+with SyncMemoryClient(mode="system1", storage_dir="./.memhub_v4") as client:
     client.add(
         content="我最爱的编程语言是 Java，已经用了5年。",
         user_id="alice",
@@ -24,11 +24,11 @@ with SyncMemoryClient(mode="system1", storage_dir="./.dual_mem_v4") as client:
 
 ```python
 import asyncio
-from dual_mem import MemoryClient
+from memhub import MemoryClient
 
 
 async def main():
-    client = MemoryClient(mode="system1", storage_dir="./.dual_mem_v4")
+    client = MemoryClient(mode="system1", storage_dir="./.memhub_v4")
     await client.add(content="...", user_id="alice")
     await client.aclose()
 
@@ -38,7 +38,7 @@ asyncio.run(main())
 
 已在 async 事件循环内时，必须用 `MemoryClient` + `await`；`SyncMemoryClient` 会报错。
 
-配置：`~/.dual-mem/config.yaml` 首次启动自动创建，填入 `jev_api_key`、`llm_api_key` 与 `embed_api_key` 即可。
+配置：`~/.memhub/config.yaml` 首次启动自动创建，填入 `jev_api_key`、`llm_api_key` 与 `embed_api_key` 即可。
 
 ## 核心参数
 
@@ -47,7 +47,7 @@ asyncio.run(main())
 | 参数 | 必填 | 含义 |
 |---|---|---|
 | `mode` | 否 | `"system1"`（默认，写 L0/L1/L2）或 `"dual"`（+ 显式 `digest()` 写 L3_DERIVED）。可写在 YAML。 |
-| `storage_dir` | 否 | 本地数据目录（Chroma + Kuzu + SQLite），默认 `./.dual_mem_v4`。 |
+| `storage_dir` | 否 | 本地数据目录（Chroma + Kuzu + SQLite），默认 `./.memhub_v4`。 |
 | `settings` | 否 | 传入 `Settings` 对象，覆盖 YAML / 环境变量。 |
 | `embed` / `llm` / `jev` | 否 | 注入自定义客户端（测试 / 自建后端）；注入后跳过对应密钥校验。 |
 
@@ -61,7 +61,7 @@ asyncio.run(main())
 | `agent_id` | 否 | 同一用户下细分 Agent 实例（多 Bot）。 |
 | `session_id` | 否 | 会话 ID，可选更细隔离或审计。 |
 
-配置项 `default_app_id`（YAML / `DUAL_MEM_DEFAULT_APP_ID`）可改默认命名空间。
+配置项 `default_app_id`（YAML / `MEMHUB_DEFAULT_APP_ID`）可改默认命名空间。
 
 ### `content` vs `messages`
 
@@ -96,7 +96,7 @@ chat 和 coding 用同一个 `add()` / `search()`，不需要开关。`add(messa
 
 ```python
 import json
-from dual_mem import MemoryClient
+from memhub import MemoryClient
 
 client = MemoryClient()
 
@@ -156,18 +156,18 @@ for m in res.memories.procedures:
 - **代价**：带工具轨迹的写入 = 一次 scene 判断 + chat 抽取与 procedure 抽取（并行）+ 各自裁决。
   建议会话结束时整段写入，不要每轮调用。`procedure_enabled=False` 可整体关闭。
 - **接口**：REST `POST /v1/memories/`（`workspace_id` / `branch`）与 `POST /v1/memories/search`
-  （`procedure_limit` / `procedure_min_score`）、MCP 同名参数、CLI `dual-mem add --workspace-id`
-  和 `dual-mem search --procedure-limit`。MemHub 采集 Claude Code / Codex / Agentica 会话时保留对话正文与工具调用涉及的文件路径（不读取工具输出）。
+  （`procedure_limit` / `procedure_min_score`）、MCP 同名参数、CLI `memhub add --workspace-id`
+  和 `memhub search --procedure-limit`。MemHub 采集 Claude Code / Codex / Agentica 会话时保留对话正文与工具调用涉及的文件路径（不读取工具输出）。
 
-完整可运行示例（含方案演化）：[`examples/06_coding_memory.py`](https://github.com/shibing624/dual-mem/blob/main/examples/06_coding_memory.py)。
+完整可运行示例（含方案演化）：[`examples/06_coding_memory.py`](https://github.com/shibing624/memhub/blob/main/examples/06_coding_memory.py)。
 
 ## Agent 集成（Agentica 多轮对话）
 
-dual-mem 管**长期记忆**（跨会话），Agentica `WorkingMemory` 管**当前会话窗口**——两者配合，结构对齐 [Agentica `05_multi_turn.py`](https://github.com/shibing624/agentica/blob/main/examples/basic/05_multi_turn.py)：
+memhub 管**长期记忆**（跨会话），Agentica `WorkingMemory` 管**当前会话窗口**——两者配合，结构对齐 [Agentica `05_multi_turn.py`](https://github.com/shibing624/agentica/blob/main/examples/basic/05_multi_turn.py)：
 
 - **每轮 `search`**：用用户本轮输入检索长期记忆，注入 `prompt_config.additional_context`
 - **每轮 `agent.run`**：Agentica 自带 `add_history_to_context=True` 维护窗口
-- **会话结束 `add(messages=...)`**：把 `working_memory.get_messages()` 批量写入 dual-mem
+- **会话结束 `add(messages=...)`**：把 `working_memory.get_messages()` 批量写入 memhub
 
 需已安装 Agentica（`pip install agentica`）并配置 LLM API key。
 
@@ -175,8 +175,8 @@ dual-mem 管**长期记忆**（跨会话），Agentica `WorkingMemory` 管**当�
 import asyncio
 
 from agentica import Agent, OpenAIChat
-from dual_mem import MemoryClient
-from dual_mem.retrieval.formatter import format_memories
+from memhub import MemoryClient
+from memhub.retrieval.formatter import format_memories
 
 APP_ID = "agentica"  # 可选；省略时用 default_app_id
 USER_ID = "demo_user"
@@ -239,27 +239,27 @@ dual 的 `add()` 和 system1 完全相同，返回前已完成 L1/L2（以及 pr
 批量导入完成或其它明确边界调用 `await client.digest()`。同一 scope 不论 add 多少次，
 一次 digest 只处理一遍。
 
-开启方式（优先级从高到低）：`MemoryClient(mode="dual")`、`DUAL_MEM_MODE=dual`、
-`~/.dual-mem/config.yaml` 里 `mode: dual`。开启之后 `add()` 只是把 scope 登记为待归纳，
-不会自己跑。SDK 在边界上调用一次 `await client.digest()`；命令行用 `dual-mem digest`
+开启方式（优先级从高到低）：`MemoryClient(mode="dual")`、`MEMHUB_MODE=dual`、
+`~/.memhub/config.yaml` 里 `mode: dual`。开启之后 `add()` 只是把 scope 登记为待归纳，
+不会自己跑。SDK 在边界上调用一次 `await client.digest()`；命令行用 `memhub digest`
 手动跑一次。配置文件已经是 dual 时不用再加参数；配置仍是 system1 时，这次要写成
-`dual-mem digest --mode dual`，否则按 system1 处理，`processed` 为 0。
+`memhub digest --mode dual`，否则按 system1 处理，`processed` 为 0。
 
 MemHub 的 Core 在 `mode: dual` 时自己归纳，一天最多一次：写入队列排空后，距上次成功
 已满 `--digest-every` 小时（默认 24），并且还有待归纳证据，才跑。`--digest-every 0`
 关闭自动归纳。评测集用这个关掉，语料写完后自己调用 `digest()`。
 
 ```python
-from dual_mem import MemoryClient
-from dual_mem.config import Settings
+from memhub import MemoryClient
+from memhub.config import Settings
 
-client = MemoryClient(settings=Settings(mode="dual", storage_dir="./.dual_mem_v4"))
+client = MemoryClient(settings=Settings(mode="dual", storage_dir="./.memhub_v4"))
 # ... await client.add(...) 若干次 ...
 digest = await client.digest()
 await client.aclose()
 ```
 
-更多示例见 [examples/](https://github.com/shibing624/dual-mem/tree/main/examples)。
+更多示例见 [examples/](https://github.com/shibing624/memhub/tree/main/examples)。
 
 ## 两档模式怎么选
 
@@ -274,14 +274,14 @@ L3 推导记忆默认只写入、不进入检索结果（`derived_context_limit=
 ## REST / MCP / CLI 速查
 
 ```bash
-pip install "dual-mem[all]"
+pip install "memhub[all]"
 
-dual-mem serve --host 0.0.0.0 --port 8000              # REST
-dual-mem-mcp                                              # MCP stdio
-dual-mem-mcp --transport streamable-http --port 8765     # MCP HTTP /mcp
-dual-mem add --content "用户喜欢咖啡" --user-id u1
-dual-mem search "饮品偏好" --user-id u1
-dual-mem digest --mode dual                               # dual：生成 L3_DERIVED
+memhub serve --host 0.0.0.0 --port 8000              # REST
+memhub-mcp                                              # MCP stdio
+memhub-mcp --transport streamable-http --port 8765     # MCP HTTP /mcp
+memhub add --content "用户喜欢咖啡" --user-id u1
+memhub search "饮品偏好" --user-id u1
+memhub digest --mode dual                               # dual：生成 L3_DERIVED
 ```
 
 REST 契约：`POST /v1/memories/`、`POST /v1/memories/search`、`GET|DELETE /v1/memories/{id}` 等，完整对照见 [MCP / REST](../mcp_integration.md)。

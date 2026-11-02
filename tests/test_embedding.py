@@ -5,9 +5,9 @@ import respx
 import pytest
 from openai import APIStatusError
 
-from dual_mem.config import EMBED_CHARS_PER_TOKEN, EMBED_MAX_TOKENS
-from dual_mem.providers.embedding import EmbedService
-from dual_mem.providers.usage import UsageEvent
+from memhub.config import EMBED_CHARS_PER_TOKEN, EMBED_MAX_TOKENS
+from memhub.providers.embedding import EmbedService
+from memhub.providers.usage import UsageEvent
 
 
 def _make_service(dim: int = 4, model: str = "embed-test") -> EmbedService:
@@ -151,7 +151,7 @@ def test_embed_max_tokens_derived_char_budget():
 def test_default_embed_budget_fits_dense_text_under_the_token_limit():
     """Dense CJK/code runs near 1.2 chars/token; the default char cap must
     keep such text under ``embed_max_tokens`` (the provider rejects, not cuts)."""
-    from dual_mem.config import Settings
+    from memhub.config import Settings
 
     s = Settings()
     assert s.embed_input_max_chars / 1.21 <= s.embed_max_tokens
@@ -169,7 +169,7 @@ async def test_embedding_transport_failure_is_not_retried():
 
 @respx.mock
 async def test_generation_transport_failure_is_not_retried():
-    from dual_mem.providers.llm import LLMClient
+    from memhub.providers.llm import LLMClient
     route = respx.post("https://api.test/v1/chat/completions").mock(return_value=httpx.Response(503))
     llm = LLMClient(base_url="https://api.test/v1", api_key="sk-x", model="test")
     with pytest.raises(APIStatusError):

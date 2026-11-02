@@ -1,9 +1,9 @@
 import pytest
 
-from dual_mem import MemoryClient
-from dual_mem.client import _shape_history
-from dual_mem.config import Settings
-from dual_mem.sdk_models import ChatMessage
+from memhub import MemoryClient
+from memhub.client import _shape_history
+from memhub.config import Settings
+from memhub.sdk_models import ChatMessage
 
 
 def test_shape_history_truncates_assistant_keeps_user_when_over_threshold():
@@ -175,7 +175,7 @@ async def test_add_search_use_default_app_id(tmp_storage, fake_embed, fake_llm):
 async def test_from_config(tmp_storage, fake_embed, fake_llm, monkeypatch):
     from pathlib import Path
 
-    monkeypatch.setenv("DUAL_MEM_CONFIG_FILE", str(Path(tmp_storage) / "nope.yaml"))
+    monkeypatch.setenv("MEMHUB_CONFIG_FILE", str(Path(tmp_storage) / "nope.yaml"))
     client = MemoryClient.from_config(
         {
             "storage_dir": tmp_storage,

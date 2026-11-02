@@ -19,11 +19,11 @@ import pytest
 import yaml
 from typer.testing import CliRunner
 
-from dual_mem import MemoryClient
-from dual_mem.cli import hub as cli_hub
-from dual_mem.cli import main as cli_main
-from dual_mem.config import Settings
-from dual_mem.memhub import (
+from memhub import MemoryClient
+from memhub.cli import hub as cli_hub
+from memhub.cli import main as cli_main
+from memhub.config import Settings
+from memhub.memhub import (
     HOSTS,
     CursorStore,
     HubClient,
@@ -35,17 +35,17 @@ from dual_mem.memhub import (
     scan_sources,
     uninstall_host,
 )
-from dual_mem.memhub.queue import HubWriteQueue
-from dual_mem.memhub.server import (
+from memhub.memhub.queue import HubWriteQueue
+from memhub.memhub.server import (
     HUB_USER_ID,
     create_hub_app,
     last_digest_due,
     read_last_digest_at,
     write_last_digest_at,
 )
-from dual_mem.memhub.sources import SOURCE_SPECS
-from dual_mem.memhub.config import format_time, publish_runtime, resolve_hub_config
-from dual_mem.types import Layer
+from memhub.memhub.sources import SOURCE_SPECS
+from memhub.memhub.config import format_time, publish_runtime, resolve_hub_config
+from memhub.types import Layer
 
 runner = CliRunner()
 
@@ -360,7 +360,7 @@ def test_readers_keep_only_real_dialogue(tmp_path: Path) -> None:
 
 
 def test_build_turns_merges_users_and_drops_orphan_answer() -> None:
-    from dual_mem.memhub.sources import Message
+    from memhub.memhub.sources import Message
 
     messages = [
         Message("assistant", "orphan", "s", None, 0, 1),
@@ -604,27 +604,27 @@ def test_install_uninstall_hosts_use_local_proxy(tmp_path: Path, monkeypatch) ->
     )
     mcp = json.loads(
         (home / ".agentica" / "mcp_config.json").read_text()
-    )["mcpServers"]["dual-mem"]
-    assert mcp["args"][:2] == ["-m", "dual_mem.memhub.mcp"]
+    )["mcpServers"]["memhub"]
+    assert mcp["args"][:2] == ["-m", "memhub.memhub.mcp"]
     assert "env" not in mcp and "secret" not in json.dumps(mcp)
     oc_mcp = json.loads(
         (home / ".config" / "opencode" / "opencode.json").read_text()
-    )["mcp"]["dual-mem"]
+    )["mcp"]["memhub"]
     assert oc_mcp["type"] == "local"
-    assert oc_mcp["command"][1:3] == ["-m", "dual_mem.memhub.mcp"]
+    assert oc_mcp["command"][1:3] == ["-m", "memhub.memhub.mcp"]
     oc_plugin = (
-        home / ".config" / "opencode" / "plugins" / "dual-mem-hub.js"
+        home / ".config" / "opencode" / "plugins" / "memhub-hub.js"
     ).read_text()
     assert "chat.message" in oc_plugin and "hub" in oc_plugin and "opencode" in oc_plugin
     for buddy in (".codebuddy", ".workbuddy"):
-        assert "dual-mem" in json.loads((home / buddy / "mcp.json").read_text())["mcpServers"]
+        assert "memhub" in json.loads((home / buddy / "mcp.json").read_text())["mcpServers"]
         buddy_hooks = json.loads((home / buddy / "settings.json").read_text())["hooks"]
         assert set(buddy_hooks) >= {"UserPromptSubmit", "Stop"}
     skill = (
         home
         / ".claude"
         / "skills"
-        / "dual-mem-recall"
+        / "memhub-recall"
         / "SKILL.md"
     ).read_text()
     assert "不传 `user_id`" in skill
@@ -636,14 +636,14 @@ def test_install_uninstall_hosts_use_local_proxy(tmp_path: Path, monkeypatch) ->
     )
     assert [item.name for item in hooks.consumers_for("run.completed")] == [
         "open-island",
-        "dual-mem",
+        "memhub",
     ]
     # One consumer for recall and capture; the pre-existing one is not drawn
     # into the per-prompt wait.
     recall = hooks.consumers_for("UserPromptSubmit")
-    assert [item.name for item in recall] == ["dual-mem"]
+    assert [item.name for item in recall] == ["memhub"]
     assert recall[0].command[-4:] == ["hook", "agentica", "--hub-dir", str(hub)]
-    assert "dual-mem" in [item.name for item in hooks.consumers_for("session.ended")]
+    assert "memhub" in [item.name for item in hooks.consumers_for("session.ended")]
     for host in HOSTS:
         uninstall_host(host, home=home)
     assert not any(
@@ -690,7 +690,7 @@ def test_agentica_yaml_install_keeps_comments_and_uninstall_restores_bytes(
         assert line in installed
     assert [c["name"] for c in yaml.safe_load(installed)["settings"]["hooks"]["consumers"]] == [
         "open-island",
-        "dual-mem",
+        "memhub",
     ]
 
     uninstall_host("agentica", home=home)
@@ -797,7 +797,7 @@ def test_cli_capture_hook_and_status(tmp_path: Path, monkeypatch) -> None:
         [
             sys.executable,
             "-m",
-            "dual_mem.cli",
+            "memhub.cli",
             "hub",
             "scan",
             "--source",
@@ -1071,7 +1071,7 @@ async def _start_lifespan(app) -> None:
 def test_install_service_writes_launchd_plist_or_systemd_unit(
     tmp_path: Path, monkeypatch
 ) -> None:
-    from dual_mem.memhub import service
+    from memhub.memhub import service
 
     hub = tmp_path / "hub"
     monkeypatch.setattr(service, "launchd_plist_path", lambda label: tmp_path / f"{label}.plist")
@@ -1099,7 +1099,7 @@ def test_install_service_writes_launchd_plist_or_systemd_unit(
 def test_mcp_builds_without_a_running_core(tmp_path: Path) -> None:
     """A host that starts the MCP server before `hub serve` must not crash at import time."""
     pytest.importorskip("mcp.server.mcpserver")
-    from dual_mem.memhub.mcp import build_hub_mcp
+    from memhub.memhub.mcp import build_hub_mcp
 
     server = build_hub_mcp(hub_dir=tmp_path)  # no runtime.json yet: no connection attempted
     assert server is not None
@@ -1232,7 +1232,7 @@ def test_tool_calls_become_turn_steps_and_tool_output_is_dropped(tmp_path: Path)
     assert roles == ["user", "assistant", "assistant"]
     assert "xxxx" not in json.dumps(turn.messages())
 
-    from dual_mem.coding.preproc import extract_files
+    from memhub.coding.preproc import extract_files
 
     codebuddy = roots["codebuddy"] / "proj" / "cb-tools.jsonl"
     _jsonl(
@@ -1560,7 +1560,7 @@ async def test_system1_core_never_digests(tmp_path: Path, fake_embed, fake_llm, 
 
 
 def test_claude_code_hook_keeps_tool_trajectory() -> None:
-    from dual_mem.integrations.claude_code import to_messages
+    from memhub.integrations.claude_code import to_messages
 
     out = to_messages([
         {"type": "user", "message": {"role": "user", "content": "fix it"}},
@@ -1583,11 +1583,11 @@ def test_claude_code_hook_keeps_tool_trajectory() -> None:
 
 
 def test_hook_install_replaces_hooks_written_as_cli_main(tmp_path: Path) -> None:
-    """Hooks installed before ``-m dual_mem.cli`` are still recognised as ours."""
-    from dual_mem.memhub.hosts import ClaudeStyleHooks, Launch
+    """Hooks installed before ``-m memhub.cli`` are still recognised as ours."""
+    from memhub.memhub.hosts import ClaudeStyleHooks, Launch
 
     hook_file = tmp_path / "settings.json"
-    old = f"{sys.executable} -m dual_mem.cli.main hub capture claude-code"
+    old = f"{sys.executable} -m memhub.cli.main hub capture claude-code"
     hook_file.write_text(
         json.dumps(
             {
@@ -1607,8 +1607,8 @@ def test_hook_install_replaces_hooks_written_as_cli_main(tmp_path: Path) -> None
     commands = [e["hooks"][0]["command"] for e in stop]
     assert "other-tool" in commands
     assert old not in commands
-    ours = [c for c in commands if "-m dual_mem.cli" in c]
-    assert len(ours) == 1 and "-m dual_mem.cli hub" in ours[0]
+    ours = [c for c in commands if "-m memhub.cli" in c]
+    assert len(ours) == 1 and "-m memhub.cli hub" in ours[0]
 
 
 async def test_memory_browser_groups_by_project_and_edits_through_versions(
@@ -1927,12 +1927,12 @@ def test_hub_ui_opens_the_page_with_the_token_in_the_fragment(
 
 
 def test_agentica_install_replaces_the_old_two_consumers_with_one(tmp_path: Path) -> None:
-    """An install from before the merge left ``dual-mem-hub`` + ``dual-mem-hub-recall``;
+    """An install from before the merge left ``memhub-hub`` + ``memhub-hub-recall``;
     reinstalling leaves exactly one consumer of ours, found by its command."""
     hub = tmp_path / "hub"
     home = tmp_path / "home"
     (home / ".agentica").mkdir(parents=True)
-    old = [sys.executable, "-m", "dual_mem.cli", "hub"]
+    old = [sys.executable, "-m", "memhub.cli", "hub"]
     (home / ".agentica" / "config.yaml").write_text(
         yaml.safe_dump(
             {
@@ -1941,8 +1941,8 @@ def test_agentica_install_replaces_the_old_two_consumers_with_one(tmp_path: Path
                         "enabled": True,
                         "consumers": [
                             {"name": "open-island", "command": ["/bin/oi"]},
-                            {"name": "dual-mem-hub", "command": old + ["capture", "agentica"]},
-                            {"name": "dual-mem-hub-recall", "command": old + ["hook-search"]},
+                            {"name": "memhub-hub", "command": old + ["capture", "agentica"]},
+                            {"name": "memhub-hub-recall", "command": old + ["hook-search"]},
                         ],
                     }
                 }
@@ -1953,7 +1953,7 @@ def test_agentica_install_replaces_the_old_two_consumers_with_one(tmp_path: Path
     consumers = yaml.safe_load((home / ".agentica" / "config.yaml").read_text())[
         "settings"
     ]["hooks"]["consumers"]
-    assert [c["name"] for c in consumers] == ["open-island", "dual-mem"]
+    assert [c["name"] for c in consumers] == ["open-island", "memhub"]
 
 
 def test_hook_dispatches_on_the_event_name(tmp_path: Path, monkeypatch) -> None:
@@ -1982,7 +1982,7 @@ def test_hook_dispatches_on_the_event_name(tmp_path: Path, monkeypatch) -> None:
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="needs node to run the plugin")
 def test_opencode_plugin_bridges_events_onto_hub_hook(tmp_path, monkeypatch):
-    from dual_mem.memhub.hosts import Launch, OpenCodePlugin
+    from memhub.memhub.hosts import Launch, OpenCodePlugin
 
     log = tmp_path / "calls.jsonl"
     fake = tmp_path / "fake_hook.py"
@@ -1994,7 +1994,7 @@ def test_opencode_plugin_bridges_events_onto_hub_hook(tmp_path, monkeypatch):
         "    print(json.dumps({'hookSpecificOutput': {'additionalContext': 'CTX:' + p['prompt']}}))\n"
     )
     monkeypatch.setattr(Launch, "hook", lambda self: [sys.executable, str(fake)])
-    plugin = tmp_path / "dual-mem-hub.mjs"
+    plugin = tmp_path / "memhub-hub.mjs"
     OpenCodePlugin().install(plugin, Launch("opencode", tmp_path))
     driver = tmp_path / "drive.mjs"
     driver.write_text(

@@ -1,8 +1,8 @@
 """examples 公共工具：每个 demo 用独立干净的本地存储目录。
 
-配置从 ~/.dual-mem/config.yaml 读取，只保留 Settings 认识的键，再覆盖 mode 和
+配置从 ~/.memhub/config.yaml 读取，只保留 Settings 认识的键，再覆盖 mode 和
 storage_dir。已删除的旧键（例如 system2_trigger_mode）不会进入 Settings。
-JEV 凭据用 yaml 的 jev_api_key，或环境变量 DUAL_MEM_JEV_API_KEY / DUAL_MEM_JEV_ENDPOINT。
+JEV 凭据用 yaml 的 jev_api_key，或环境变量 MEMHUB_JEV_API_KEY / MEMHUB_JEV_ENDPOINT。
 """
 import os
 import shutil
@@ -10,15 +10,15 @@ from pathlib import Path
 
 import yaml
 
-from dual_mem.config import DEFAULT_CONFIG_PATH, Settings, config_path
-from dual_mem.sdk_models import MemoryItem, SearchMemories, WriteResult
+from memhub.config import DEFAULT_CONFIG_PATH, Settings, config_path
+from memhub.sdk_models import MemoryItem, SearchMemories, WriteResult
 
 EXAMPLES_DIR = Path(__file__).resolve().parent
 DATA_ROOT = EXAMPLES_DIR / ".data"
 
 
 def _user_config() -> dict:
-    """读取用户 yaml。DUAL_MEM_CONFIG_FILE 已指向本目录临时文件时，仍读家目录配置。"""
+    """读取用户 yaml。MEMHUB_CONFIG_FILE 已指向本目录临时文件时，仍读家目录配置。"""
     path = config_path()
     if path.is_relative_to(DATA_ROOT) or not path.exists():
         path = DEFAULT_CONFIG_PATH
@@ -44,7 +44,7 @@ def example_settings(mode: str, name: str, **overrides: object) -> Settings:
         yaml.safe_dump(cfg, allow_unicode=True, sort_keys=False),
         encoding="utf-8",
     )
-    os.environ["DUAL_MEM_CONFIG_FILE"] = str(tmp_cfg)
+    os.environ["MEMHUB_CONFIG_FILE"] = str(tmp_cfg)
     return Settings()
 
 

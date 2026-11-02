@@ -2,10 +2,10 @@ import time
 
 import pytest
 
-from dual_mem.config import Settings
-from dual_mem.registry import ComponentFactory
-from dual_mem.retrieval.reader import Reader
-from dual_mem.types import Layer, MemoryNode
+from memhub.config import Settings
+from memhub.registry import ComponentFactory
+from memhub.retrieval.reader import Reader
+from memhub.types import Layer, MemoryNode
 
 
 @pytest.fixture

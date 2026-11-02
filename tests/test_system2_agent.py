@@ -4,12 +4,12 @@ import numpy as np
 import pytest
 from conftest import FakeJev, FakeLLMClient
 
-from dual_mem.config import Settings
-from dual_mem.registry import ComponentFactory
-from dual_mem.system2.system2_agent import (
+from memhub.config import Settings
+from memhub.registry import ComponentFactory
+from memhub.system2.system2_agent import (
     CATALOG_KIND, CORE_SCHEMA_KIND, SCHEMA_KIND, System2Agent, cluster_facts, collision_groups, raw_source,
 )
-from dual_mem.types import Layer, MemoryNode
+from memhub.types import Layer, MemoryNode
 
 DIM = 64
 

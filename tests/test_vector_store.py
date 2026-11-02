@@ -1,8 +1,8 @@
 import pytest
 
-from dual_mem.isolation import build_filter
-from dual_mem.storage.vector_store import ChromaVectorStore
-from dual_mem.types import Layer, MemoryNode, MemoryStatus
+from memhub.isolation import build_filter
+from memhub.storage.vector_store import ChromaVectorStore
+from memhub.types import Layer, MemoryNode, MemoryStatus
 
 
 def _node(fake_embed, content, layer=Layer.L1_FACT, app_id="app", user_id="u"):

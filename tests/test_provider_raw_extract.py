@@ -2,10 +2,10 @@
 
 import asyncio
 
-from dual_mem import MemoryClient
-from dual_mem.config import Settings
-from dual_mem.integrations._base import MemoryBackend, _SyncMemoryProvider
-from dual_mem.types import Layer, MemoryStatus
+from memhub import MemoryClient
+from memhub.config import Settings
+from memhub.integrations._base import MemoryBackend, _SyncMemoryProvider
+from memhub.types import Layer, MemoryStatus
 
 from conftest import FakeLLMClient
 
@@ -30,7 +30,7 @@ def _provider(
             return box["out"]
 
     provider = object.__new__(_SyncMemoryProvider)
-    provider.name = "dual-mem"
+    provider.name = "memhub"
     provider._backend = MemoryBackend(client=client)
     provider._runner = Runner()
     provider._user_id = "u_p"

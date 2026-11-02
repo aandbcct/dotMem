@@ -1,6 +1,6 @@
 """Host-injected memory blocks must not be written back as L0_RAW / extract input."""
-from dual_mem.client import MemoryClient, strip_memory_injection
-from dual_mem.config import Settings
+from memhub.client import MemoryClient, strip_memory_injection
+from memhub.config import Settings
 
 from conftest import FakeLLMClient
 

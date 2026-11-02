@@ -2,8 +2,11 @@
 
 ## Unreleased
 
+## [0.2.2] — 2026-11-02
+
+- **项目与包名全面更名为 `memhub`（`pip install memhub`、`import memhub`）**：破坏性变更。Python 包名由 `dual_mem` 改为 `memhub`，PyPI 包名与 CLI 主命令由 `dual-mem` / `dual-mem-mcp` / `dual-mem-hook` 改为 `memhub` / `memhub-mcp` / `memhub-hook`，配置与 Hub 根目录改为 `~/.memhub`（环境变量前缀改为 `MEMHUB_`）。升级后请将 `~/.dual-mem/config.yaml` 移至 `~/.memhub/config.yaml`，并重新执行 `memhub hub install-service` 与 `memhub hub install-host all`。
 - **每轮召回按项目限定，原始对话带时间、从旧到新排列**。离线评测（4 个项目 27 段真实改写会话、36 道 coding 题，按注入上下文逐点评审）里，只看 dual-mem 注入的上下文从 32/36 提到 35/36；同一份数据上 agentica 原生召回是 33/36。
-  - `hub hook` 把宿主传来的 `cwd` 交给 Core（`/v1/hub/recall` 新字段 `workspace`）。Core 按写入时记录的 `workspace_id` 找出这个项目的会话，事实、工程经验和原始对话只从这些会话里召回。别的项目的事实只在比本项目任何一条都更相关时才进来（问题本身就是在问那个项目）。画像（用户是谁、希望怎么干活）不分项目。没有 `cwd` 或这个目录还没有写入时不限定。
+  - `hub hook` 把宿主传来的 `cwd` 交给 Core（`/v1/hub/recall` 新字段 `workspace`）。`workspace_id` 随 `L0_RAW` 证据（`custom["workspace_id"]`）与 `procedure` 一同复制，Core 从本地同步库找出该项目的会话，事实、工程经验和原始对话只从这些会话里召回。别的项目的事实只在比本项目任何一条都更相关时才进来（问题本身就是在问那个项目）。画像（用户是谁、希望怎么干活）不分项目。没有 `cwd` 或这个目录还没有写入时不限定。
   - 原始对话每段标上时间、按时间从旧到新排列，标题写明「同一件事以最新的为准」。之前按会话 id 标注、按相关度排序，先后两次相反的说法看起来是并列的。
   - 注入的原始对话每段只取和提示词相关的段落（最多约 1600 字），复用 SDK 的 `source_excerpt`。一整段会话原样塞进去时，本机真实库里一次注入有 38K 字。MCP 的「查原文」仍返回完整对话。
   - hub 召回的事实和画像门槛从 SDK 默认的 0.4 / 0.3 降到 0.2：coding 提问和答案很少用同样的词，真实命中的融合分常在 0.2～0.4。SDK 默认值不变。

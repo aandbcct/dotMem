@@ -1,7 +1,7 @@
-"""Demo 4 — CLI：subprocess 调用 `python -m dual_mem.cli.main`。
+"""Demo 4 — CLI：subprocess 调用 `python -m memhub.cli.main`。
 
 临时配置只保留 Settings 认识的键，并改 mode 和 storage_dir。
-已删除的旧键不会带进去。JEV 凭据来自配置或 DUAL_MEM_JEV_API_KEY。
+已删除的旧键不会带进去。JEV 凭据来自配置或 MEMHUB_JEV_API_KEY。
 
 环境要求：jev_*、llm_*、embed_*。
 
@@ -18,7 +18,7 @@ from _common import example_settings, section
 
 def run(args: list[str]) -> str:
     """以子进程方式跑 CLI，返回 stdout。失败时打印 stderr 并退出。"""
-    cmd = [sys.executable, "-m", "dual_mem.cli.main", *args]
+    cmd = [sys.executable, "-m", "memhub.cli.main", *args]
     out = subprocess.run(cmd, capture_output=True, text=True, env=ENV, cwd=str(Path.cwd()))
     if out.returncode != 0:
         print("STDERR:", out.stderr)

@@ -3,9 +3,9 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "dual-mem"
-version = "0.2.1"
-description = "Dual-system layered memory SDK"
+name = "memhub"
+version = "0.2.2"
+description = "MemHub: Personal Memory Hub & Dual-System Layered Memory SDK for AI Agents"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -24,20 +24,20 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# REST API (`dual-mem serve`, `from dual_mem.api import create_app`)
+# REST API (`memhub serve`, `from memhub.api import create_app`)
 api = [
     "fastapi>=0.110",
     "uvicorn>=0.29",
 ]
-# CLI (`dual-mem add|search|...`)
+# CLI (`memhub add|search|...`)
 cli = [
     "typer>=0.12",
 ]
-# MCP server (`dual-mem-mcp`, `dual-mem mcp`)
+# MCP server (`memhub-mcp`, `memhub mcp`)
 mcp = [
     "mcp>=2.2,<3",
 ]
-# agentica integration (`dual_mem.integrations.agentica`)
+# agentica integration (`memhub.integrations.agentica`)
 agentica = [
     "agentica",
 ]
@@ -48,26 +48,26 @@ test = [
 ]
 # All optional frontends
 all = [
-    "dual-mem[api,cli,mcp]",
+    "memhub[api,cli,mcp]",
 ]
 dev = [
     "pytest>=8",
     "pytest-asyncio>=0.23",
     "respx>=0.21",
     "httpx>=0.27",
-    "dual-mem[all,test]",
+    "memhub[all,test]",
 ]
 
 [project.scripts]
-dual-mem = "dual_mem.cli.main:app"
-dual-mem-mcp = "dual_mem.mcp.server:main"
-dual-mem-hook = "dual_mem.integrations.claude_code:main"
+memhub = "memhub.cli.main:app"
+memhub-mcp = "memhub.mcp.server:main"
+memhub-hook = "memhub.integrations.claude_code:main"
 
 [tool.setuptools.packages.find]
-include = ["dual_mem*"]
+include = ["memhub*"]
 
 [tool.setuptools.package-data]
-dual_mem = ["config.default.yaml", "memhub/ui.html"]
+memhub = ["config.default.yaml", "memhub/ui.html"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

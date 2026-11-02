@@ -15,7 +15,7 @@ import asyncio
 
 from _common import example_settings, section, show_memories, show_write
 
-from dual_mem import MemoryClient
+from memhub import MemoryClient
 
 
 async def main() -> None:

@@ -1,8 +1,8 @@
 """Pipeline trace for JEV decisions and hybrid read stages."""
 
-from dual_mem.client import MemoryClient
-from dual_mem.config import Settings
-from dual_mem.types import Layer, MemoryNode, MemoryStatus
+from memhub.client import MemoryClient
+from memhub.config import Settings
+from memhub.types import Layer, MemoryNode, MemoryStatus
 
 from conftest import FakeLLMClient
 

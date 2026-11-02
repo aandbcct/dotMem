@@ -1,6 +1,6 @@
 import pytest
 
-from dual_mem.config import (
+from memhub.config import (
     CHARS_PER_TOKEN,
     EMBED_CHARS_PER_TOKEN,
     EMBED_MAX_TOKENS,
@@ -13,7 +13,7 @@ from dual_mem.config import (
 def test_defaults():
     s = Settings()
     assert s.mode == "system1"
-    assert s.storage_dir == "./.dual_mem_v4"
+    assert s.storage_dir == "./.memhub_v4"
     assert s.embed_dim == 1536
     assert s.llm_context_window == LLM_CONTEXT_WINDOW
     assert s.llm_completion_reserve == LLM_COMPLETION_RESERVE
@@ -52,8 +52,8 @@ def test_invalid_mode_raises(bad_mode):
 
 
 def test_env_prefix(monkeypatch):
-    monkeypatch.setenv("DUAL_MEM_MODE", "dual")
-    monkeypatch.setenv("DUAL_MEM_EMBED_DIM", "768")
+    monkeypatch.setenv("MEMHUB_MODE", "dual")
+    monkeypatch.setenv("MEMHUB_EMBED_DIM", "768")
     s = Settings()
     assert s.mode == "dual"
     assert s.embed_dim == 768
@@ -65,7 +65,7 @@ def test_yaml_source(tmp_path, monkeypatch):
         "mode: dual\nembed_dim: 256\nllm_model: my-model\napp_whitelist:\n  - alpha\n  - beta\n",
         encoding="utf-8",
     )
-    monkeypatch.setenv("DUAL_MEM_CONFIG_FILE", str(cfg))
+    monkeypatch.setenv("MEMHUB_CONFIG_FILE", str(cfg))
     s = Settings()
     assert s.mode == "dual"
     assert s.embed_dim == 256
@@ -76,39 +76,39 @@ def test_yaml_source(tmp_path, monkeypatch):
 def test_env_overrides_yaml(tmp_path, monkeypatch):
     cfg = tmp_path / "config.yaml"
     cfg.write_text("mode: dual\n", encoding="utf-8")
-    monkeypatch.setenv("DUAL_MEM_CONFIG_FILE", str(cfg))
-    monkeypatch.setenv("DUAL_MEM_MODE", "system1")
+    monkeypatch.setenv("MEMHUB_CONFIG_FILE", str(cfg))
+    monkeypatch.setenv("MEMHUB_MODE", "system1")
     assert Settings().mode == "system1"
 
 
 def test_init_overrides_yaml(tmp_path, monkeypatch):
     cfg = tmp_path / "config.yaml"
     cfg.write_text("mode: dual\n", encoding="utf-8")
-    monkeypatch.setenv("DUAL_MEM_CONFIG_FILE", str(cfg))
+    monkeypatch.setenv("MEMHUB_CONFIG_FILE", str(cfg))
     assert Settings(mode="system1").mode == "system1"
 
 
 def test_ensure_config_file_creates_default(tmp_path, monkeypatch):
-    """Default ~/.dual-mem/config.yaml is bootstrapped when missing."""
-    monkeypatch.delenv("DUAL_MEM_CONFIG_FILE", raising=False)
-    monkeypatch.setattr("dual_mem.config.DEFAULT_CONFIG_PATH", tmp_path / "config.yaml")
-    from dual_mem.config import ensure_config_file
+    """Default ~/.memhub/config.yaml is bootstrapped when missing."""
+    monkeypatch.delenv("MEMHUB_CONFIG_FILE", raising=False)
+    monkeypatch.setattr("memhub.config.DEFAULT_CONFIG_PATH", tmp_path / "config.yaml")
+    from memhub.config import ensure_config_file
 
     path = ensure_config_file()
     assert path.exists()
     text = path.read_text(encoding="utf-8")
     assert "llm_api_key" in text
     assert "embed_api_key" in text
-    assert "storage_dir: ./.dual_mem_v4" in text
+    assert "storage_dir: ./.memhub_v4" in text
     assert path.read_text(encoding="utf-8") == text  # idempotent
     ensure_config_file()
     assert path.read_text(encoding="utf-8") == text
 
 
 def test_ensure_storage_dir_creates_nested(tmp_path):
-    from dual_mem.config import ensure_storage_dir
+    from memhub.config import ensure_storage_dir
 
-    target = tmp_path / "nested" / "dual_mem_data"
+    target = tmp_path / "nested" / "memhub_data"
     ensure_storage_dir(str(target))
     assert target.is_dir()
 
@@ -134,8 +134,8 @@ def test_explicit_field_overrides_preset():
 
 
 def test_env_field_overrides_preset(monkeypatch):
-    monkeypatch.setenv("DUAL_MEM_PRESET", "high_recall")
-    monkeypatch.setenv("DUAL_MEM_RECONCILE_CANDIDATE_LIMIT", "32")
+    monkeypatch.setenv("MEMHUB_PRESET", "high_recall")
+    monkeypatch.setenv("MEMHUB_RECONCILE_CANDIDATE_LIMIT", "32")
     s = Settings()
     assert s.preset == "high_recall"
     assert s.reconcile_candidate_limit == 32  # env wins over preset
@@ -144,7 +144,7 @@ def test_env_field_overrides_preset(monkeypatch):
 def test_preset_selected_from_yaml(tmp_path, monkeypatch):
     cfg = tmp_path / "config.yaml"
     cfg.write_text("preset: high_recall\n", encoding="utf-8")
-    monkeypatch.setenv("DUAL_MEM_CONFIG_FILE", str(cfg))
+    monkeypatch.setenv("MEMHUB_CONFIG_FILE", str(cfg))
     s = Settings()
     assert s.preset == "high_recall"
     assert s.reconcile_candidate_limit == 128
@@ -159,10 +159,10 @@ def test_invalid_preset_raises(bad_preset):
 def test_missing_jev_credentials_fails_before_network(
     tmp_storage, fake_embed, fake_llm, monkeypatch
 ):
-    from dual_mem import MemoryClient
-    from dual_mem.client import MissingCredentialsError
+    from memhub import MemoryClient
+    from memhub.client import MissingCredentialsError
 
-    monkeypatch.delenv("DUAL_MEM_JEV_API_KEY", raising=False)
+    monkeypatch.delenv("MEMHUB_JEV_API_KEY", raising=False)
     with pytest.raises(MissingCredentialsError, match="Jev requires"):
         MemoryClient(
             settings=Settings(storage_dir=tmp_storage, jev_api_key=""),
@@ -198,6 +198,6 @@ def test_removed_controls_and_nested_config_are_rejected(key):
 def test_old_yaml_controls_are_rejected(tmp_path, monkeypatch):
     cfg = tmp_path / "old-config.yaml"
     cfg.write_text("reconcile_sync: true\n")
-    monkeypatch.setenv("DUAL_MEM_CONFIG_FILE", str(cfg))
+    monkeypatch.setenv("MEMHUB_CONFIG_FILE", str(cfg))
     with pytest.raises(ValueError):
         Settings()

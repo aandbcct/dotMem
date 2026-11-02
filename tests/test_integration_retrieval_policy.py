@@ -3,13 +3,13 @@
 import asyncio
 from types import SimpleNamespace
 
-from dual_mem.integrations._base import _SyncMemoryProvider
-from dual_mem.integrations.agentica import DualMemWorkspace
-from dual_mem.sdk_models import MemoryItem, SearchMemories, SearchResult
+from memhub.integrations._base import _SyncMemoryProvider
+from memhub.integrations.agentica import MemHubWorkspace
+from memhub.sdk_models import MemoryItem, SearchMemories, SearchResult
 
 
 async def test_agentica_short_nonempty_query_is_retrieved() -> None:
-    workspace = object.__new__(DualMemWorkspace)
+    workspace = object.__new__(MemHubWorkspace)
     calls: list[tuple[str, int]] = []
 
     async def search(query: str, limit: int) -> list:

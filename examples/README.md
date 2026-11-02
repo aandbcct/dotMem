@@ -1,4 +1,4 @@
-# dual-mem Examples
+# memhub Examples
 
 可直接运行的端到端示例，使用真实 JEV、生成模型和 Embedding。建议按顺序看：
 **system1 → dual → REST → CLI**。
@@ -6,7 +6,7 @@
 ## 前置
 
 `MemoryClient` 需要 **JEV、LLM、Embedding 三套凭据**，缺 JEV key 会在构造时抛
-`MissingCredentialsError`。首次构造会在 `~/.dual-mem/config.yaml` 写默认配置。
+`MissingCredentialsError`。首次构造会在 `~/.memhub/config.yaml` 写默认配置。
 
 ```yaml
 jev_endpoint: https://api.typesafe.ai/v1/systemone
@@ -23,13 +23,13 @@ embed_model: text-embedding-3-small
 embed_dim: 1536
 ```
 
-也可用环境变量（前缀 `DUAL_MEM_`）。家目录配置里已经删除的键（例如
+也可用环境变量（前缀 `MEMHUB_`）。家目录配置里已经删除的键（例如
 `system2_trigger_mode`）会被丢掉，不会让 `Settings` 报错。
 
 ```bash
-export DUAL_MEM_JEV_API_KEY=...
-export DUAL_MEM_LLM_API_KEY=sk-...
-export DUAL_MEM_EMBED_API_KEY=sk-...
+export MEMHUB_JEV_API_KEY=...
+export MEMHUB_LLM_API_KEY=sk-...
+export MEMHUB_EMBED_API_KEY=sk-...
 ```
 
 各 demo 用 `examples/.data/` 下的独立目录，每次运行清空。01 / 02 结束时

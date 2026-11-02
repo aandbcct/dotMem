@@ -2,9 +2,9 @@ import json
 
 import pytest
 from conftest import FakeJev, FakeLLMClient
-from dual_mem.agent.reconciler import Reconciler, DecisionContextError
-from dual_mem.storage.vector_store import ChromaVectorStore
-from dual_mem.types import Layer, MemoryNode
+from memhub.agent.reconciler import Reconciler, DecisionContextError
+from memhub.storage.vector_store import ChromaVectorStore
+from memhub.types import Layer, MemoryNode
 
 
 @pytest.fixture
@@ -126,7 +126,7 @@ async def test_invalid_candidate_is_rejected_not_written(store, fake_embed):
 
 
 async def test_low_confidence_relation_appends_as_supplement(store, fake_embed):
-    from dual_mem.providers.jev import JevAnswer
+    from memhub.providers.jev import JevAnswer
 
     seed(store, fake_embed)
     weak = JevAnswer(

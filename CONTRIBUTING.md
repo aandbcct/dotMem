@@ -1,12 +1,12 @@
 # 贡献指南
 
-感谢关注 dual-mem！
+感谢关注 memhub！
 
 ## 开发环境
 
 ```bash
-git clone https://github.com/shibing624/dual-mem.git
-cd dual-mem
+git clone https://github.com/shibing624/memhub.git
+cd memhub
 pip install -e ".[dev]"
 ```
 
@@ -28,9 +28,9 @@ python ~/.agents/rules/check_ast.py .
 
 ## 文档
 
-- 用户文档站点：https://shibing624.github.io/dual-mem
+- 用户文档站点：https://shibing624.github.io/memhub
 - 修改 `docs/` 或 `mkdocs.yml` 后，合并到 `main` 会自动部署 GitHub Pages
 
 ## 问题反馈
 
-请通过 [GitHub Issues](https://github.com/shibing624/dual-mem/issues) 提交 bug 或功能建议。
+请通过 [GitHub Issues](https://github.com/shibing624/memhub/issues) 提交 bug 或功能建议。

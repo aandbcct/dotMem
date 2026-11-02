@@ -1,10 +1,10 @@
-# 评测：dual-mem vs hy-memory vs mem0
+# 评测：memhub vs hy-memory vs mem0
 
-一句话：**同一个模型、同一套题，只换记忆系统，dual-mem 在三个公开评测上都排第一，LoCoMo 上显著领先。**
+一句话：**同一个模型、同一套题，只换记忆系统，memhub 在三个公开评测上都排第一，LoCoMo 上显著领先。**
 
 | 记忆系统 | LoCoMo（308 题） | LongMemEval（24 题） | PersonaMem-v2（476 题） | 单篇长对话写入耗时（秒，越低越快） |
 |---|:---:|:---:|:---:|:---:|
-| **dual-mem** | **74.68** | **91.67**（22/24） | **50.00** | **503** |
+| **memhub** | **74.68** | **91.67**（22/24） | **50.00** | **503** |
 | hy-memory 2.0.4 | 66.56 | 70.83（17/24） | 43.49 | 2485 |
 | mem0 | 65.58 | 83.33（20/24） | 47.90 | 808 |
 
@@ -12,7 +12,7 @@
 
 ## 每个评测在测什么
 
-| 评测 | 用户场景 | dual-mem 表现 |
+| 评测 | 用户场景 | memhub 表现 |
 |---|---|---|
 | **LoCoMo** | 几百轮、跨月的长对话里，还记不记得对方说过什么、什么时候说的 | 74.7，领先 8–9 分；时间类问题 78 分，对手 61 / 22 |
 | **LongMemEval** | 跨多次会话的信息抽取、更新和时间推理 | 24 题答对 22 题 |
@@ -27,7 +27,7 @@
 - 三个系统的抽取、作答和判分都用同一个 **Qwen3.8-27B**（FP8），embedding 都用 **bge-m3**。
 - 题目集合在评测前冻结并记录 hash；每个系统从空库开始写入。
 - 作答 prompt、检索条数（top-50）和判分 prompt 完全一致。
-- dual-mem 用 SDK 默认配置，不针对评测调参。
+- memhub 用 SDK 默认配置，不针对评测调参。
 - hy-memory 用 2.0.4 的 `ultra` 档（S1 + evolve）。
 - mem0 用开源版 2.2.1。开源版不使用写入时间戳，评测里改为读取写入 metadata 中的会话时间来展示，和 mem0 官方评测的做法一致。
 
@@ -39,11 +39,11 @@
 
 | | 总分 | 对 dual 配对胜 / 负 | 符号检验 p | multi-hop | open-domain | single-hop | temporal |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| dual-mem | 74.68 | — | — | 66 | 41 | 80 | 78 |
+| memhub | 74.68 | — | — | 66 | 41 | 80 | 78 |
 | hy-memory | 66.56 | 32 / 57 | 0.011 | 68 | 47 | 70 | 61 |
 | mem0 | 65.58 | 36 / 64 | 0.007 | 80 | 47 | 79 | 22 |
 
-- 写入耗时（每段对话中位数）：dual-mem 503 秒，hy-memory 2485 秒，mem0 808 秒。
+- 写入耗时（每段对话中位数）：memhub 503 秒，hy-memory 2485 秒，mem0 808 秒。
 - 已知短板：multi-hop 比 mem0 低 14 分，已列入 Roadmap。
 
 ### LongMemEval
@@ -68,11 +68,11 @@ Hy-Memory 论文还用了 Travel SPS、Shopping PS 和 CodeMemoryBench（CMB）�
 
 ### 复现
 
-评测工具在实验仓库 `dual_mem_exp/benchmarks`：
+评测工具在实验仓库 `memhub_exp/benchmarks`：
 
 ```bash
 # LoCoMo：三个系统各跑一遍（20% 子样，种子 42）
-python3 locomo/run.py --backend dual_mem  --output results/locomo/l20-dual
+python3 locomo/run.py --backend memhub  --output results/locomo/l20-dual
 python3 locomo/run.py --backend hy_memory --output results/locomo/l20-hy
 python3 locomo/run.py --backend mem0      --output results/locomo/l20-mem0
 

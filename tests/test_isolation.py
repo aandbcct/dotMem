@@ -1,5 +1,5 @@
-from dual_mem.isolation import build_filter, isolation_key
-from dual_mem.types import Layer, MemoryStatus
+from memhub.isolation import build_filter, isolation_key
+from memhub.types import Layer, MemoryStatus
 
 
 def test_isolation_key_full():

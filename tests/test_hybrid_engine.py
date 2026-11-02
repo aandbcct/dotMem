@@ -4,11 +4,11 @@ import math
 
 from conftest import FakeLLMClient
 
-from dual_mem import MemoryClient
-from dual_mem.config import Settings
-from dual_mem.storage.graph_store import GraphNode
-from dual_mem.retrieval.hybrid_engine import source_excerpt
-from dual_mem.types import Layer, MemoryNode, MemoryStatus
+from memhub import MemoryClient
+from memhub.config import Settings
+from memhub.storage.graph_store import GraphNode
+from memhub.retrieval.hybrid_engine import source_excerpt
+from memhub.types import Layer, MemoryNode, MemoryStatus
 
 
 def _unit(cosine: float, dim: int = 64) -> list[float]:

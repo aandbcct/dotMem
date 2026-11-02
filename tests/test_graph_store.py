@@ -1,6 +1,6 @@
 import pytest
 
-from dual_mem.storage.graph_store import GraphNode, KuzuGraphStore
+from memhub.storage.graph_store import GraphNode, KuzuGraphStore
 
 
 @pytest.fixture

@@ -3,9 +3,9 @@ import inspect
 
 import pytest
 
-from dual_mem.client import MemoryClient
-from dual_mem.config import Settings
-from dual_mem.sync_client import SyncMemoryClient
+from memhub.client import MemoryClient
+from memhub.config import Settings
+from memhub.sync_client import SyncMemoryClient
 from tests.conftest import FakeLLMClient
 
 # Async methods on MemoryClient that SyncMemoryClient does NOT mirror as blocking data ops:
@@ -19,7 +19,7 @@ def _annotation_str(ann) -> str:
 
     client.py uses real objects (str, int | None); sync_client.py uses PEP 563 string
     annotations ('str', 'int | None'). Render both to the same canonical form, collapsing
-    the fully-qualified ``dual_mem.sdk_models.ChatMessage`` to the bare ``ChatMessage`` the
+    the fully-qualified ``memhub.sdk_models.ChatMessage`` to the bare ``ChatMessage`` the
     string form carries.
     """
     if ann is inspect.Parameter.empty:
@@ -30,7 +30,7 @@ def _annotation_str(ann) -> str:
         # Use str() for parametrized generics / unions (list[str], int | None) which carry
         # no useful __name__; fall back to __name__ for plain classes (str -> "str").
         s = str(ann) if ("[" in str(ann) or "|" in str(ann)) else getattr(ann, "__name__", str(ann))
-    return s.replace("dual_mem.sdk_models.", "").replace(" ", "")
+    return s.replace("memhub.sdk_models.", "").replace(" ", "")
 
 
 def _param_fingerprint(sig: inspect.Signature) -> list[tuple]:

@@ -1,9 +1,9 @@
 import pytest
 from typer.testing import CliRunner
 
-from dual_mem import MemoryClient
-from dual_mem.cli import main as cli_main
-from dual_mem.config import Settings
+from memhub import MemoryClient
+from memhub.cli import main as cli_main
+from memhub.config import Settings
 
 runner = CliRunner()
 

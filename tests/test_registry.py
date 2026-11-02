@@ -1,6 +1,6 @@
-from dual_mem.config import Settings
-from dual_mem.registry import ComponentFactory
-from dual_mem.storage.graph_store import KuzuGraphStore
+from memhub.config import Settings
+from memhub.registry import ComponentFactory
+from memhub.storage.graph_store import KuzuGraphStore
 
 
 def test_shared_resource_reuse(tmp_storage):

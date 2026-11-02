@@ -1,7 +1,7 @@
 import dataclasses
 import pytest
 
-from dual_mem.types import (
+from memhub.types import (
     LAYER_TO_CATEGORY,
     Category,
     Layer,

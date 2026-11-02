@@ -1,6 +1,6 @@
 from conftest import FakeEmbedService, FakeLLMClient, FakeJev
-from dual_mem import MemoryClient
-from dual_mem.config import Settings
+from memhub import MemoryClient
+from memhub.config import Settings
 
 
 class CountingEmbed(FakeEmbedService):

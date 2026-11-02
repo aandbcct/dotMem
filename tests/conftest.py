@@ -2,12 +2,12 @@ import hashlib
 import math
 import os
 
-os.environ.setdefault("DUAL_MEM_LLM_API_KEY", "sk-test-fake")
-os.environ.setdefault("DUAL_MEM_EMBED_API_KEY", "sk-test-fake")
-os.environ.setdefault("DUAL_MEM_AUTH_DISABLED", "true")
-os.environ.setdefault("DUAL_MEM_CONFIG_FILE", "/nonexistent/dual_mem_test_config.yaml")
+os.environ.setdefault("MEMHUB_LLM_API_KEY", "sk-test-fake")
+os.environ.setdefault("MEMHUB_EMBED_API_KEY", "sk-test-fake")
+os.environ.setdefault("MEMHUB_AUTH_DISABLED", "true")
+os.environ.setdefault("MEMHUB_CONFIG_FILE", "/nonexistent/memhub_test_config.yaml")
 # Fake hash embeddings have no semantic similarity; route every candidate to Jev.
-os.environ.setdefault("DUAL_MEM_RECONCILE_RELATION_THRESHOLD", "-1")
+os.environ.setdefault("MEMHUB_RECONCILE_RELATION_THRESHOLD", "-1")
 
 import pytest
 
@@ -196,7 +196,7 @@ class FakeJev:
         self.max_request_chars = 100_000
 
     async def evaluate(self, *, state, questions):
-        from dual_mem.providers.jev import JevAnswer
+        from memhub.providers.jev import JevAnswer
 
         self.calls.append({"state": state, "questions": questions})
         response = (
@@ -270,7 +270,7 @@ def release_chroma_systems():
 @pytest.fixture(autouse=True)
 def mock_decisions_for_sdk_fixtures(monkeypatch):
     """All SDK fixtures are offline; new protocol tests inject their own script."""
-    from dual_mem.registry import ComponentFactory
+    from memhub.registry import ComponentFactory
 
     original = ComponentFactory.__init__
 
@@ -280,4 +280,4 @@ def mock_decisions_for_sdk_fixtures(monkeypatch):
         original(self, **kwargs)
 
     monkeypatch.setattr(ComponentFactory, "__init__", initialize)
-    monkeypatch.setenv("DUAL_MEM_JEV_API_KEY", "test-jev-key")
+    monkeypatch.setenv("MEMHUB_JEV_API_KEY", "test-jev-key")

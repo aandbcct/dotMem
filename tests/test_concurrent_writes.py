@@ -1,8 +1,8 @@
 import asyncio
 from conftest import FakeJev, FakeLLMClient
-from dual_mem import MemoryClient
-from dual_mem.config import Settings
-from dual_mem.types import Layer
+from memhub import MemoryClient
+from memhub.config import Settings
+from memhub.types import Layer
 
 
 async def test_parallel_same_scope_cas_retry_leaves_one_linear_latest_chain(
@@ -53,7 +53,7 @@ async def test_independent_scopes_overlap_decision_io(tmp_storage, fake_embed):
         llm=FakeLLMClient(),
         jev=jev,
     )
-    from dual_mem.types import MemoryNode
+    from memhub.types import MemoryNode
 
     # Each scope needs a head, otherwise the candidate is appended without Jev.
     c.factory.vector.upsert([

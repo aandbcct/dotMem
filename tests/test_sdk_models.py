@@ -1,4 +1,4 @@
-from dual_mem.sdk_models import MemoryItem, SearchMemories
+from memhub.sdk_models import MemoryItem, SearchMemories
 
 
 def test_search_memories_flatten_deduplicates_routes():

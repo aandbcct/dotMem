@@ -10,11 +10,11 @@
 import pytest
 
 from conftest import FakeJev, FakeLLMClient
-from dual_mem import IdempotencyConflictError, MemoryClient
-from dual_mem.agent.mem_agent import MemAgent
-from dual_mem.agent.reconciler import _action_question
-from dual_mem.config import Settings
-from dual_mem.types import Layer, MemoryNode
+from memhub import IdempotencyConflictError, MemoryClient
+from memhub.agent.mem_agent import MemAgent
+from memhub.agent.reconciler import _action_question
+from memhub.config import Settings
+from memhub.types import Layer, MemoryNode
 
 
 def echo_lines(system, user):
@@ -89,8 +89,8 @@ async def test_retiring_and_historical_on_one_head_still_replans(
     c = make(tmp_storage, fake_embed, FakeJev())
     seed_head(c, fake_embed)
     agent = MemAgent(factory=c.factory)
-    from dual_mem.agent.reconciler import ReconcileOp
-    from dual_mem.errors import DecisionPlanError
+    from memhub.agent.reconciler import ReconcileOp
+    from memhub.errors import DecisionPlanError
 
     raw = MemoryNode(
         content="x", layer=Layer.L0_RAW, app_id="default", user_id="u", node_id="raw"
@@ -139,7 +139,7 @@ async def test_older_source_merge_answer_is_rejected_not_applied(
     jev = FakeJev({"p0:target": "head", "p0:action": "ADD_MERGE"})
     c = make(tmp_storage, fake_embed, jev)
     seed_head(c, fake_embed)
-    from dual_mem import DecisionContextError
+    from memhub import DecisionContextError
 
     with pytest.raises(DecisionContextError, match="unsupported answer"):
         await c.add(content="Lived in Beijing", user_id="u", memory_at=1_000)
@@ -195,7 +195,7 @@ def procedure_nodes(c):
 def test_requests_index_is_backfilled_for_existing_journals(tmp_storage, fake_embed):
     import sqlite3
 
-    from dual_mem.storage.vector_store import ChromaVectorStore
+    from memhub.storage.vector_store import ChromaVectorStore
 
     store = ChromaVectorStore(tmp_storage)
     node = MemoryNode(
