@@ -3,7 +3,7 @@
 ## Unreleased
 
 - **CLI 提升为一级命令、`memhub/memhub` 重命名为 `memhub/hub`、默认 `storage_dir` 改为 `./.memhub_data`**：
-  - 所有 Hub 命令直接作为 `memhub` 一级子命令（`memhub install-service`、`memhub install-host`、`memhub ui`、`memhub status`、`memhub recall`、`memhub scan`、`memhub connect`、`memhub disconnect`、`memhub sync`、`memhub serve` 等），无需再敲 `memhub hub ...`（仍保留隐藏的 `memhub hub ...` 兼容入口）；独立多租户 REST 服务命令改为 `memhub serve-api`。
+  - 所有 Hub 命令直接作为 `memhub` 一级子命令（`memhub install-service`、`memhub install-host`、`memhub ui`、`memhub status`、`memhub recall`、`memhub scan`、`memhub connect`、`memhub disconnect`、`memhub sync`、`memhub serve` 等），无需再敲 `memhub hub ...`；独立多租户 REST 服务命令改为 `memhub serve-api`。
   - 包内子目录由 `memhub/memhub/` 重命名为 `memhub/hub/`（`memhub.hub`）。
   - `Settings.storage_dir` 默认值与 `config.default.yaml` 改为 `./.memhub_data`。
   - `README.md`、`README_EN.md` 与 `docs/` 全套文档更新为 `memhub`（个人记忆中枢 + 双系统分层记忆 SDK）叙事，统一一级 CLI 命令、8 种宿主工具、REST `memhub serve-api` 与当前无 `MERGE` 的写路径说明。

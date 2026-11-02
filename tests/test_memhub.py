@@ -742,7 +742,7 @@ def test_cli_capture_hook_and_status(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(cli_hub, "make_client", lambda _hub: FakeRemote())
     hook = runner.invoke(
         cli_main.app,
-        ["hub", "hook", "claude-code", "--hub-dir", str(hub)],
+        ["hook", "claude-code", "--hub-dir", str(hub)],
         input=json.dumps(
             {"hook_event_name": "UserPromptSubmit", "prompt": "我的框架偏好"},
             ensure_ascii=False,
@@ -755,7 +755,7 @@ def test_cli_capture_hook_and_status(tmp_path: Path, monkeypatch) -> None:
     # the very same command and reply shape serve it — no per-host branch.
     agentica = runner.invoke(
         cli_main.app,
-        ["hub", "hook", "agentica", "--hub-dir", str(hub)],
+        ["hook", "agentica", "--hub-dir", str(hub)],
         input=json.dumps(
             {
                 "hook_event_name": "UserPromptSubmit",
@@ -773,7 +773,7 @@ def test_cli_capture_hook_and_status(tmp_path: Path, monkeypatch) -> None:
     publish_runtime(base_url="http://127.0.0.1:8765", instance_id="core-1", pid=1, hub_dir=hub)
     status = runner.invoke(
         cli_main.app,
-        ["hub", "status", "--hub-dir", str(hub)],
+        ["status", "--hub-dir", str(hub)],
     )
     status_data = json.loads(status.output)
     assert status_data["instance_id"] == "core-1"
@@ -789,7 +789,7 @@ def test_cli_capture_hook_and_status(tmp_path: Path, monkeypatch) -> None:
     transcript = tmp_path / "turn.jsonl"
     capture = runner.invoke(
         cli_main.app,
-        ["hub", "hook", "claude-code", "--hub-dir", str(hub)],
+        ["hook", "claude-code", "--hub-dir", str(hub)],
         input=json.dumps({"hook_event_name": "Stop", "transcript_path": str(transcript)}),
     )
     assert capture.exit_code == 0
@@ -813,7 +813,7 @@ def test_cli_capture_hook_and_status(tmp_path: Path, monkeypatch) -> None:
 def test_connect_http_rejects_plaintext_non_loopback(tmp_path: Path) -> None:
     result = runner.invoke(
         cli_main.app,
-        ["hub", "connect", "http", "http://memory.example.com", "--api-key", "secret",
+        ["connect", "http", "http://memory.example.com", "--api-key", "secret",
          "--hub-dir", str(tmp_path)],
     )
     assert result.exit_code != 0
@@ -1045,7 +1045,7 @@ async def test_serve_refuses_non_loopback_and_a_second_core_cannot_steal_the_tok
     monkeypatch.setattr(uvicorn, "run", lambda *_a, **_kw: None)
     refused = runner.invoke(
         cli_main.app,
-        ["hub", "serve", "--host", "0.0.0.0", "--hub-dir", str(tmp_path)],
+        ["serve", "--host", "0.0.0.0", "--hub-dir", str(tmp_path)],
     )
     assert refused.exit_code != 0 and "loopback only" in refused.output
 
@@ -1867,7 +1867,7 @@ def test_recalled_dialogue_is_dated_and_oldest_first(tmp_path: Path, monkeypatch
 
     monkeypatch.setattr(cli_hub, "make_client", lambda _hub: FakeRemote())
     out = runner.invoke(
-        cli_main.app, ["hub", "hook", "agentica", "--hub-dir", str(tmp_path)],
+        cli_main.app, ["hook", "agentica", "--hub-dir", str(tmp_path)],
         input=json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": "超时?",
                           "cwd": "/w/repo"}, ensure_ascii=False),
     )
@@ -1900,7 +1900,7 @@ def test_long_recalled_dialogue_is_cut_to_the_passages_on_the_prompt(
 
     monkeypatch.setattr(cli_hub, "make_client", lambda _hub: FakeRemote())
     out = runner.invoke(
-        cli_main.app, ["hub", "hook", "agentica", "--hub-dir", str(tmp_path)],
+        cli_main.app, ["hook", "agentica", "--hub-dir", str(tmp_path)],
         input=json.dumps({"hook_event_name": "UserPromptSubmit",
                           "prompt": "迁移脚本前要备份 ledger 吗"}, ensure_ascii=False),
     )
@@ -1931,7 +1931,7 @@ def test_agentica_install_replaces_the_old_two_consumers_with_one(tmp_path: Path
     hub = tmp_path / "hub"
     home = tmp_path / "home"
     (home / ".agentica").mkdir(parents=True)
-    old = [sys.executable, "-m", "memhub.cli", "hub"]
+    old = [sys.executable, "-m", "memhub.cli"]
     (home / ".agentica" / "config.yaml").write_text(
         yaml.safe_dump(
             {
@@ -1967,7 +1967,7 @@ def test_hook_dispatches_on_the_event_name(tmp_path: Path, monkeypatch) -> None:
 
     def hook(*args: str, **payload: Any) -> None:
         result = runner.invoke(
-            cli_main.app, ["hub", *args, "--hub-dir", str(hub)], input=json.dumps(payload)
+            cli_main.app, [*args, "--hub-dir", str(hub)], input=json.dumps(payload)
         )
         assert result.exit_code == 0, result.output
 

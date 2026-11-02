@@ -463,7 +463,7 @@ async def test_only_the_digester_queues_received_facts(tmp_path, fake_embed, fak
 def test_connect_disconnect_and_status_without_a_running_core(tmp_path):
     hub = tmp_path / "hub"
     sync_dir = tmp_path / "iCloud" / "memhub"
-    result = runner.invoke(cli_main.app, ["hub", "connect", "dir", str(sync_dir),
+    result = runner.invoke(cli_main.app, ["connect", "dir", str(sync_dir),
                                           "--hub-dir", str(hub)])
     assert result.exit_code == 0, result.output
     out = json.loads(result.output)
@@ -472,19 +472,19 @@ def test_connect_disconnect_and_status_without_a_running_core(tmp_path):
     assert load_sync_config(hub) == SyncConfig(kind="dir", target=str(sync_dir.resolve()))
     assert oct((hub / "hub.json").stat().st_mode & 0o777) == "0o600"
 
-    missing = runner.invoke(cli_main.app, ["hub", "connect", "http", "https://x",
+    missing = runner.invoke(cli_main.app, ["connect", "http", "https://x",
                                            "--hub-dir", str(hub)])
     assert missing.exit_code != 0 and "connect http needs" in missing.output
     assert load_sync_config(hub).kind == "dir"
 
-    done = runner.invoke(cli_main.app, ["hub", "disconnect", "--hub-dir", str(hub)])
+    done = runner.invoke(cli_main.app, ["disconnect", "--hub-dir", str(hub)])
     done_out = json.loads(done.output)
     assert done_out["sync_enabled"] is False
     assert done_out["removed_sync"]["kind"] == "dir"
     assert done_out["message"] == "sync disconnected"
     assert load_sync_config(hub) is None
 
-    again = runner.invoke(cli_main.app, ["hub", "disconnect", "--hub-dir", str(hub)])
+    again = runner.invoke(cli_main.app, ["disconnect", "--hub-dir", str(hub)])
     again_out = json.loads(again.output)
     assert again_out["sync_enabled"] is False
     assert again_out["removed_sync"] is None
@@ -492,7 +492,7 @@ def test_connect_disconnect_and_status_without_a_running_core(tmp_path):
 
 
 def test_relay_only_forwards_the_log_api(tmp_path):
-    result = runner.invoke(cli_main.app, ["hub", "relay", "POST", "/v1/hub/writes",
+    result = runner.invoke(cli_main.app, ["relay", "POST", "/v1/hub/writes",
                                           "--hub-dir", str(tmp_path)], input="{}")
     assert result.exit_code != 0 and "/v1/hub/log/" in result.output
 
