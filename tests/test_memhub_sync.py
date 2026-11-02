@@ -16,10 +16,10 @@ from typer.testing import CliRunner
 from memhub import MemoryClient
 from memhub.cli import main as cli_main
 from memhub.config import Settings
-from memhub.memhub import HubClient
-from memhub.memhub.config import SyncConfig, load_sync_config
-from memhub.memhub.server import create_hub_app
-from memhub.memhub.sync import (
+from memhub.hub import HubClient
+from memhub.hub.config import SyncConfig, load_sync_config
+from memhub.hub.server import create_hub_app
+from memhub.hub.sync import (
     CoreBackend,
     DirBackend,
     GitBackend,
@@ -192,7 +192,7 @@ def test_a_plan_retiring_a_since_deleted_node_does_not_stall_its_origin(tmp_path
 
 
 def test_received_evidence_edges_reach_the_replica_graph(tmp_path, fake_embed):
-    from memhub.memhub.sync import project_received
+    from memhub.hub.sync import project_received
     from memhub.registry import ComponentFactory
 
     def factory(path):
@@ -341,7 +341,7 @@ def test_ssh_backend_sends_one_command_per_call():
     assert call("POST", "/v1/hub/log/export", {"after": {}}) == {"ok": True}
     (argv, body), = calls
     assert argv[:5] == ["ssh", "-o", "BatchMode=yes", "-p", "2222"] and argv[5] == "me@box"
-    assert argv[6] == "memhub hub relay POST /v1/hub/log/export"
+    assert argv[6] == "memhub relay POST /v1/hub/log/export"
     assert json.loads(body) == {"after": {}}
 
     failed = ssh_call("box", ssh_args=[], remote_command="memhub",
@@ -618,7 +618,7 @@ def test_only_the_digester_compacts(tmp_path):
 
 
 def test_compaction_waits_for_the_threshold(tmp_path, monkeypatch):
-    from memhub.memhub import sync as sync_mod
+    from memhub.hub import sync as sync_mod
 
     monkeypatch.setattr(sync_mod, "COMPACT_AFTER", 3)
     a = store(tmp_path / "a")
@@ -669,7 +669,7 @@ def test_a_device_that_already_has_everything_is_unchanged_by_the_snapshot(tmp_p
 
 
 def test_snapshot_carries_schemas_and_edges_to_a_new_replica(tmp_path, fake_embed):
-    from memhub.memhub.sync import project_received
+    from memhub.hub.sync import project_received
     from memhub.registry import ComponentFactory
 
     def factory(path):

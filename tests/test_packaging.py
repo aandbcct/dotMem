@@ -13,7 +13,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 # Frontends shipped behind optional extras; everything else must run on a bare install.
-OPTIONAL_SUBPACKAGES = {"api", "cli", "mcp", "memhub", "integrations"}
+OPTIONAL_SUBPACKAGES = {"api", "cli", "mcp", "hub", "integrations"}
 
 
 def _normalize(name: str) -> str:
@@ -49,7 +49,7 @@ _EXTRA_ENTRY_POINTS = {
         [
             "from memhub.mcp.server import build_mcp; build_mcp(ops=object())",
             "import tempfile; from pathlib import Path; "
-            "from memhub.memhub.mcp import build_hub_mcp; "
+            "from memhub.hub.mcp import build_hub_mcp; "
             "build_hub_mcp(hub_dir=Path(tempfile.mkdtemp()))",
         ],
     ),

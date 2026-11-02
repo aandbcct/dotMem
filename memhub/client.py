@@ -79,7 +79,7 @@ class MemoryClient:
     Constructor kwargs (see also ``Settings`` / ``~/.memhub/config.yaml``):
 
     - ``mode``: ``"system1"`` (default, L0/L1/L2 versions) or ``"dual"`` (+ explicit digest L3).
-    - ``storage_dir``: on-disk root for Chroma / Kuzu / SQLite; default ``./.memhub_v4``.
+    - ``storage_dir``: on-disk root for Chroma / Kuzu / SQLite; default ``./.memhub_data``.
     - ``settings``: explicit ``Settings`` instance; overrides YAML and env.
     - ``embed`` / ``llm``: inject custom clients; skips the corresponding api_key check.
 

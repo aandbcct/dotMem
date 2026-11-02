@@ -14,8 +14,8 @@ from memhub.client import MemoryClient
 from memhub.config import Settings
 from memhub.retrieval.formatter import format_memories
 
-app = typer.Typer(help="memhub 分层记忆 SDK 命令行")
-app.add_typer(hub_app, name="hub")
+app = typer.Typer(help="memhub 个人记忆中枢与分层记忆 SDK 命令行")
+app.add_typer(hub_app, name="hub", hidden=True)
 
 
 def make_client(mode: str | None = None) -> MemoryClient:
@@ -288,17 +288,21 @@ def digest(
     _echo_json(result.to_dict())
 
 
-@app.command()
-def serve(
+@app.command(name="serve-api")
+def serve_api(
     host: str = typer.Option("0.0.0.0", "--host"),
     port: int = typer.Option(8000, "--port"),
 ):
-    """启动 REST API 服务。"""
+    """启动独立多租户 REST API 服务（本机个人中枢请用 `memhub serve` 或 `memhub install-service`）。"""
     import uvicorn
 
     from memhub.api import create_app
 
     uvicorn.run(create_app(settings=Settings()), host=host, port=port)
+
+
+for _cmd in hub_app.registered_commands:
+    app.registered_commands.append(_cmd)
 
 
 @app.command()

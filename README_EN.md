@@ -44,12 +44,12 @@ MemHub connects those two systems to the tools on your machine. Claude Code, Cod
 ```bash
 pip install "memhub[all]"
 
-memhub hub install-service       # runs in the background, starts at login (remove with uninstall-service)
-memhub hub install-host all      # connect every supported AI tool on this machine (remove with uninstall-host all)
-memhub hub scan --source all     # turn your past conversations into memory
+memhub install-service       # runs in the background, starts at login (remove with uninstall-service)
+memhub install-host all      # connect every supported AI tool on this machine (remove with uninstall-host all)
+memhub scan --source all     # turn your past conversations into memory
 
-memhub hub recall "what technical choices have I made before"
-memhub hub ui                    # browse, search, edit and delete memories by project in your browser
+memhub recall "what technical choices have I made before"
+memhub ui                    # browse, search, edit and delete memories by project in your browser
 ```
 
 Tools discover the local service with no URL to paste. A conversation is saved and acknowledged immediately; organizing happens in the background. When a turn ends, the host's hook hands the new messages to the Core, and the next prompt you type gets the relevant memories injected; agents can also query through MCP. Coding sessions arrive with their tool calls and become reusable engineering experience.
@@ -57,9 +57,9 @@ Tools discover the local service with no URL to paste. A conversation is saved a
 To share one memory across computers, every computer keeps a full local copy and recalls from it (offline too); the computers exchange a change log. Use a synced folder such as iCloud Drive or Dropbox, a private git repository, or the Core on your own server:
 
 ```bash
-memhub hub connect dir "~/Library/Mobile Documents/com~apple~CloudDocs/memhub"
-memhub hub connect git git@github.com:you/my-memory.git
-memhub hub connect ssh user@your-server
+memhub connect dir "~/Library/Mobile Documents/com~apple~CloudDocs/memhub"
+memhub connect git git@github.com:you/my-memory.git
+memhub connect ssh user@your-server
 ```
 
 What travels is adjudicated memory with its vectors, so a receiving computer calls no model. See [multi-device sync](https://github.com/shibing624/memhub/blob/main/docs/memhub-server.md) and the [MemHub docs](https://github.com/shibing624/memhub/blob/main/docs/memhub.md).
@@ -164,7 +164,7 @@ Two worth opening: [`examples/02_dual.py`](https://github.com/shibing624/memhub/
 **Ways in**
 
 - **Python SDK** — `pip install memhub`
-- **MemHub** — `memhub hub install-host all`
+- **MemHub** — `memhub install-host all`
 - **MCP / REST / CLI** — `memhub-mcp`, `memhub serve`, `memhub add` / `memhub search`
 - **Framework plugins** — Agentica, Claude Code hooks, Hermes, OpenClaw. See [Integrations](https://github.com/shibing624/memhub/blob/main/docs/integrations.md).
 
@@ -177,7 +177,7 @@ Two worth opening: [`examples/02_dual.py`](https://github.com/shibing624/memhub/
 - [x] Multi-device sync: local recall on every computer, works offline, exchanges changes via a synced folder / git / a server
 - [x] Chat and coding unified: coding sessions yield procedure experience, and `dual` induces engineering habits too
 - [x] Leads head-to-head on LoCoMo / LongMemEval / PersonaMem-v2
-- [x] Visual memory management: `memhub hub ui` to browse by project, search, edit and delete memories
+- [x] Visual memory management: `memhub ui` to browse by project, search, edit and delete memories
 - [ ] MemHub for more tools: Gemini CLI, Windsurf, Trae and others — 10+ in total
 - [ ] Cloud HTTP MCP: remote agents connect to hosted memory directly
 - [ ] Better retrieval for multi-hop questions (LoCoMo multi-hop still has headroom)
@@ -187,7 +187,7 @@ Vote or request features in [Issues](https://github.com/shibing624/memhub/issues
 
 ## News
 
-- [2026/11/02] **v0.2.2**: Rebranded the repository and PyPI package to **`memhub`** (`pip install memhub`, `import memhub`, CLI `memhub`, config `~/.memhub/config.yaml`). Added the local memory browser `memhub hub ui` (browse by project, hybrid search, edit into new versions, delete and sync); added CodeBuddy, OpenCode and WorkBuddy host integrations (8 hosts total); bounded sync targets with float16 vectors and snapshot compaction; scoped prompt-time recall to the current project and relevant dialogue passages (35/36 on the offline coding eval). See [Release-v0.2.2](https://github.com/shibing624/memhub/releases/tag/v0.2.2).
+- [2026/11/02] **v0.2.2**: Rebranded the repository and PyPI package to **`memhub`** (`pip install memhub`, `import memhub`, CLI `memhub`, config `~/.memhub/config.yaml`). Added the local memory browser `memhub ui` (browse by project, hybrid search, edit into new versions, delete and sync); added CodeBuddy, OpenCode and WorkBuddy host integrations (8 hosts total); bounded sync targets with float16 vectors and snapshot compaction; scoped prompt-time recall to the current project and relevant dialogue passages (35/36 on the offline coding eval). See [Release-v0.2.2](https://github.com/shibing624/memhub/releases/tag/v0.2.2).
 - [2026/11/01] **v0.2.1**: Every computer keeps a full local memory and recalls locally. Changes sync through a folder, a private git repo, or a server; the always-on SSH tunnel is gone. Model config lives in `~/.dual-mem/config.yaml`. Coding memory keeps the question and the final answer; tool output is no longer sent to a model. Auto digest runs at most once a day. See [Release-v0.2.1](https://github.com/shibing624/memhub/releases/tag/v0.2.1).
 - [2026/10/24] **v0.2.0**: Chat and coding now share one `add()` / `search()`. An engineering session with a tool trace yields `kind="procedure"` experience next to its chat memories, on the same store, version chain and JEV adjudication; `search(procedure_limit=3)` returns them as a separate `procedures` group, and `dual` `digest()` covers them too. `search_coding` and the separate coding store are gone. Chat prompts, adjudication and recall are unchanged. MemHub captures tool traces from Claude Code / Codex / Agentica and auto-digests when idle in dual mode; new `dual-mem hub connect user@server` sets up the tunnel, reads the token and writes `hub.json` in one command. MCP moves to mcp 2.x; `install-host` keeps YAML comments. See [Release-v0.2.0](https://github.com/shibing624/memhub/releases/tag/v0.2.0).
 

@@ -46,7 +46,7 @@ from typing import Any, Protocol
 
 import httpx
 
-from memhub.memhub.config import SyncConfig, format_time, hub_root
+from memhub.hub.config import SyncConfig, format_time, hub_root
 from memhub.storage.vector_store import ChromaVectorStore
 
 PAGE = 200
@@ -427,7 +427,7 @@ def ssh_call(target: str, *, ssh_args: list[str], remote_command: str, run=subpr
     """Each call is one ``ssh`` command; the server's CLI relays it to its own Core."""
 
     def call(method: str, path: str, body: Any) -> Any:
-        remote = f"{remote_command} hub relay {shlex.quote(method)} {shlex.quote(path)}"
+        remote = f"{remote_command} relay {shlex.quote(method)} {shlex.quote(path)}"
         result = run(
             ["ssh", "-o", "BatchMode=yes", *ssh_args, target, remote],
             input=json.dumps(body, ensure_ascii=False) if body is not None else "",

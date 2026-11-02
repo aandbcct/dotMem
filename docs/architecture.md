@@ -41,7 +41,7 @@ Agent / Cursor  ──MCP──▶  MCP Server（受 Skill 指导）  ──▶ 
 | 层 | 模块 | 职责 | 依赖 |
 |---|---|---|---|
 | 核心 SDK | `memhub.client.MemoryClient` | 写入、JEV 裁决、检索、演化、显式 digest，全 async | 仅依赖存储与 provider |
-| MemHub（生态） | `memhub.memhub`（`memhub hub`） | 每台设备一个本地 Core，采集 5 个工具会话、本地召回，并经 `dir` / `git` / `ssh` / `http` 同步变更日志 | → SDK |
+| MemHub（生态） | `memhub.hub`（`memhub hub`） | 每台设备一个本地 Core，采集 5 个工具会话、本地召回，并经 `dir` / `git` / `ssh` / `http` 同步变更日志 | → SDK |
 | CLI（SDK 前端） | `memhub.cli`（`memhub`） | SDK 的命令行外壳，`asyncio.run` 包装 | → SDK |
 | REST | `memhub.api`（FastAPI） | HTTP 接口，鉴权 + 统一错误，契约见 `docs/architecture.md` | → SDK |
 | MCP（生态） | `memhub.mcp`（`memhub-mcp`） | 面向 agent 的工具协议；**本地** stdio / streamable-http 已实现；**云端** HTTP MCP 规划走 REST 同一契约 | → SDK（云端经 REST → SDK） |

@@ -5,7 +5,7 @@
 ```python
 from memhub import SyncMemoryClient
 
-with SyncMemoryClient(mode="system1", storage_dir="./.memhub_v4") as client:
+with SyncMemoryClient(mode="system1", storage_dir="./.memhub_data") as client:
     client.add(
         content="我最爱的编程语言是 Java，已经用了5年。",
         user_id="alice",
@@ -28,7 +28,7 @@ from memhub import MemoryClient
 
 
 async def main():
-    client = MemoryClient(mode="system1", storage_dir="./.memhub_v4")
+    client = MemoryClient(mode="system1", storage_dir="./.memhub_data")
     await client.add(content="...", user_id="alice")
     await client.aclose()
 
@@ -47,7 +47,7 @@ asyncio.run(main())
 | 参数 | 必填 | 含义 |
 |---|---|---|
 | `mode` | 否 | `"system1"`（默认，写 L0/L1/L2）或 `"dual"`（+ 显式 `digest()` 写 L3_DERIVED）。可写在 YAML。 |
-| `storage_dir` | 否 | 本地数据目录（Chroma + Kuzu + SQLite），默认 `./.memhub_v4`。 |
+| `storage_dir` | 否 | 本地数据目录（Chroma + Kuzu + SQLite），默认 `./.memhub_data`。 |
 | `settings` | 否 | 传入 `Settings` 对象，覆盖 YAML / 环境变量。 |
 | `embed` / `llm` / `jev` | 否 | 注入自定义客户端（测试 / 自建后端）；注入后跳过对应密钥校验。 |
 
@@ -253,7 +253,7 @@ MemHub 的 Core 在 `mode: dual` 时自己归纳，一天最多一次：写入�
 from memhub import MemoryClient
 from memhub.config import Settings
 
-client = MemoryClient(settings=Settings(mode="dual", storage_dir="./.memhub_v4"))
+client = MemoryClient(settings=Settings(mode="dual", storage_dir="./.memhub_data"))
 # ... await client.add(...) 若干次 ...
 digest = await client.digest()
 await client.aclose()

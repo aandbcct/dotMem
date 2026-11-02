@@ -23,7 +23,7 @@ from typing import Any, Protocol
 
 from ruamel.yaml import YAML
 
-from memhub.memhub.config import hub_root
+from memhub.hub.config import hub_root
 
 MCP_NAME = "memhub"
 SKILL_NAME = "memhub-recall"
@@ -70,14 +70,14 @@ class Launch:
             "command": sys.executable,
             "args": [
                 "-m",
-                "memhub.memhub.mcp",
+                "memhub.hub.mcp",
                 "--hub-dir",
                 str(self.hub_dir),
             ],
         }
 
     def hook(self) -> list[str]:
-        return self.memhub("hub", "hook", self.host, "--hub-dir", str(self.hub_dir))
+        return self.memhub("hook", self.host, "--hub-dir", str(self.hub_dir))
 
 
 def _write(path: Path, text: str) -> None:
@@ -431,7 +431,7 @@ def install_host(
     skill.write_text(
         render_skill(
             host=host,
-            recall_argv=launch.memhub("hub", "recall", "--hub-dir", str(launch.hub_dir)),
+            recall_argv=launch.memhub("recall", "--hub-dir", str(launch.hub_dir)),
         ),
         encoding="utf-8",
     )

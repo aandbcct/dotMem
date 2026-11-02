@@ -23,7 +23,7 @@ from memhub import MemoryClient
 from memhub.cli import hub as cli_hub
 from memhub.cli import main as cli_main
 from memhub.config import Settings
-from memhub.memhub import (
+from memhub.hub import (
     HOSTS,
     CursorStore,
     HubClient,
@@ -35,16 +35,16 @@ from memhub.memhub import (
     scan_sources,
     uninstall_host,
 )
-from memhub.memhub.queue import HubWriteQueue
-from memhub.memhub.server import (
+from memhub.hub.queue import HubWriteQueue
+from memhub.hub.server import (
     HUB_USER_ID,
     create_hub_app,
     last_digest_due,
     read_last_digest_at,
     write_last_digest_at,
 )
-from memhub.memhub.sources import SOURCE_SPECS
-from memhub.memhub.config import format_time, publish_runtime, resolve_hub_config
+from memhub.hub.sources import SOURCE_SPECS
+from memhub.hub.config import format_time, publish_runtime, resolve_hub_config
 from memhub.types import Layer
 
 runner = CliRunner()
@@ -360,7 +360,7 @@ def test_readers_keep_only_real_dialogue(tmp_path: Path) -> None:
 
 
 def test_build_turns_merges_users_and_drops_orphan_answer() -> None:
-    from memhub.memhub.sources import Message
+    from memhub.hub.sources import Message
 
     messages = [
         Message("assistant", "orphan", "s", None, 0, 1),
@@ -605,13 +605,13 @@ def test_install_uninstall_hosts_use_local_proxy(tmp_path: Path, monkeypatch) ->
     mcp = json.loads(
         (home / ".agentica" / "mcp_config.json").read_text()
     )["mcpServers"]["memhub"]
-    assert mcp["args"][:2] == ["-m", "memhub.memhub.mcp"]
+    assert mcp["args"][:2] == ["-m", "memhub.hub.mcp"]
     assert "env" not in mcp and "secret" not in json.dumps(mcp)
     oc_mcp = json.loads(
         (home / ".config" / "opencode" / "opencode.json").read_text()
     )["mcp"]["memhub"]
     assert oc_mcp["type"] == "local"
-    assert oc_mcp["command"][1:3] == ["-m", "memhub.memhub.mcp"]
+    assert oc_mcp["command"][1:3] == ["-m", "memhub.hub.mcp"]
     oc_plugin = (
         home / ".config" / "opencode" / "plugins" / "memhub-hub.js"
     ).read_text()
@@ -798,7 +798,6 @@ def test_cli_capture_hook_and_status(tmp_path: Path, monkeypatch) -> None:
             sys.executable,
             "-m",
             "memhub.cli",
-            "hub",
             "scan",
             "--source",
             "claude-code",
@@ -1071,7 +1070,7 @@ async def _start_lifespan(app) -> None:
 def test_install_service_writes_launchd_plist_or_systemd_unit(
     tmp_path: Path, monkeypatch
 ) -> None:
-    from memhub.memhub import service
+    from memhub.hub import service
 
     hub = tmp_path / "hub"
     monkeypatch.setattr(service, "launchd_plist_path", lambda label: tmp_path / f"{label}.plist")
@@ -1099,7 +1098,7 @@ def test_install_service_writes_launchd_plist_or_systemd_unit(
 def test_mcp_builds_without_a_running_core(tmp_path: Path) -> None:
     """A host that starts the MCP server before `hub serve` must not crash at import time."""
     pytest.importorskip("mcp.server.mcpserver")
-    from memhub.memhub.mcp import build_hub_mcp
+    from memhub.hub.mcp import build_hub_mcp
 
     server = build_hub_mcp(hub_dir=tmp_path)  # no runtime.json yet: no connection attempted
     assert server is not None
@@ -1584,7 +1583,7 @@ def test_claude_code_hook_keeps_tool_trajectory() -> None:
 
 def test_hook_install_replaces_hooks_written_as_cli_main(tmp_path: Path) -> None:
     """Hooks installed before ``-m memhub.cli`` are still recognised as ours."""
-    from memhub.memhub.hosts import ClaudeStyleHooks, Launch
+    from memhub.hub.hosts import ClaudeStyleHooks, Launch
 
     hook_file = tmp_path / "settings.json"
     old = f"{sys.executable} -m memhub.cli.main hub capture claude-code"
@@ -1608,7 +1607,7 @@ def test_hook_install_replaces_hooks_written_as_cli_main(tmp_path: Path) -> None
     assert "other-tool" in commands
     assert old not in commands
     ours = [c for c in commands if "-m memhub.cli" in c]
-    assert len(ours) == 1 and "-m memhub.cli hub" in ours[0]
+    assert len(ours) == 1 and "-m memhub.cli hook" in ours[0]
 
 
 async def test_memory_browser_groups_by_project_and_edits_through_versions(
@@ -1982,7 +1981,7 @@ def test_hook_dispatches_on_the_event_name(tmp_path: Path, monkeypatch) -> None:
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="needs node to run the plugin")
 def test_opencode_plugin_bridges_events_onto_hub_hook(tmp_path, monkeypatch):
-    from memhub.memhub.hosts import Launch, OpenCodePlugin
+    from memhub.hub.hosts import Launch, OpenCodePlugin
 
     log = tmp_path / "calls.jsonl"
     fake = tmp_path / "fake_hook.py"

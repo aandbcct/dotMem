@@ -13,7 +13,7 @@ from memhub.config import (
 def test_defaults():
     s = Settings()
     assert s.mode == "system1"
-    assert s.storage_dir == "./.memhub_v4"
+    assert s.storage_dir == "./.memhub_data"
     assert s.embed_dim == 1536
     assert s.llm_context_window == LLM_CONTEXT_WINDOW
     assert s.llm_completion_reserve == LLM_COMPLETION_RESERVE
@@ -99,7 +99,7 @@ def test_ensure_config_file_creates_default(tmp_path, monkeypatch):
     text = path.read_text(encoding="utf-8")
     assert "llm_api_key" in text
     assert "embed_api_key" in text
-    assert "storage_dir: ./.memhub_v4" in text
+    assert "storage_dir: ./.memhub_data" in text
     assert path.read_text(encoding="utf-8") == text  # idempotent
     ensure_config_file()
     assert path.read_text(encoding="utf-8") == text

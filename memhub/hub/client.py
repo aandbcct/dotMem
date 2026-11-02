@@ -8,7 +8,7 @@ from typing import Any
 
 import httpx
 
-from memhub.memhub.config import resolve_hub_config
+from memhub.hub.config import resolve_hub_config
 
 
 class HubClient:

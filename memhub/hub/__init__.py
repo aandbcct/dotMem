@@ -11,8 +11,8 @@
 - ``service``: run the Core as a login service (launchd / systemd --user).
 - ``sync``: replicate the store's change log through a folder, git, or another Core.
 """
-from memhub.memhub.client import HubClient
-from memhub.memhub.config import (
+from memhub.hub.client import HubClient
+from memhub.hub.config import (
     CursorStore,
     HubConfig,
     SyncConfig,
@@ -21,8 +21,8 @@ from memhub.memhub.config import (
     load_sync_config,
     save_sync_config,
 )
-from memhub.memhub.hosts import HOSTS, hosts_status, install_host, uninstall_host
-from memhub.memhub.sources import (
+from memhub.hub.hosts import HOSTS, hosts_status, install_host, uninstall_host
+from memhub.hub.sources import (
     SOURCES,
     build_turns,
     default_source_roots,

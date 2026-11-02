@@ -24,28 +24,28 @@ memhub 可以接进你已经在用的 Agent 框架和 AI 工具。所有集成�
 pip install "memhub[all]"
 
 # 1. 启动本机常驻记忆服务（模型 key 配在 ~/.memhub/config.yaml）
-memhub hub install-service
+memhub install-service
 
 # 2. 一键把 memhub 接入 agentica CLI
-memhub hub install-host agentica
+memhub install-host agentica
 
 # 3. 导入过往的 agentica 会话记录（可选）
-memhub hub scan --source agentica
+memhub scan --source agentica
 
 # 4. 关联到你的 GitHub 私有仓库，自动备份与跨机同步（可选）
-memhub hub connect git git@github.com:<你的用户名>/my-vibecoding-memory.git
+memhub connect git git@github.com:<你的用户名>/my-vibecoding-memory.git
 
 # 5. 在浏览器中按项目浏览、搜索、编辑、删除记忆（可选）
-memhub hub ui
+memhub ui
 ```
 
-> 卸载：停止并移除开机自启服务用 `memhub hub uninstall-service`，移除写入 `agentica` 的 MCP / Hook 配置用 `memhub hub uninstall-host agentica`。
+> 卸载：停止并移除开机自启服务用 `memhub uninstall-service`，移除写入 `agentica` 的 MCP / Hook 配置用 `memhub uninstall-host agentica`。
 
 `install-host agentica` 会在保留你原有配置注释的前提下，自动完成两处集成：
 
 - **MCP 工具（`~/.agentica/mcp_config.json`）**：挂载 `memhub` MCP 服务（`memory_search`、`memory_add`、`conversation_search`、`memory_status`）。
 - **自动召回与采集 Hook（`~/.agentica/config.yaml`）**：
-  - 一个消费者 `memhub`（`memhub hub hook agentica`），按事件分派。`UserPromptSubmit`：每轮提问前从本机库毫秒级召回画像、事实与 `[procedure]` 工程排障经验，以 `<relevant-memories>` 注入（与 Agentica 内置的 `<memory_recall>` / `<session_recall>` 并存）。
+  - 一个消费者 `memhub`（`memhub hook agentica`），按事件分派。`UserPromptSubmit`：每轮提问前从本机库毫秒级召回画像、事实与 `[procedure]` 工程排障经验，以 `<relevant-memories>` 注入（与 Agentica 内置的 `<memory_recall>` / `<session_recall>` 并存）。
   - `run.completed` / `session.ended`：每轮结束后台采集用户请求、最终回答与工具调用涉及的文件路径（工具输出不采集），沉淀记忆并在后台同步到你的私有 Git 仓库。
 
 #### 方式二：Agentica Python SDK（`MemHubWorkspace`）
@@ -77,7 +77,7 @@ agent = Agent(workspace=mem.as_workspace(workspace_dir=".agentica"), enable_long
 
 需要设置环境变量 `MEMHUB_USER_ID`。可选 `MEMHUB_MODE`（`system1` / `dual`）、`MEMHUB_STORAGE_DIR` 和 `MEMHUB_AGENT_ID`（默认 `claude-code`）。Hook 失败只记日志，不会阻断会话。
 
-使用 MemHub 时不需要手动配置，`memhub hub install-host claude-code` 会自动装好。
+使用 MemHub 时不需要手动配置，`memhub install-host claude-code` 会自动装好。
 
 ### Hermes / OpenClaw
 

@@ -178,8 +178,8 @@ def resolve_hub_config(hub_dir: str | Path | None = None) -> HubConfig:
     token_path = _token_path(hub_dir)
     if not runtime_path.is_file() or not token_path.is_file():
         raise RuntimeError(
-            "local Hub Core is not running; start `memhub hub serve` "
-            "or `memhub hub install-service`"
+            "local Hub Core is not running; start `memhub serve` "
+            "or `memhub install-service`"
         )
     runtime = json.loads(runtime_path.read_text(encoding="utf-8"))
     return HubConfig(

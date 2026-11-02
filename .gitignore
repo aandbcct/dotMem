@@ -240,7 +240,7 @@ conversation_*.json
 # example & runtime data
 examples/.data/
 .memhub_data/
-.memhub_v4/
+.memhub_data/
 .dual_mem_data/
 .dual_mem_v4/
 AGENTS.md

@@ -39,7 +39,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from memhub.client import strip_memory_injection
-from memhub.memhub.config import CursorStore
+from memhub.hub.config import CursorStore
 
 SOURCES = (
     "agentica",

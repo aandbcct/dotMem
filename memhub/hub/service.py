@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from memhub.memhub.config import hub_root
+from memhub.hub.config import hub_root
 
 LABEL = "com.memhub.hub"
 SYSTEMD_UNIT = "memhub-hub.service"
@@ -43,7 +43,6 @@ def _argv(hub_dir: Path, host: str, port: int) -> list[str]:
         sys.executable,
         "-m",
         "memhub.cli",
-        "hub",
         "serve",
         "--host",
         host,

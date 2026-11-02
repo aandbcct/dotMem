@@ -27,8 +27,8 @@ from memhub.client import MemoryClient
 from memhub.coding.types import PROCEDURE_KIND
 from memhub.config import Settings
 from memhub.errors import IdempotencyConflictError
-from memhub.memhub.browse import browse_rows, workspace_sessions
-from memhub.memhub.config import (
+from memhub.hub.browse import browse_rows, workspace_sessions
+from memhub.hub.config import (
     SyncConfig,
     format_time,
     hub_root,
@@ -38,8 +38,8 @@ from memhub.memhub.config import (
     publish_runtime,
     unpublish_runtime,
 )
-from memhub.memhub.queue import HubWriteQueue
-from memhub.memhub.sync import HubSyncer, SyncBackend, project_received
+from memhub.hub.queue import HubWriteQueue
+from memhub.hub.sync import HubSyncer, SyncBackend, project_received
 from memhub.sdk_models import SearchMemories
 from memhub.types import Layer, MemoryStatus
 from memhub.isolation import build_filter
@@ -201,7 +201,7 @@ def create_hub_app(
 
     ``api_key`` (else the persisted runtime token, created on first start) is
     written to the token file inside the lifespan, after the exclusive lock, so a
-    second ``hub serve`` cannot replace the running Core's token on its way out.
+    second ``memhub serve`` cannot replace the running Core's token on its way out.
 
     In ``dual`` mode, once the write queue drains, the Core calls ``digest()``
     when pending System 2 evidence exists and the last successful auto-digest
@@ -554,7 +554,7 @@ def create_hub_app(
 
     @app.post("/v1/hub/sync/reload", dependencies=[Depends(verify)])
     async def sync_reload():
-        """Pick up ``hub.json`` after ``hub connect`` / ``hub disconnect``."""
+        """Pick up ``hub.json`` after ``memhub connect`` / ``memhub disconnect``."""
         await app.state.configure_sync(load_sync_config(root))
         if app.state.syncer is not None:
             app.state.syncer.start()
@@ -565,7 +565,7 @@ def create_hub_app(
         """One sync cycle; ``compact=true`` also folds the log into a snapshot."""
         if app.state.syncer is None:
             raise HTTPException(
-                status_code=400, detail="no sync target; run `memhub hub connect`"
+                status_code=400, detail="no sync target; run `memhub connect`"
             )
         try:
             return await app.state.syncer.run_once(compact=True if compact else None)

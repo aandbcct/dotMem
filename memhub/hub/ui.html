@@ -205,7 +205,7 @@ function render() {
   const root = document.getElementById("root");
   if (!state.token) {
     root.innerHTML = `<div class="login"><h2>需要 Hub 的访问令牌</h2>
-      <p>在终端运行 <code>memhub hub ui</code>，会带着令牌打开这个页面。</p></div>`;
+      <p>在终端运行 <code>memhub ui</code>，会带着令牌打开这个页面。</p></div>`;
     return;
   }
   const scoped = state.rows.filter(r => state.history || r.is_latest);

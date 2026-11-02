@@ -44,12 +44,12 @@ MemHub 把上面这两套系统接到本机上的多个工具。Claude Code、Co
 ```bash
 pip install "memhub[all]"
 
-memhub hub install-service       # 后台常驻，开机自启（卸载用 uninstall-service）
-memhub hub install-host all      # 一键接入本机已安装的 AI 工具（卸载用 uninstall-host all）
-memhub hub scan --source all     # 把过去的对话也变成记忆
+memhub install-service       # 后台常驻，开机自启（卸载用 uninstall-service）
+memhub install-host all      # 一键接入本机已安装的 AI 工具（卸载用 uninstall-host all）
+memhub scan --source all     # 把过去的对话也变成记忆
 
-memhub hub recall "我之前做过哪些技术选择"
-memhub hub ui                    # 在浏览器按项目查看、搜索、编辑、删除记忆
+memhub recall "我之前做过哪些技术选择"
+memhub ui                    # 在浏览器按项目查看、搜索、编辑、删除记忆
 ```
 
 零配置发现本机服务，对话先存下来立刻返回，整理在后台进行。一轮对话结束时宿主的 Hook 把新增内容交给 Core，你下一次输入提示词时相关记忆自动注入；Agent 也能通过 MCP 主动查。写代码的会话会连同工具调用一起送达，沉淀成工程经验。
@@ -57,9 +57,9 @@ memhub hub ui                    # 在浏览器按项目查看、搜索、编辑
 多台电脑共用一份记忆：每台电脑都留一份完整的本地记忆，检索只查本机（断网照常），各台之间同步变更日志。普通人用 iCloud / Dropbox 之类的同步文件夹，开发者用一个私有 git 仓库，有服务器的连服务器上的 Core——
 
 ```bash
-memhub hub connect dir "~/Library/Mobile Documents/com~apple~CloudDocs/memhub"
-memhub hub connect git git@github.com:you/my-memory.git
-memhub hub connect ssh user@your-server
+memhub connect dir "~/Library/Mobile Documents/com~apple~CloudDocs/memhub"
+memhub connect git git@github.com:you/my-memory.git
+memhub connect ssh user@your-server
 ```
 
 同步交换的是已经裁决好的记忆和向量，接收方不调任何模型。见 [多设备同步](https://github.com/shibing624/memhub/blob/main/docs/memhub-server.md) 与 [MemHub 文档](https://github.com/shibing624/memhub/blob/main/docs/memhub.md)。
@@ -164,7 +164,7 @@ with SyncMemoryClient() as memory:
 **接入**
 
 - **Python SDK** — `pip install memhub`
-- **MemHub** — `memhub hub install-host all`
+- **MemHub** — `memhub install-host all`
 - **MCP / REST / CLI** — `memhub-mcp`、`memhub serve`、`memhub add` / `memhub search`
 - **框架插件** — Agentica、Claude Code Hook、Hermes、OpenClaw，见 [集成文档](https://github.com/shibing624/memhub/blob/main/docs/integrations.md)
 
@@ -177,7 +177,7 @@ with SyncMemoryClient() as memory:
 - [x] 多设备同步：每台本地检索、离线可用，经同步文件夹 / git / 服务器交换变更
 - [x] chat 与 coding 统一：工程会话沉淀 procedure 经验，`dual` 也归纳工程习惯
 - [x] LoCoMo / LongMemEval / PersonaMem-v2 同场评测领先
-- [x] 记忆可视化管理：`memhub hub ui` 按项目查看、搜索、编辑、删除记忆
+- [x] 记忆可视化管理：`memhub ui` 按项目查看、搜索、编辑、删除记忆
 - [ ] MemHub 接入更多工具：Gemini CLI、Windsurf、Trae 等，目标 10+ 种
 - [ ] 云端 HTTP MCP：远程 Agent 直接连接托管记忆
 - [ ] 多跳推理类问题的检索增强（LoCoMo multi-hop 仍有提升空间）
@@ -187,7 +187,7 @@ with SyncMemoryClient() as memory:
 
 ## News
 
-- [2026/11/02] **v0.2.2**：项目与 PyPI 包名正式升级为 **`memhub`**（`pip install memhub`、`import memhub`、CLI `memhub`、配置 `~/.memhub/config.yaml`）。新增本机可视化管理页 `memhub hub ui`（按项目浏览、混合检索、编辑生成新版本、删除同步）；新增支持 CodeBuddy、OpenCode、WorkBuddy（共 8 种宿主工具）；同步目标升级为 float16 向量压缩 + 快照折叠（不再无限增长）；每轮召回按项目限定并只截取相关对话段落，离线评测达到 35/36。详见 [Release-v0.2.2](https://github.com/shibing624/memhub/releases/tag/v0.2.2)。
+- [2026/11/02] **v0.2.2**：项目与 PyPI 包名正式升级为 **`memhub`**（`pip install memhub`、`import memhub`、CLI `memhub`、配置 `~/.memhub/config.yaml`）。新增本机可视化管理页 `memhub ui`（按项目浏览、混合检索、编辑生成新版本、删除同步）；新增支持 CodeBuddy、OpenCode、WorkBuddy（共 8 种宿主工具）；同步目标升级为 float16 向量压缩 + 快照折叠（不再无限增长）；每轮召回按项目限定并只截取相关对话段落，离线评测达到 35/36。详见 [Release-v0.2.2](https://github.com/shibing624/memhub/releases/tag/v0.2.2)。
 - [2026/11/01] **v0.2.1**：多设备改为每台电脑本地检索，用网盘文件夹、私有 git 仓库或服务器交换变更日志，删掉了常驻 SSH 隧道。模型配置统一到 `~/.dual-mem/config.yaml`。工程记忆只保留问题和最终回答，工具输出不再送进模型。自动归纳改为一天最多一次。详见 [Release-v0.2.1](https://github.com/shibing624/memhub/releases/tag/v0.2.1)。
 - [2026/10/24] **v0.2.0**：chat 与 coding 统一成同一套 `add()` / `search()`。带工具轨迹的工程会话在对话记忆之外沉淀 `kind="procedure"` 工程经验，共用存储、版本链和 JEV 裁决，`search(procedure_limit=3)` 单独返回 `procedures` 组；`dual` 的 `digest()` 也覆盖工程经验。删除 `search_coding` 与独立的 coding 库。chat 路径的 prompt、裁决与召回不变。MemHub 采集 Claude Code / Codex / Agentica 的工具轨迹，dual 模式空闲时自动 digest；新增 `dual-mem hub connect user@server`，一条命令建隧道、读 token、写好 `hub.json`。MCP 迁移到 mcp 2.x；`install-host` 改写 YAML 时保留注释。详见 [Release-v0.2.0](https://github.com/shibing624/memhub/releases/tag/v0.2.0)。
 

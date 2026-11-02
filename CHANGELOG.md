@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **CLI 提升为一级命令、`memhub/memhub` 重命名为 `memhub/hub`、默认 `storage_dir` 改为 `./.memhub_data`**：
+  - 所有 Hub 命令直接作为 `memhub` 一级子命令（`memhub install-service`、`memhub install-host`、`memhub ui`、`memhub status`、`memhub recall`、`memhub scan`、`memhub connect`、`memhub disconnect`、`memhub sync`、`memhub serve` 等），无需再敲 `memhub hub ...`（仍保留隐藏的 `memhub hub ...` 兼容入口）；独立多租户 REST 服务命令改为 `memhub serve-api`。
+  - 包内子目录由 `memhub/memhub/` 重命名为 `memhub/hub/`（`memhub.hub`）。
+  - `Settings.storage_dir` 默认值与 `config.default.yaml` 改为 `./.memhub_data`。
+
 ## [0.2.2] — 2026-11-02
 
 - **项目与包名全面更名为 `memhub`（`pip install memhub`、`import memhub`）**：破坏性变更。Python 包名由 `dual_mem` 改为 `memhub`，PyPI 包名与 CLI 主命令由 `dual-mem` / `dual-mem-mcp` / `dual-mem-hook` 改为 `memhub` / `memhub-mcp` / `memhub-hook`，配置与 Hub 根目录改为 `~/.memhub`（环境变量前缀改为 `MEMHUB_`）。升级后请将 `~/.dual-mem/config.yaml` 移至 `~/.memhub/config.yaml`，并重新执行 `memhub hub install-service` 与 `memhub hub install-host all`。

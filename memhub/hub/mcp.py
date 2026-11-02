@@ -9,7 +9,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from memhub.memhub.client import HubClient
+from memhub.hub.client import HubClient
 
 
 def build_hub_mcp(

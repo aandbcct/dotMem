@@ -19,11 +19,11 @@ from urllib.parse import urlparse
 import httpx
 import typer
 
-from memhub.memhub import hosts as hub_hosts
-from memhub.memhub import service as hub_service
-from memhub.memhub import sync as hub_sync
-from memhub.memhub.client import HubClient
-from memhub.memhub.config import (
+from memhub.hub import hosts as hub_hosts
+from memhub.hub import service as hub_service
+from memhub.hub import sync as hub_sync
+from memhub.hub.client import HubClient
+from memhub.hub.config import (
     CursorStore,
     SyncConfig,
     clear_sync_config,
@@ -35,7 +35,7 @@ from memhub.memhub.config import (
     runtime_status,
     save_sync_config,
 )
-from memhub.memhub.sources import SOURCES, locate_transcript, scan_file, scan_sources
+from memhub.hub.sources import SOURCES, locate_transcript, scan_file, scan_sources
 from memhub.retrieval.formatter import format_memories
 from memhub.retrieval.hybrid_engine import source_excerpt
 
@@ -74,7 +74,7 @@ def _hook_errors_logged(hub_dir: str | None, name: str) -> Iterator[None]:
     except Exception:
         log_dir = hub_root(hub_dir) / "logs"
         log_dir.mkdir(exist_ok=True)
-        logger = logging.getLogger("memhub.memhub.hooks")
+        logger = logging.getLogger("memhub.hub.hooks")
         handler = logging.FileHandler(log_dir / "hooks.log", encoding="utf-8")
         logger.addHandler(handler)
         logger.exception("%s hook failed", name)
@@ -147,7 +147,7 @@ def _check_target(cfg: SyncConfig, hub_dir: str | None) -> None:
         )
     except hub_sync.SyncError as exc:
         hint = (
-            " Is `memhub hub install-service` running there, and does `ssh` "
+            " Is `memhub install-service` running there, and does `ssh` "
             "reach it without a password prompt?"
             if cfg.kind == "ssh"
             else ""
@@ -204,7 +204,7 @@ def hub_connect(
             "sync": cfg.public_dict(),
             "first_sync": first
             if first is not None
-            else "local Core not running; it syncs when `hub serve` starts",
+            else "local Core not running; it syncs when `memhub serve` starts",
         }
     )
 
@@ -286,13 +286,13 @@ def hub_serve(
     """启动本机 Hub Core；记忆与 Evidence 留在本机 Hub 根目录，按 hub.json 同步。"""
     import uvicorn
 
-    from memhub.memhub.server import create_hub_app
+    from memhub.hub.server import create_hub_app
 
     if host not in LOOPBACK_HOSTS:
         # The bearer token travels in plain HTTP; remote access goes through ssh / TLS.
         raise typer.BadParameter(
             "Hub Core listens on loopback only; other devices sync with "
-            "`hub connect ssh` or through your own HTTPS reverse proxy"
+            "`memhub connect ssh` or through your own HTTPS reverse proxy"
         )
     url_host = f"[{host}]" if ":" in host else host
     app = create_hub_app(
@@ -469,7 +469,6 @@ def _capture(source: str, payload: dict[str, Any], hub_dir: str | None) -> None:
         sys.executable,
         "-m",
         "memhub.cli",
-        "hub",
         "scan",
         "--source",
         source,
