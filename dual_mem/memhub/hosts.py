@@ -28,7 +28,7 @@ from dual_mem.memhub.config import hub_root
 MCP_NAME = "dual-mem"
 SKILL_NAME = "dual-mem-recall"
 SKILL_MARKER = "<!-- managed by dual-mem hub -->"
-AGENTICA_CONSUMER = "dual-mem-hub"
+AGENTICA_CONSUMER = "dual-mem"
 TOML_BEGIN = "# >>> dual-mem hub >>>"
 TOML_END = "# <<< dual-mem hub <<<"
 # Our hook commands always run this package, which is how we find them again
@@ -49,12 +49,10 @@ AGENTICA_EVENTS = (
     "needs.resolved",
     "UserPromptSubmit",
 )
-AGENTICA_CAPTURE_EVENTS = ("run.completed", "session.ended")
-# Each turn's message, answered with recalled memories; runs beside agentica's
-# own memory recall, which it never replaces.
-AGENTICA_RECALL_CONSUMER = "dual-mem-hub-recall"
-AGENTICA_RECALL_EVENTS = ("UserPromptSubmit",)
-AGENTICA_CONSUMERS = (AGENTICA_CONSUMER, AGENTICA_RECALL_CONSUMER)
+# One consumer, one command: ``hub hook`` answers UserPromptSubmit with recalled
+# memories (beside agentica's own recall, never replacing it) and captures the
+# transcript on the rest.
+AGENTICA_HOOK_EVENTS = ("UserPromptSubmit", "run.completed", "session.ended")
 
 
 @dataclass(frozen=True)
@@ -78,11 +76,8 @@ class Launch:
             ],
         }
 
-    def capture(self) -> list[str]:
-        return self.dual_mem("hub", "capture", self.host, "--hub-dir", str(self.hub_dir))
-
-    def recall_hook(self) -> list[str]:
-        return self.dual_mem("hub", "hook-search", "--hub-dir", str(self.hub_dir))
+    def hook(self) -> list[str]:
+        return self.dual_mem("hub", "hook", self.host, "--hub-dir", str(self.hub_dir))
 
 
 def _write(path: Path, text: str) -> None:
@@ -198,30 +193,30 @@ class TomlMcp:
 
 
 class AgenticaHooks:
-    """``settings.hooks.consumers`` in ~/.agentica/config.yaml: capture on run end,
-    recall on ``UserPromptSubmit``.
+    """``settings.hooks.consumers`` in ~/.agentica/config.yaml: one consumer that
+    recalls on ``UserPromptSubmit`` and captures on run end.
 
-    Every event is listed: agentica turns an unlisted one on.
+    Every event is listed: agentica turns an unlisted one on. Ours are found by
+    ``HOOK_SIGNATURE`` in the command, so a consumer from an older install is
+    replaced whatever it was named.
     """
+
+    @staticmethod
+    def _ours(consumer: dict) -> bool:
+        return HOOK_SIGNATURE in " ".join(consumer.get("command") or [])
 
     def install(self, path: Path, launch: Launch) -> None:
         data = _load_yaml(path)
         hooks = data.setdefault("settings", {}).setdefault("hooks", {})
         hooks["enabled"] = True
-        consumers = [
-            c for c in hooks.get("consumers") or [] if c.get("name") not in AGENTICA_CONSUMERS
-        ]
-        for name, command, events in (
-            (AGENTICA_CONSUMER, launch.capture(), AGENTICA_CAPTURE_EVENTS),
-            (AGENTICA_RECALL_CONSUMER, launch.recall_hook(), AGENTICA_RECALL_EVENTS),
-        ):
-            consumers.append(
-                {
-                    "name": name,
-                    "command": command,
-                    "events": {e: e in events for e in AGENTICA_EVENTS},
-                }
-            )
+        consumers = [c for c in hooks.get("consumers") or [] if not self._ours(c)]
+        consumers.append(
+            {
+                "name": AGENTICA_CONSUMER,
+                "command": launch.hook(),
+                "events": {e: e in AGENTICA_HOOK_EVENTS for e in AGENTICA_EVENTS},
+            }
+        )
         hooks["consumers"] = consumers
         _dump_yaml(path, data)
 
@@ -229,7 +224,7 @@ class AgenticaHooks:
         data = _load_yaml(path)
         hooks = (data.get("settings") or {}).get("hooks") or {}
         consumers = hooks.get("consumers") or []
-        kept = [c for c in consumers if c.get("name") not in AGENTICA_CONSUMERS]
+        kept = [c for c in consumers if not self._ours(c)]
         if len(kept) == len(consumers):
             return False
         hooks["consumers"] = kept
@@ -238,8 +233,7 @@ class AgenticaHooks:
 
     def installed(self, path: Path) -> bool:
         hooks = (_load_yaml(path).get("settings") or {}).get("hooks") or {}
-        names = {c.get("name") for c in hooks.get("consumers") or []}
-        return set(AGENTICA_CONSUMERS) <= names
+        return any(self._ours(c) for c in hooks.get("consumers") or [])
 
 
 class ClaudeStyleHooks:
@@ -252,9 +246,10 @@ class ClaudeStyleHooks:
     def install(self, path: Path, launch: Launch) -> None:
         data = _load_json(path)
         hooks = data.setdefault("hooks", {})
-        for event, argv in (("UserPromptSubmit", launch.recall_hook()), ("Stop", launch.capture())):
+        command = shlex.join(launch.hook())
+        for event in ("UserPromptSubmit", "Stop"):
             entries = [e for e in hooks.get(event, []) if not self._ours(e)]
-            entries.append({"hooks": [{"type": "command", "command": shlex.join(argv)}]})
+            entries.append({"hooks": [{"type": "command", "command": command}]})
             hooks[event] = entries
         _dump_json(path, data)
 

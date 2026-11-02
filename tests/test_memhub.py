@@ -486,15 +486,14 @@ def test_install_uninstall_hosts_use_local_proxy(tmp_path: Path, monkeypatch) ->
     )
     assert [item.name for item in hooks.consumers_for("run.completed")] == [
         "open-island",
-        "dual-mem-hub",
+        "dual-mem",
     ]
-    # Recall runs on each prompt; the pre-existing consumer is not drawn into it.
+    # One consumer for recall and capture; the pre-existing one is not drawn
+    # into the per-prompt wait.
     recall = hooks.consumers_for("UserPromptSubmit")
-    assert [item.name for item in recall] == ["dual-mem-hub-recall"]
-    assert recall[0].command[-4:-2] == ["hub", "hook-search"]
-    assert "dual-mem-hub-recall" not in [
-        item.name for item in hooks.consumers_for("run.completed")
-    ]
+    assert [item.name for item in recall] == ["dual-mem"]
+    assert recall[0].command[-4:] == ["hook", "agentica", "--hub-dir", str(hub)]
+    assert "dual-mem" in [item.name for item in hooks.consumers_for("session.ended")]
     for host in HOSTS:
         uninstall_host(host, home=home)
     assert not any(
@@ -541,8 +540,7 @@ def test_agentica_yaml_install_keeps_comments_and_uninstall_restores_bytes(
         assert line in installed
     assert [c["name"] for c in yaml.safe_load(installed)["settings"]["hooks"]["consumers"]] == [
         "open-island",
-        "dual-mem-hub",
-        "dual-mem-hub-recall",
+        "dual-mem",
     ]
 
     uninstall_host("agentica", home=home)
@@ -594,8 +592,11 @@ def test_cli_capture_hook_and_status(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(cli_hub, "make_client", lambda _hub: FakeRemote())
     hook = runner.invoke(
         cli_main.app,
-        ["hub", "hook-search", "--hub-dir", str(hub)],
-        input=json.dumps({"prompt": "我的框架偏好"}, ensure_ascii=False),
+        ["hub", "hook", "claude-code", "--hub-dir", str(hub)],
+        input=json.dumps(
+            {"hook_event_name": "UserPromptSubmit", "prompt": "我的框架偏好"},
+            ensure_ascii=False,
+        ),
     )
     assert hook.exit_code == 0
     context = json.loads(hook.output)["hookSpecificOutput"]["additionalContext"]
@@ -604,7 +605,7 @@ def test_cli_capture_hook_and_status(tmp_path: Path, monkeypatch) -> None:
     # the very same command and reply shape serve it — no per-host branch.
     agentica = runner.invoke(
         cli_main.app,
-        ["hub", "hook-search", "--hub-dir", str(hub)],
+        ["hub", "hook", "agentica", "--hub-dir", str(hub)],
         input=json.dumps(
             {
                 "hook_event_name": "UserPromptSubmit",
@@ -634,8 +635,8 @@ def test_cli_capture_hook_and_status(tmp_path: Path, monkeypatch) -> None:
     transcript = tmp_path / "turn.jsonl"
     capture = runner.invoke(
         cli_main.app,
-        ["hub", "capture", "claude-code", "--hub-dir", str(hub)],
-        input=json.dumps({"transcript_path": str(transcript)}),
+        ["hub", "hook", "claude-code", "--hub-dir", str(hub)],
+        input=json.dumps({"hook_event_name": "Stop", "transcript_path": str(transcript)}),
     )
     assert capture.exit_code == 0
     assert spawned == [
@@ -1509,3 +1510,62 @@ def test_hub_ui_opens_the_page_with_the_token_in_the_fragment(
     assert result.exit_code == 0, result.output
     assert result.output.strip() == "http://127.0.0.1:8765/ui"
     assert opened == ["http://127.0.0.1:8765/ui#token=tok"]
+
+
+def test_agentica_install_replaces_the_old_two_consumers_with_one(tmp_path: Path) -> None:
+    """An install from before the merge left ``dual-mem-hub`` + ``dual-mem-hub-recall``;
+    reinstalling leaves exactly one consumer of ours, found by its command."""
+    hub = tmp_path / "hub"
+    home = tmp_path / "home"
+    (home / ".agentica").mkdir(parents=True)
+    old = [sys.executable, "-m", "dual_mem.cli", "hub"]
+    (home / ".agentica" / "config.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "settings": {
+                    "hooks": {
+                        "enabled": True,
+                        "consumers": [
+                            {"name": "open-island", "command": ["/bin/oi"]},
+                            {"name": "dual-mem-hub", "command": old + ["capture", "agentica"]},
+                            {"name": "dual-mem-hub-recall", "command": old + ["hook-search"]},
+                        ],
+                    }
+                }
+            }
+        )
+    )
+    install_host("agentica", hub_dir=hub, home=home)
+    consumers = yaml.safe_load((home / ".agentica" / "config.yaml").read_text())[
+        "settings"
+    ]["hooks"]["consumers"]
+    assert [c["name"] for c in consumers] == ["open-island", "dual-mem"]
+
+
+def test_hook_dispatches_on_the_event_name(tmp_path: Path, monkeypatch) -> None:
+    """``UserPromptSubmit`` recalls and never captures; any other event captures
+    and never prints context. The pre-merge command names still exit 0: a
+    missing command exits 2, which a prompt host reads as a refusal."""
+    hub = tmp_path / "hub"
+    spawned, recalled = [], []
+    monkeypatch.setattr(cli_hub, "_spawn_detached", lambda argv, _log: spawned.append(argv))
+    monkeypatch.setattr(cli_hub, "_recall", lambda payload, *_a: recalled.append(payload["prompt"]))
+    transcript = tmp_path / "turn.jsonl"
+    transcript.write_text("")
+
+    def hook(*args: str, **payload: Any) -> None:
+        result = runner.invoke(
+            cli_main.app, ["hub", *args, "--hub-dir", str(hub)], input=json.dumps(payload)
+        )
+        assert result.exit_code == 0, result.output
+
+    hook("hook", "agentica", hook_event_name="UserPromptSubmit", prompt="q1",
+         transcript_path=str(transcript))
+    assert recalled == ["q1"] and spawned == []
+    hook("hook", "agentica", hook_event_name="run.completed", prompt="q1",
+         transcript_path=str(transcript))
+    assert recalled == ["q1"] and len(spawned) == 1
+
+    hook("hook-search", hook_event_name="UserPromptSubmit", prompt="q2")
+    hook("capture", "agentica", hook_event_name="session.ended", transcript_path=str(transcript))
+    assert recalled == ["q1", "q2"] and len(spawned) == 2

@@ -443,72 +443,98 @@ def hub_scan(
     _echo(asyncio.run(run()))
 
 
-@hub_app.command("capture")
-def hub_capture(
+def _capture(source: str, payload: dict[str, Any], hub_dir: str | None) -> None:
+    """Locate the transcript and scan it in the background; the host returns at once."""
+    transcript = locate_transcript(source, payload)
+    if transcript is None:
+        return
+    argv = [
+        sys.executable,
+        "-m",
+        "dual_mem.cli",
+        "hub",
+        "scan",
+        "--source",
+        source,
+        "--file",
+        str(transcript),
+        "--complete",
+    ]
+    if hub_dir:
+        argv += ["--hub-dir", hub_dir]
+    _spawn_detached(argv, hub_root(hub_dir) / "logs" / "capture.log")
+
+
+def _recall(payload: dict[str, Any], limit: int, hub_dir: str | None) -> None:
+    """Answer ``UserPromptSubmit`` with the memories relevant to this prompt."""
+    prompt = payload.get("prompt", "").strip()
+    if not prompt:
+        return
+
+    async def search() -> dict[str, Any]:
+        async with make_client(hub_dir) as client:
+            return await client.recall(query=prompt, limit=limit, raw_limit=3)
+
+    result = asyncio.run(search())
+    context = format_memories(result["memories"]).strip()
+    if result["conversations"]:
+        raw = "\n".join(
+            f"- [{item['session_id']}] {item['content'].strip()}"
+            for item in result["conversations"]
+        )
+        context = f"{context}\n\n历史对话：\n{raw}".strip()
+    if context:
+        # Tagged so strip_memory_injection drops it if a host echoes it back.
+        context = f"<relevant-memories>\n{context}\n</relevant-memories>"
+        typer.echo(
+            json.dumps(
+                {
+                    "hookSpecificOutput": {
+                        "hookEventName": "UserPromptSubmit",
+                        "additionalContext": context,
+                    }
+                },
+                ensure_ascii=False,
+            )
+        )
+
+
+@hub_app.command("hook")
+def hub_hook(
     source: str = typer.Argument(..., help=f"{' | '.join(SOURCES)}"),
+    limit: int = typer.Option(8, "--limit", help="UserPromptSubmit 注入的记忆条数"),
     hub_dir: str | None = HubDir,
 ) -> None:
-    """Hook 入口：定位 transcript 后后台扫描，立即返回宿主。"""
-    with _hook_errors_logged(hub_dir, f"capture {source}"):
+    """宿主 Hook 唯一入口：``UserPromptSubmit`` 召回注入，其余事件（Stop / run.completed /
+    session.ended）后台采集。按 payload 的 ``hook_event_name`` 分派，Claude Code / Codex /
+    agentica 同一协议。"""
+    with _hook_errors_logged(hub_dir, f"hook {source}"):
         payload = json.loads(sys.stdin.read() or "{}")
-        transcript = locate_transcript(source, payload)
-        if transcript is None:
-            return
-        argv = [
-            sys.executable,
-            "-m",
-            "dual_mem.cli",
-            "hub",
-            "scan",
-            "--source",
-            source,
-            "--file",
-            str(transcript),
-            "--complete",
-        ]
-        if hub_dir:
-            argv += ["--hub-dir", hub_dir]
-        _spawn_detached(argv, hub_root(hub_dir) / "logs" / "capture.log")
+        if payload.get("hook_event_name") == "UserPromptSubmit":
+            _recall(payload, limit, hub_dir)
+        else:
+            _capture(source, payload, hub_dir)
 
 
-@hub_app.command("hook-search")
+# Configs written by an older ``install-host`` still name these two. A missing
+# command makes typer exit 2, which a UserPromptSubmit host reads as "block this
+# prompt", so they stay until every install has been rewritten.
+@hub_app.command("hook-search", hidden=True)
 def hub_hook_search(
     limit: int = typer.Option(8, "--limit"),
     hub_dir: str | None = HubDir,
 ) -> None:
-    """每轮召回注入：UserPromptSubmit hook（Claude Code / Codex / agentica 同一协议）。"""
     with _hook_errors_logged(hub_dir, "hook-search"):
-        payload = json.loads(sys.stdin.read() or "{}")
-        prompt = payload.get("prompt", "").strip()
-        if not prompt:
-            return
+        _recall(json.loads(sys.stdin.read() or "{}"), limit, hub_dir)
 
-        async def search() -> dict[str, Any]:
-            async with make_client(hub_dir) as client:
-                return await client.recall(query=prompt, limit=limit, raw_limit=3)
 
-        result = asyncio.run(search())
-        context = format_memories(result["memories"]).strip()
-        if result["conversations"]:
-            raw = "\n".join(
-                f"- [{item['session_id']}] {item['content'].strip()}"
-                for item in result["conversations"]
-            )
-            context = f"{context}\n\n历史对话：\n{raw}".strip()
-        if context:
-            # Tagged so strip_memory_injection drops it if a host echoes it back.
-            context = f"<relevant-memories>\n{context}\n</relevant-memories>"
-            typer.echo(
-                json.dumps(
-                    {
-                        "hookSpecificOutput": {
-                            "hookEventName": "UserPromptSubmit",
-                            "additionalContext": context,
-                        }
-                    },
-                    ensure_ascii=False,
-                )
-            )
+@hub_app.command("capture", hidden=True)
+def hub_capture(
+    source: str = typer.Argument(..., help=f"{' | '.join(SOURCES)}"),
+    hub_dir: str | None = HubDir,
+) -> None:
+    with _hook_errors_logged(hub_dir, f"capture {source}"):
+        _capture(source, json.loads(sys.stdin.read() or "{}"), hub_dir)
 
 
 @hub_app.command("recall")

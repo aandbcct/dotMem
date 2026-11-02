@@ -85,8 +85,9 @@ dual-mem hub connect git git@github.com:<你的用户名>/my-vibecoding-memory.g
 `install-host agentica` 会自动为你配好三件事（无需手改配置文件）：
 
 1. **MCP 工具（`~/.agentica/mcp_config.json`）**：注册 `dual-mem` MCP 服务，Agent 可主动调用 `memory_search`、`memory_add`、`conversation_search`、`memory_status`。
-2. **每轮提问前自动召回（`~/.agentica/config.yaml` → `dual-mem-hub-recall`）**：订阅 `UserPromptSubmit` 事件。你每次在 `agentica` 输入提示词时，几十毫秒内从本机库召回相关画像、事实与最多 3 条 `[procedure]` 工程排障经验，以 `<relevant-memories>` 注入上下文（与 Agentica 原生的 `<memory_recall>` / `<session_recall>` 并存，直接给出抽取好的结论与最新路径，减少翻查原始日志的工具调用与 token 消耗）。
-3. **每轮结束后台沉淀（`~/.agentica/config.yaml` → `dual-mem-hub`）**：订阅 `run.completed` 与 `session.ended`。每轮结束后后台增量读取用户请求、最终回答以及 `tool_calls` 涉及的文件路径（工具输出不采集），连同当前工作目录 `cwd` 和 `git_branch` 交给本机 Core 沉淀，并在几秒后自动把新增的变更日志（含算好的向量）推送到 `my-vibecoding-memory` 仓库。
+2. **每轮提问前召回 + 每轮结束沉淀（`~/.agentica/config.yaml` → 一个消费者 `dual-mem`）**：命令是 `dual-mem hub hook agentica`，按事件分派：
+   - `UserPromptSubmit`：你每次在 `agentica` 输入提示词时，几十毫秒内从本机库召回相关画像、事实与最多 3 条 `[procedure]` 工程排障经验，以 `<relevant-memories>` 注入上下文（与 Agentica 原生的 `<memory_recall>` / `<session_recall>` 并存）。
+   - `run.completed` / `session.ended`：后台增量读取用户请求、最终回答以及 `tool_calls` 涉及的文件路径（工具输出不采集），连同 `cwd` 和 `git_branch` 交给本机 Core 沉淀，几秒后把新增的变更日志（含向量）推送到 `my-vibecoding-memory` 仓库。
 
 换到第二台电脑（例如家里的 Mac）时，装好 `dual-mem`、跑完上面第 1、2 步后，执行同一条 `dual-mem hub connect git git@github.com:<你的用户名>/my-vibecoding-memory.git`，之前所有的记忆和向量就会直接拉回新电脑本机库，不重新调任何模型。
 
@@ -98,14 +99,14 @@ dual-mem hub connect git git@github.com:<你的用户名>/my-vibecoding-memory.g
 │ Codex       ├ capture Hook ──┐                    │
 │ Agentica    ┘（一轮对话结束）  ├─▶ 127.0.0.1:8765  │
 │                              │   dual-mem hub serve│──▶ 同步目标（可选）
-│ 你输入提示词 ─ hook-search ───┤   （本机唯一写者）   │◀── 其它电脑的变更
+│ 你输入提示词 ─ hub hook ──────┤   （本机唯一写者）   │◀── 其它电脑的变更
 │ Agent 主动查 ─ MCP memory_* ──┘   ~/.dual-mem/store │
 └───────────────────────────────────────────────────┘
 ```
 
 1. **写**：一轮对话结束，宿主触发 capture Hook（Claude Code `Stop`、Agentica `run.completed`、Codex `Stop`）。它按本机 `cursors.db` 的游标读出会话日志里新增的轮次，交给本机 Core 后立刻返回，不等 LLM。
 2. **整理**：Core 先把 Evidence 写进持久队列 `hub.db`，再由唯一 worker 在后台抽取、JEV 裁决、写入记忆；dual 模式下，距上次成功归纳满一天且仍有新证据时，在写入空档自动 `digest()`（多设备时只有一台负责）。
-3. **读**：你提交提示词时，recall Hook（`hook-search`）把相关记忆注入上下文；Agent 也可以通过 MCP 工具（`memory_search` 等）主动查。都只读本机库。
+3. **读**：你提交提示词时，`hub hook` 收到 `UserPromptSubmit`，把相关记忆注入上下文；Agent 也可以通过 MCP 工具（`memory_search` 等）主动查。都只读本机库。
 4. **同步**（`connect` 之后）：本机库的每次变更带着向量记进变更日志，Core 在后台把它推到同步目标，并拉回其它电脑的变更。
 
 ## 常用命令
@@ -155,7 +156,7 @@ dual-mem hub serve（唯一写者）
 - 会话扫描游标存在发起扫描那台机器的 `cursors.db`，只越过 Core 已接收的批次；Core 不可达时游标不动。
 - 冷启动可以先 `scan --raw-only`，只存 L0 原文、不调抽取模型；之后 `dual-mem hub extract` 在后台补跑抽取，复用已存的 L0。
 - 普通扫描按会话分批写入，`session_id` 带来源前缀，例如 `codex:<session-id>`。
-- Claude Code / Codex / Agentica 会话里的工具调用随对话一起送达（只用于提取涉及的文件；工具输出不采集），会话的工作目录和 git 分支作为 `workspace_id` / `branch`。Core 据此在对话记忆之外沉淀 procedure 工程经验；`recall` 和 `hook-search` 默认返回最多 3 条相关经验，在注入块里标为 `[procedure]`。
+- Claude Code / Codex / Agentica 会话里的工具调用随对话一起送达（只用于提取涉及的文件；工具输出不采集），会话的工作目录和 git 分支作为 `workspace_id` / `branch`。Core 据此在对话记忆之外沉淀 procedure 工程经验；`recall` 和 `hub hook` 的召回默认返回最多 3 条相关经验，在注入块里标为 `[procedure]`。
 - 三家宿主的每轮召回走同一个 `UserPromptSubmit` hook 协议（stdin `prompt`，stdout `hookSpecificOutput.additionalContext`）；`install-host agentica` 在 `settings.hooks.consumers` 里订阅 `UserPromptSubmit`，召回块与 agentica 内置的 `<memory_recall>` / `<session_recall>` 并存。
 - Core 以 dual 模式运行时（`hub serve --mode dual`）自己 `digest()`，一天最多一次。写入队列排空后，距上次成功已满 `--digest-every` 小时（默认 24），并且还有待归纳证据，才跑。`--digest-every 0` 关闭。各台电脑不用自己触发。
 
@@ -170,8 +171,7 @@ dual-mem hub serve（唯一写者）
 ### 其他命令
 
 ```bash
-dual-mem hub hook-search            # 供宿主 Hook 调用：搜索并输出注入块
-dual-mem hub capture claude-code    # 供宿主 Hook 调用：上报当前会话
+dual-mem hub hook claude-code       # 供宿主 Hook 调用：UserPromptSubmit 输出注入块，其余事件上报当前会话
 ```
 
 </details>

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **宿主 Hook 合并成一条命令 `dual-mem hub hook <source>`**：按 stdin 的 `hook_event_name` 分派，`UserPromptSubmit` 召回注入，其余事件（Claude Code / Codex 的 `Stop`，agentica 的 `run.completed` / `session.ended`）后台采集。agentica 里原来的两个消费者 `dual-mem-hub`（采集）和 `dual-mem-hub-recall`（召回）合并为一个 `dual-mem`：装了 hub 就该召回，拆成两个只会让人以为可以只装一半，名字也看不出谁管什么。重跑 `dual-mem hub install-host agentica` 会按命令签名（`-m dual_mem.cli`）删掉旧的两个、写入新的一个，其它消费者不动。`hub hook-search` / `hub capture` 保留为隐藏别名：旧配置里还写着它们，而命令不存在时 typer 退出码是 2，宿主会把它当作「拒绝这条提示词」。
 - **记忆管理页 `dual-mem hub ui`**：本机 Core 在 `/ui` 提供一个单文件页面，命令会带着令牌在浏览器打开它（令牌放在 URL 的 `#` 片段里，不进服务端日志）。
   - 左栏按项目和类型（工程经验 / 事实 / 画像 / 待办意图 / 原始对话）筛选；输入框即时过滤正文，回车走 Core 的混合检索。
   - 卡片展开后能看到完整方案、涉及文件、版本历史（旧 → 新），以及这条记忆来自哪段对话。

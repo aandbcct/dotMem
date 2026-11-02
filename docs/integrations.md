@@ -40,8 +40,8 @@ dual-mem hub connect git git@github.com:<你的用户名>/my-vibecoding-memory.g
 
 - **MCP 工具（`~/.agentica/mcp_config.json`）**：挂载 `dual-mem` MCP 服务（`memory_search`、`memory_add`、`conversation_search`、`memory_status`）。
 - **自动召回与采集 Hook（`~/.agentica/config.yaml`）**：
-  - `UserPromptSubmit`（`dual-mem-hub-recall`）：每轮提问前从本机库毫秒级召回画像、事实与 `[procedure]` 工程排障经验，以 `<relevant-memories>` 注入（与 Agentica 内置的 `<memory_recall>` / `<session_recall>` 并存）。
-  - `run.completed` / `session.ended`（`dual-mem-hub`）：每轮结束后台采集用户请求、最终回答与工具调用涉及的文件路径（工具输出不采集），沉淀记忆并在后台同步到你的私有 Git 仓库。
+  - 一个消费者 `dual-mem`（`dual-mem hub hook agentica`），按事件分派。`UserPromptSubmit`：每轮提问前从本机库毫秒级召回画像、事实与 `[procedure]` 工程排障经验，以 `<relevant-memories>` 注入（与 Agentica 内置的 `<memory_recall>` / `<session_recall>` 并存）。
+  - `run.completed` / `session.ended`：每轮结束后台采集用户请求、最终回答与工具调用涉及的文件路径（工具输出不采集），沉淀记忆并在后台同步到你的私有 Git 仓库。
 
 #### 方式二：Agentica Python SDK（`DualMemWorkspace`）
 
