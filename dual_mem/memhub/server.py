@@ -29,6 +29,7 @@ from dual_mem.errors import IdempotencyConflictError
 from dual_mem.memhub.browse import browse_rows
 from dual_mem.memhub.config import (
     SyncConfig,
+    format_time,
     hub_root,
     hub_settings,
     load_or_create_runtime_token,
@@ -528,7 +529,7 @@ def create_hub_app(
             "digest": {
                 "auto": app.state.client.settings.mode == "dual" and digest_min_hours > 0,
                 "min_hours": digest_min_hours,
-                "last_at": read_last_digest_at(root),
+                "last_at": format_time(read_last_digest_at(root)),
                 "last_error": app.state.queue.last_idle_error,
             },
             "sync": app.state.syncer.status() if app.state.syncer is not None else None,

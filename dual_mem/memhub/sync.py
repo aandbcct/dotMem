@@ -46,7 +46,7 @@ from typing import Any, Protocol
 
 import httpx
 
-from dual_mem.memhub.config import SyncConfig, hub_root
+from dual_mem.memhub.config import SyncConfig, format_time, hub_root
 from dual_mem.storage.vector_store import ChromaVectorStore
 
 PAGE = 200
@@ -670,7 +670,7 @@ class HubSyncer:
             "origin": self.client.factory.vector.origin,
             "digester": self.digester,
             "digests_here": self.digests_here(),
-            "last_at": self.last_at,
+            "last_at": format_time(self.last_at),
             "last_result": self.last_result,
             "last_error": self.last_error,
         }

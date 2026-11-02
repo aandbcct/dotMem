@@ -22,7 +22,7 @@ def workspaces_by_source(nodes: list[MemoryNode]) -> dict[str, str]:
         detail = procedure_detail(node)
         if detail is None or not detail.workspace_id:
             continue
-        for source_id in (node.custom or {})["source_ids"]:
+        for source_id in (node.custom or {}).get("source_ids", []):
             out.setdefault(source_id, detail.workspace_id)
     return out
 

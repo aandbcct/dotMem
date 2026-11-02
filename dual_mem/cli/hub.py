@@ -27,6 +27,7 @@ from dual_mem.memhub.config import (
     CursorStore,
     SyncConfig,
     clear_sync_config,
+    format_time,
     hub_root,
     hub_settings,
     load_sync_config,
@@ -339,6 +340,9 @@ def hub_status(hub_dir: str | None = HubDir) -> None:
             return await client.status()
 
     data = asyncio.run(remote())
+    for section in ("digest", "sync"):
+        if isinstance(data.get(section), dict):
+            data[section]["last_at"] = format_time(data[section].get("last_at"))
     with CursorStore(hub_dir) as cursors:
         scanned = Counter()
         for cursor in cursors.all():

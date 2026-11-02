@@ -49,6 +49,23 @@ dual-mem hub ui        # 在浏览器里按项目浏览、搜索、编辑、删�
 
 > 自启服务不继承 shell 环境变量，模型 API key 请写在 `~/.dual-mem/config.yaml`。
 
+## 本机记忆管理页（`dual-mem hub ui`）
+
+在终端运行：
+
+```bash
+dual-mem hub ui
+```
+
+会在浏览器打开 `http://127.0.0.1:8765/ui`（页面由本机已经在跑的 Core 提供，无需额外安装；访问令牌放在 URL 的 `#` 片段里，不进服务端日志）。
+
+- **按主线浏览**：左栏按**项目**（从工程经验的 `workspace_id` 自动推导，同段对话的原文与事实自动继承同一项目）和**类型**（工程经验 / 事实 / 画像 / 待办意图 / 原始对话）筛选；勾选「显示历史版本」可查看已被取代或删除的旧版本。
+- **搜索**：顶部输入框边打字边按关键字过滤正文；按回车调用本机 Core 的混合检索（语义 + BM25）。
+- **查看详情与溯源**：点开卡片可查看完整方案、涉及文件、适用条件、版本演化链（旧 → 新），以及它最初来自哪段原始对话。
+- **编辑与删除**：
+  - 点「编辑」保存后会**重新计算向量**、生成一个新的当前版本（旧版本保留在历史里），并触发后台同步，其他设备自动跟进。工程经验只改方案（`solution`），任务描述和检索键保持不变。
+  - 点「删除」会将当前版本归档退役（历史仍保留），同样自动同步到其他设备。
+
 ## 多台电脑共用一份记忆
 
 每台电脑一条命令，连到同一个同步目标：
@@ -121,7 +138,27 @@ dual-mem hub connect git git@github.com:<你的用户名>/my-vibecoding-memory.g
 | 立刻跨设备同步一次 | `dual-mem hub sync` |
 | 查看、搜索、编辑、删除记忆 | `dual-mem hub ui` |
 | 重启 Core | 再执行一次 `dual-mem hub install-service` |
-| 停止开机自启 | `dual-mem hub uninstall-service` |
+| 卸载开机自启服务（停止 Core） | `dual-mem hub uninstall-service` |
+| 断开多设备同步 | `dual-mem hub disconnect` |
+
+## 如何卸载
+
+如果不再需要 MemHub 后台服务或某个工具的自动接入，可以按需卸载（**不会删除 `~/.dual-mem/` 下的本地记忆库和配置文件**）：
+
+```bash
+# 1. 停止并移除开机自启的 Hub Core 服务
+#    macOS：launchctl unload 并删除 ~/Library/LaunchAgents/com.dual-mem.hub.plist
+#    Linux：systemctl --user disable --now 并删除 ~/.config/systemd/user/dual-mem-hub.service
+dual-mem hub uninstall-service
+
+# 2. 移除写入各 AI 工具的 MCP、Skill 和 Hook（恢复原配置文件，保留原有注释）
+dual-mem hub uninstall-host all          # 或只卸载某一个：dual-mem hub uninstall-host agentica
+
+# 3. 断开多设备同步（可选，本地记忆与远程同步目标的数据均保留）
+dual-mem hub disconnect
+```
+
+想连本地记忆数据一起彻底清空时，在执行完上面命令后再手动删除 `~/.dual-mem` 目录即可。
 
 ---
 

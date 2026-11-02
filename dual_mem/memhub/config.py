@@ -20,12 +20,20 @@ import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from dual_mem.config import Settings
 
 DEFAULT_HUB_DIR = Path.home() / ".dual-mem"
+
+
+def format_time(ts: float | int | str | None) -> str | None:
+    """Human-readable local timestamp (``YYYY-MM-DD HH:MM:SS``) for status output."""
+    if ts is None or isinstance(ts, str):
+        return ts
+    return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
 
 
 @dataclass
@@ -141,7 +149,7 @@ def publish_runtime(
         "base_url": base_url.rstrip("/"),
         "instance_id": instance_id,
         "pid": pid,
-        "started_at": int(time.time()),
+        "started_at": format_time(time.time()),
     }
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
@@ -182,7 +190,11 @@ def resolve_hub_config(hub_dir: str | Path | None = None) -> HubConfig:
 
 def runtime_status(hub_dir: str | Path | None = None) -> dict[str, Any] | None:
     path = _runtime_path(hub_dir)
-    return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
+    if not path.is_file():
+        return None
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["started_at"] = format_time(data.get("started_at"))
+    return data
 
 
 def hub_settings(hub_dir: str | Path | None = None, *, mode: str | None = None) -> Settings:

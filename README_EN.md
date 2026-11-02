@@ -44,11 +44,12 @@ MemHub connects those two systems to the tools on your machine. Claude Code, Cod
 ```bash
 pip install "dual-mem[all]"
 
-dual-mem hub install-service       # runs in the background, starts at login
-dual-mem hub install-host all      # connect every supported AI tool on this machine
+dual-mem hub install-service       # runs in the background, starts at login (remove with uninstall-service)
+dual-mem hub install-host all      # connect every supported AI tool on this machine (remove with uninstall-host all)
 dual-mem hub scan --source all     # turn your past conversations into memory
 
 dual-mem hub recall "what technical choices have I made before"
+dual-mem hub ui                    # browse, search, edit and delete memories by project in your browser
 ```
 
 Tools discover the local service with no URL to paste. A conversation is saved and acknowledged immediately; organizing happens in the background. When a turn ends, the host's hook hands the new messages to the Core, and the next prompt you type gets the relevant memories injected; agents can also query through MCP. Coding sessions arrive with their tool calls and become reusable engineering experience.
@@ -176,11 +177,10 @@ Two worth opening: [`examples/02_dual.py`](https://github.com/shibing624/dual-me
 - [x] Multi-device sync: local recall on every computer, works offline, exchanges changes via a synced folder / git / a server
 - [x] Chat and coding unified: coding sessions yield procedure experience, and `dual` induces engineering habits too
 - [x] Leads head-to-head on LoCoMo / LongMemEval / PersonaMem-v2
-- [ ] MemHub for more tools: OpenCode, WorkBuddy, Gemini CLI, Windsurf, Trae and others — 10+ in total
+- [x] Visual memory management: `dual-mem hub ui` to browse by project, search, edit and delete memories
+- [ ] MemHub for more tools: OpenCode, WorkBuddy and others — 10+ in total
 - [ ] Cloud HTTP MCP: remote agents connect to hosted memory directly
 - [ ] Better retrieval for multi-hop questions (LoCoMo multi-hop still has headroom)
-- [ ] Visual memory management: view, edit and delete your memories
-- [ ] Privacy tiers: sensitive memories stay on this machine
 - [ ] More public benchmarks (CodeMemoryBench and others, once their data is released)
 
 Vote or request features in [Issues](https://github.com/shibing624/dual-mem/issues).

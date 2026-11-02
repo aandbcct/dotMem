@@ -34,7 +34,12 @@ dual-mem hub scan --source agentica
 
 # 4. 关联到你的 GitHub 私有仓库，自动备份与跨机同步（可选）
 dual-mem hub connect git git@github.com:<你的用户名>/my-vibecoding-memory.git
+
+# 5. 在浏览器中按项目浏览、搜索、编辑、删除记忆（可选）
+dual-mem hub ui
 ```
+
+> 卸载：停止并移除开机自启服务用 `dual-mem hub uninstall-service`，移除写入 `agentica` 的 MCP / Hook 配置用 `dual-mem hub uninstall-host agentica`。
 
 `install-host agentica` 会在保留你原有配置注释的前提下，自动完成两处集成：
 

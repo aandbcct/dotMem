@@ -44,11 +44,12 @@ MemHub 把上面这两套系统接到本机上的多个工具。Claude Code、Co
 ```bash
 pip install "dual-mem[all]"
 
-dual-mem hub install-service       # 后台常驻，开机自启
-dual-mem hub install-host all      # 一键接入本机已安装的 AI 工具
+dual-mem hub install-service       # 后台常驻，开机自启（卸载用 uninstall-service）
+dual-mem hub install-host all      # 一键接入本机已安装的 AI 工具（卸载用 uninstall-host all）
 dual-mem hub scan --source all     # 把过去的对话也变成记忆
 
 dual-mem hub recall "我之前做过哪些技术选择"
+dual-mem hub ui                    # 在浏览器按项目查看、搜索、编辑、删除记忆
 ```
 
 零配置发现本机服务，对话先存下来立刻返回，整理在后台进行。一轮对话结束时宿主的 Hook 把新增内容交给 Core，你下一次输入提示词时相关记忆自动注入；Agent 也能通过 MCP 主动查。写代码的会话会连同工具调用一起送达，沉淀成工程经验。

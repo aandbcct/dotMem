@@ -42,7 +42,7 @@ from dual_mem.memhub.server import (
     write_last_digest_at,
 )
 from dual_mem.memhub.sources import SOURCE_SPECS
-from dual_mem.memhub.config import resolve_hub_config
+from dual_mem.memhub.config import format_time, publish_runtime, resolve_hub_config
 from dual_mem.types import Layer
 
 runner = CliRunner()
@@ -620,11 +620,15 @@ def test_cli_capture_hook_and_status(tmp_path: Path, monkeypatch) -> None:
     assert reply == json.loads(hook.output)
     assert reply["hookSpecificOutput"]["hookEventName"] == "UserPromptSubmit"
     assert "PyTorch" in reply["hookSpecificOutput"]["additionalContext"]
+    publish_runtime(base_url="http://127.0.0.1:8765", instance_id="core-1", pid=1, hub_dir=hub)
     status = runner.invoke(
         cli_main.app,
         ["hub", "status", "--hub-dir", str(hub)],
     )
-    assert json.loads(status.output)["instance_id"] == "core-1"
+    status_data = json.loads(status.output)
+    assert status_data["instance_id"] == "core-1"
+    assert len(status_data["runtime"]["started_at"]) == 19
+    assert status_data["runtime"]["started_at"][4] == "-"
 
     spawned = []
     monkeypatch.setattr(
@@ -1203,7 +1207,10 @@ async def test_dual_core_digests_on_idle_and_recalls_procedures(
             status = await remote.status()
             assert status["digest"]["auto"] is True
             assert status["digest"]["min_hours"] == 24.0
-            assert status["digest"]["last_at"] == read_last_digest_at(tmp_path / "hub")
+            assert status["digest"]["last_at"] == format_time(
+                read_last_digest_at(tmp_path / "hub")
+            )
+            assert len(status["digest"]["last_at"]) == 19
             assert status["digest"]["last_error"] is None
     await core.aclose()
 

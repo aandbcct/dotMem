@@ -73,7 +73,7 @@ dual-mem hub status
 
 - Core 在 `~/.dual-mem/sync-git/` 下维护该仓库的本地克隆（`main` 分支）。
 - 同步只读写 `manifest.json`、`log/<origin>/<seq>.json` 和 `snapshot/`。每台电脑拥有独立的 `origin` UUID，**只往自己的子目录追加新文件**，因此多台电脑并发 `git pull --rebase` + `git push` 不会在日志文件上冲突。
-- 仓库里可以另外放 README、词云、脚本。这些文件不会被导入记忆库，也不会被检索到；同步提交也不会改它们。
+- 仓库里可以另外放 `README.md`、`memory/<项目>.md` 看板或生成脚本（如 GitHub Actions 自动把同步日志渲染成按项目分类的 Markdown 页面）。这些文件不会被导入记忆库，也不会被检索到；同步提交也不会改它们。注意：**不要在 GitHub 上直接手改 Markdown 或 JSON 来修改记忆**（改文字需要重新计算向量并追加版本链），要修改或删除记忆请在本机运行 `dual-mem hub ui`。
 - `~/.dual-mem/config.yaml`（含你的 API key）**不会**进入这个仓库。日志文件里是记忆正文、元数据和向量。
 - 在第二台电脑上，装好 `dual-mem`、配好 `~/.dual-mem/config.yaml` 并启动 `install-service` 后，执行**完全相同**的一行 `dual-mem hub connect git git@github.com:<你的用户名>/my-vibecoding-memory.git`，即刻拉回全部记忆与向量。
 
