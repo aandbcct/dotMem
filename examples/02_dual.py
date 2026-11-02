@@ -1,12 +1,13 @@
 """Demo 2 — dual：每次 add 先完成和 system1 相同的 JEV 写入，digest() 再写 L3。
 
-digest 不重跑 reconcile。它只把尚未覆盖的 L1/L2 证据做成 L3_DERIVED
-（跨证据模式、摘要）。意图仍是 L1 的 kind=intention，要 intention_limit>0 才进 proactive。
+digest 不重跑 reconcile。它只把尚未覆盖的 L1/L2 证据聚类归纳成 L3_DERIVED
+（行为模式 schema / 跨域 core_schema / 画像目录 persona_catalog）。
+意图仍是 L1 的 kind=intention，要 intention_limit>0 才进 proactive。
 
-环境要求：jev_*、llm_*、embed_*。digest 会再打一次生成模型和 JEV。
+环境要求：jev_*、llm_*、embed_*。digest 会调用生成模型归纳 L3。
 
 运行：python examples/02_dual.py
-期望：digest.processed >= 1，profile 里出现 L3；proactive 里能看到马拉松计划。
+期望：digest.processed >= 1，schema / catalog 里出现 L3 推导；proactive 里能看到马拉松计划。
 """
 import asyncio
 
@@ -16,7 +17,9 @@ from memhub import MemoryClient
 
 
 async def main() -> None:
-    client = MemoryClient(settings=example_settings("dual", "dual"))
+    client = MemoryClient(
+        settings=example_settings("dual", "dual", derived_context_limit=5)
+    )
     user = "carol"
     try:
         # 这些事实彼此不是同一维度的状态替换，JEV 应各自 SUPPLEMENT。
@@ -38,7 +41,7 @@ async def main() -> None:
         digest = await client.digest()
         print(f"  processed={digest.processed}")
 
-        section("检索：行为模式进 profile（L3），马拉松计划进 proactive")
+        section("检索：行为模式进 schema / catalog（L3），马拉松计划进 proactive")
         out = await client.search(
             query="这位用户在做事方式上有什么稳定的行为模式？接下来有什么计划？",
             user_id=user,

@@ -23,6 +23,7 @@ theme:
   sticky_navigation: true
   prev_next_buttons_location: bottom
   include_homepage_in_sidebar: true
+  favicon: public/favicon.png
 
 nav:
   - Home: index.md

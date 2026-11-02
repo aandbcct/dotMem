@@ -89,19 +89,30 @@ def show_write(res: WriteResult, text: str = "") -> None:
 def _render_chain(item: MemoryItem) -> str:
     """渲染演化链（最新→最旧）的简短文本，未发生演化时返回空串。"""
     chain = item.evolution_chain or []
-    if len(chain) < 2:
-        return ""
-    parts = [f"{node.layer}:{node.content[:24]}" for node in chain]
-    return "\n      演化链(最新→最旧): " + " → ".join(parts)
+    if len(chain) >= 2:
+        parts = [f"{node.layer}:{node.content[:24]}" for node in chain]
+        return "\n      演化链(最新→最旧): " + " → ".join(parts)
+    if item.previous:
+        parts = [f"{node.layer}:{node.content[:24]}" for node in item.previous]
+        return "\n      上一版本: " + ", ".join(parts)
+    return ""
 
 
 def show_memories(memories: SearchMemories) -> None:
-    """统一渲染三路召回：profile / proactive / normal。"""
-    for group, items in (
+    """统一渲染召回结果：profile / proactive / normal，以及非空的 procedures / schema / catalog。"""
+    groups: list[tuple[str, list[MemoryItem]]] = [
         ("profile", memories.profile),
         ("proactive", memories.proactive),
         ("normal", memories.normal),
+    ]
+    for extra_name, extra_items in (
+        ("procedures", memories.procedures),
+        ("schema", memories.schema),
+        ("catalog", memories.catalog),
     ):
+        if extra_items:
+            groups.append((extra_name, extra_items))
+    for group, items in groups:
         print(f"  [{group}] {len(items)} 条")
         for item in items:
             chain_tail = _render_chain(item)

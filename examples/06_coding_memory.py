@@ -5,7 +5,7 @@
 2. chat 抽取照常进行（看不到工具噪声），用户说的偏好、事实照样进 L1/L2；
 3. JEV 判定场景（CODING / CHAT），是 CODING 才生成 procedure 候选
    （`task`、`solution`、`search_keys`、`boundary_envs`、`files`）；
-4. JEV 在同一 workspace / branch 版本边界内裁决新增 / 覆盖 / 合并 / 跳过 / 归档，
+4. JEV 在同一 workspace / branch 版本边界内裁决新增（SUPPLEMENT）/ 覆盖（OVERRIDE）/ 跳过 / 归档，
    版本链与 chat 记忆共用一套；
 5. `search(..., procedure_limit=3)` 在独立的 procedures 组里只返回当前生效的方案；
    chat 的 normal / profile 组永远不混入 procedure。

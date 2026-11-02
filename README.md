@@ -1,3 +1,9 @@
+<p align="center">
+  <a href="https://github.com/shibing624/memhub">
+    <img src="https://raw.githubusercontent.com/shibing624/memhub/main/docs/public/logo.png" height="130" alt="memhub Logo" />
+  </a>
+</p>
+
 <h1 align="center">memhub</h1>
 
 <p align="center"><b>多个 Agent 共用一份个人记忆；当场记下事实，事后看出规律。</b><br />Claude Code、Codex、Cursor、Agentica 等 8 种 AI 工具共享同一份本地记忆，支持跨设备同步与可视化管理。</p>

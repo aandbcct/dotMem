@@ -1,3 +1,9 @@
+<p align="center">
+  <a href="https://github.com/shibing624/memhub">
+    <img src="https://raw.githubusercontent.com/shibing624/memhub/main/docs/public/logo.png" height="130" alt="memhub Logo" />
+  </a>
+</p>
+
 <h1 align="center">memhub</h1>
 
 <p align="center"><b>One memory across your agents. Facts now, patterns over time.</b><br />Claude Code, Codex, Cursor, Agentica and 4 other AI tools share one local memory with cross-device sync and a visual browser.</p>

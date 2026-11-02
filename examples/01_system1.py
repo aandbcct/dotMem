@@ -1,7 +1,7 @@
 """Demo 1 — system1：JEV 写入版本链 + 多轮 messages。
 
 每次 add 都是：保留 L0_RAW → 生成候选 → JEV 裁决 ADD/SKIP/DELETE 和
-OVERRIDE/MERGE/SUPPLEMENT/TEMPORAL/NEGATE/CONFLICT → 追加新版本并链接历史。
+OVERRIDE/SUPPLEMENT/TEMPORAL/NEGATE/CONFLICT/HISTORICAL → 追加新版本并链接历史。
 system1 不跑 digest，因此没有 L3 跨证据推导。
 
 环境要求：jev_*、llm_*、embed_* 都要有。会打真实 JEV、生成模型和 embedding。
@@ -46,6 +46,7 @@ async def main() -> None:
             user_id=user,
             limit=5,
             min_score=0.0,
+            include_derived=True,
         )
         show_memories(out.memories)
 

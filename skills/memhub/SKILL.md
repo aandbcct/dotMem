@@ -1,29 +1,65 @@
 ---
 name: memhub
 description: >
-  通过 memhub 为 agent 管理长期记忆：写入、检索、更新、删除与 scope 管理。
-  触发场景：用户透露稳定个人信息/偏好、陈述值得长期记住的事实或计划，或对话需要
-  回忆该用户过去说过什么时。使用 MCP 工具或 CLI（memhub）调用 MemoryClient 方法。
+  通过 memhub 为 agent 管理长期记忆：跨工具个人记忆中枢（Hub）、写入、检索、更新、删除与 scope 管理。
+  触发场景：用户透露稳定个人信息/偏好、陈述值得长期记住的事实或计划、沉淀工程排障经验，或对话需要
+  回忆该用户过去说过什么时。使用 MCP 工具或 CLI（memhub）调用 Hub Core 或 MemoryClient 方法。
 ---
 
 # memhub 记忆技能
 
-memhub 把对话沉淀为四层长期记忆（`L0_RAW` / `L1_FACT` / `L2_PROFILE` / `L3_DERIVED`），检索时按 profile / proactive / normal 三路返回。
-它管**跨会话记忆**，不能替代 Agent 自己的当前窗口（WorkingMemory）。
+`memhub` 提供两层能力：
+1. **跨工具个人记忆中枢（Hub）**：让本机 8 种 AI 工具（`claude-code`、`codex`、`cursor`、`agentica`、`hermes`、`codebuddy`、`opencode`、`workbuddy`）共享同一份本地记忆，支持 `memhub ui` 可视化管理与跨设备同步（`git` / `dir` / `ssh` / `http`）。
+2. **双系统分层记忆 SDK（`MemoryClient` / `SyncMemoryClient`）**：把对话与工具轨迹沉淀为四层长期记忆（`L0_RAW` / `L1_FACT` / `L2_PROFILE` / `L3_DERIVED`），检索时按 `profile` / `proactive` / `normal` / `procedures` / `schema` / `catalog` / `raw` 分组返回。它管**跨会话记忆**，不能替代 Agent 自己的当前窗口（WorkingMemory）。
+
+## 1. 跨工具个人记忆中枢（Hub CLI）
+
+日常在本机使用多个 AI 工具时，推荐直接用 `memhub` 一级命令管理共享记忆：
+
+```bash
+# 启动后台常驻服务（开机自启；卸载用 memhub uninstall-service）
+memhub install-service
+
+# 按需接入你正在用的 AI 工具（卸载用 memhub uninstall-host <工具名>）
+memhub install-host claude-code
+memhub install-host codex
+memhub install-host cursor
+# 支持：claude-code | codex | cursor | agentica | hermes | codebuddy | opencode | workbuddy | all
+
+# （可选）导入已有历史会话
+memhub scan --source claude-code   # 或 --source all
+
+# 跨工具检索记忆 + 历史原话
+memhub recall "之前关于数据库锁冲突是怎么解决的"
+
+# 在浏览器打开 http://127.0.0.1:8765/ui 按项目查看、搜索、编辑、删除记忆
+memhub ui
+
+# 查看 Core 状态、队列与宿主接入情况
+memhub status
+
+# 跨设备同步（优先推荐私有 Git 仓库）
+memhub connect git git@github.com:you/my-memory.git
+memhub connect dir "~/Library/Mobile Documents/com~apple~CloudDocs/memhub"
+memhub connect ssh user@your-server
+memhub sync
+memhub disconnect
+```
+
+## 2. SDK 与社区生态集成（`memhub.integrations`）
 
 memhub 原生对接 5 类社区生态，统一入口在 `memhub.integrations`：
 
 | 生态 | 接入方式 | 关键文件 / 命令 |
 |------|----------|----------------|
-| skill | 本 SKILL.md + `MemoryClient` | `skills/memhub/SKILL.md` |
-| mcp | MCP server（mcp 2.x `MCPServer`，`memhub-mcp`，stdio / streamable-http） | `memhub/mcp/server.py` |
-| hermes agent | `MemHubHermesProvider` 原生插件（被动 prefetch + 异步 sync_turn） | `memhub/integrations/hermes.py` |
-| openclaw | `MemHubOpenClawProvider` 原生插件（同源 MemoryProvider 契约） | `memhub/integrations/openclaw.py` |
+| skill | 本 `SKILL.md` + `MemoryClient` | `skills/memhub/SKILL.md` |
+| mcp | MCP server（`memhub-mcp`，stdio / streamable-http） | `memhub/mcp/server.py` |
+| hermes agent | `MemHubHermesProvider` 原生插件（被动 prefetch + 异步 `sync_turn`） | `memhub/integrations/hermes.py` |
+| openclaw | `MemHubOpenClawProvider` 原生插件（同源 `MemoryProvider` 契约） | `memhub/integrations/openclaw.py` |
 | agentica | `MemHubMemory` 记忆模块（`add_messages` / `retrieve`）+ `MemHubWorkspace`（`Agent(workspace=…)` 直接接入） | `memhub/integrations/agentica.py` |
-| claude code | `memhub-hook` 子命令（UserPromptSubmit / Stop） | `memhub/integrations/claude_code.py` |
+| claude code | `memhub-hook` 子命令（`UserPromptSubmit` / `Stop`） | `memhub/integrations/claude_code.py` |
 
-所有适配器都基于内嵌 `MemoryClient`（不再依赖外部 one-memory server），配置走
-`MEMHUB_*` 环境变量 / `~/.memhub/config.yaml`。程序化构造：
+所有适配器都基于内嵌 `MemoryClient`，配置走 `~/.memhub/config.yaml` 或 `MEMHUB_*` 环境变量。程序化构造：
 
 ```python
 from memhub.integrations import get_backend
@@ -33,21 +69,12 @@ openclaw = get_backend("openclaw")
 memory = get_backend("agentica", user_id="u1")        # agentica 记忆模块
 ```
 
-### agentica 接入
+### agentica SDK 接入
 
-agentica 的 `Agent` 通过 `workspace` 对象消费长期记忆。memhub 提供两层接入，
-均无需改动 agentica 框架代码：
+agentica 的 `Agent` 通过 `workspace` 对象消费长期记忆。memhub 提供两层接入，均无需改动 agentica 框架代码：
 
-- **`MemHubMemory`（记忆模块）**：暴露 `add_messages` / `retrieve`，用于手动把召回
-  结果注入 system prompt。
-- **`MemHubWorkspace`（Workspace 适配器）**：组合原生 agentica `Workspace`（承接
-  AGENTS.md / PERSONA.md / USER.md / skills 等文件型上下文），仅把「语义记忆」相关方法
-  覆盖为调用 memhub。可直接 `Agent(workspace=...)`，自动召回 + 自动保存。
-
-> 依赖 agentica：`pip install 'memhub[agentica]'`（或 `pip install agentica`）。
-> 凭证走 `MEMHUB_*` 环境变量 / `~/.memhub/config.yaml`，或构造时显式传入 `client=`。
-
-**方式一：作为 Agent 的原生长期记忆（推荐）**
+- **`MemHubMemory`（记忆模块）**：暴露 `add_messages` / `retrieve`，用于手动把召回结果注入 system prompt。
+- **`MemHubWorkspace`（Workspace 适配器）**：组合原生 agentica `Workspace`（承接 `AGENTS.md` / `PERSONA.md` / `USER.md` / `skills` 等文件型上下文），仅把「语义记忆」相关方法覆盖为调用 memhub。可直接 `Agent(workspace=...)`，自动召回 + 自动保存。
 
 ```python
 from memhub.integrations.agentica import get_agentica_memory_backend
@@ -58,39 +85,11 @@ ws = get_agentica_memory_backend(
     workspace_dir=".agentica",    # 文件型上下文（AGENTS.md 等）落盘目录
 )
 agent = Agent(workspace=ws, enable_long_term_memory=True)
-# Agent 的 system prompt 会自动注入 memhub 召回；
-# 内置 BuiltinMemoryTool 的 save_memory / search_memory 也会落到 memhub。
 ```
 
-等价地，从 `MemHubMemory` 派生 workspace：
+## 3. 工具 ↔ CLI ↔ REST ↔ SDK 对照
 
-```python
-memory = get_backend("agentica", user_id="u1")
-ws = memory.as_workspace(workspace_dir=".agentica")
-agent = Agent(workspace=ws, enable_long_term_memory=True)
-```
-
-**方式二：手动注入（更可控）**
-
-```python
-memory = get_backend("agentica", user_id="u1")
-
-# 存：把一轮多轮对话沉淀为记忆
-await memory.add_messages(
-    [{"role": "user", "content": "我喜欢燕麦拿铁"}], user_id="u1"
-)
-
-# 取：检索并格式化为 <relevant-memories> 注入块
-ctx = await memory.retrieve("用户喜欢什么咖啡?", user_id="u1")
-await agent.aprint_response("推荐一杯咖啡", context=ctx)
-```
-
-`retrieve` / `add_messages` 均为异步；`get_agentica_memory_backend` 与 `as_workspace`
-返回的对象在 `Agent` 内部被 await，故同步上下文里直接用 `asyncio.run` 驱动即可。
-
-## 工具 ↔ SDK 对照
-
-| MCP 工具 | CLI | REST | MemoryClient |
+| MCP 工具 | CLI | REST（`memhub serve-api`） | MemoryClient |
 |---|---|---|---|
 | `memory_add` | `memhub add` | `POST /v1/memories/` | `add` |
 | `memory_search` | `memhub search` | `POST /v1/memories/search` | `search` |
@@ -103,107 +102,67 @@ await agent.aprint_response("推荐一杯咖啡", context=ctx)
 | `memory_list_scopes` | `memhub list-scopes` | `GET /v1/scopes/` | `list_scopes` |
 | `memory_digest` | `memhub digest` | `POST /v1/digest/` | `digest` |
 
-发现：`GET /v1/capabilities` 返回完整 HTTP 映射（供 npm MCP codegen）。
+发现：`GET /v1/capabilities` 返回完整 HTTP 映射。
 
-## 归属标识（scope）
+## 4. 归属标识（scope）与写入方式
 
-**单产品默认：只传 `user_id` 即可**（`app_id` 省略时用 config 的 `default_app_id`，一般为 `"default"`）。
-
-- **`user_id`** — 终端用户 ID（必填）
-- **`app_id`** / **`app_ids`** — 可选；多产品共享同一 Memory 服务时再显式传入
-- 可选 **`agent_id`** / **`session_id`** — 多 Bot 或会话级隔离
-
-## 写入方式（用户自选，SDK 不强制）
+**单产品默认：只传 `user_id` 即可**（`app_id` 省略时用 config 的 `default_app_id`，默认 `"default"`）。
+- **`user_id`** — 终端用户 ID（SDK/独立 MCP 必填；Hub MCP 已自动绑定个人 scope，无需传）
+- **`workspace_id` / `branch`** — 可选；带工具轨迹的 Coding 会话用来限定 `procedure` 工程经验的版本边界
+- **`app_id` / `agent_id` / `session_id`** — 可选隔离维度
 
 | 方式 | API | 适用 | 代价 |
 |------|-----|------|------|
-| 单条实时 | `add(content=...)` | 合规/关键事实需立刻落库 | 1 次生成 + 1 次 JEV 裁决 + embed |
-| 多轮批量 | `add(messages=[...])` | 普通助手、示例默认、会话末沉淀 | 同上，但整段对话只走 **1 次** pipeline |
-| 先存原文 | `add_raw` 再 `distill` | 先保留原话，之后再抽结构化记忆 | distill 复用已有 `L0_RAW`，不再写第二条原文 |
+| 单条实时 | `add(content=...)` | 关键事实需立刻落库 | 1 次生成 + 1 次 JEV 裁决 + embed |
+| 多轮批量 | `add(messages=[...])` | 会话末沉淀（含工具调用轨迹自动抽 `procedure`） | 整段对话走 1 次 pipeline |
+| 先存原文 | `add_raw` 再 `distill` | 先保留原话，之后再抽结构化记忆 | `distill` 复用已有 `L0_RAW`，不再写第二条原文 |
 
-**建议（非约束）**：Agent 集成可「每轮 search、会话结束 add(messages)」以省成本；用户若需 mid-session 单条写入，完全合法。
+## 5. 何时写入与检索
 
-CLI：`--content` 或 `--messages-file` / `--messages-json` 二选一。
+**何时写入（`memory_add`）**：
+- 稳定画像：身份、职业、所在地、长期偏好、技术栈约定
+- 值得记住的事实、计划或纠正旧信息（自动形成演化链）
+- 工程排障结论：在带 `tool_calls` / `role="tool"` 的 `messages` 中写入，自动提炼 `task / solution / files`
 
-## 何时写入（memory_add）
+**何时检索（`memory_search` / `conversation_search`）**：
+- 需要个性化背景（「按我习惯推荐」）或项目历史排障经验（传 `procedure_limit=3`）
+- 用户问「我之前说过什么 / 原话是什么」时用 `conversation_search`
 
-- 稳定画像：身份、职业、所在地、长期偏好
-- 值得记住的事实或计划
-- 用户纠正旧信息（会形成演化链）
-
-不要写：纯寒暄、仅当前任务用的临时上下文。
-
-## 何时检索（memory_search）
-
-- 需要个性化背景（「按我习惯推荐」）
-- 用户引用过去（「我之前说的那个项目」）
-
-## CLI 示例
-
-单条：
+## 6. CLI 与 MCP 示例
 
 ```bash
+# 写入单条或多轮对话（含 Coding 会话）
 memhub add --content "用户在深圳做 ML" --user-id u1
-```
+memhub add --messages-file messages.json --user-id u1 --workspace-id ~/code/app --branch main
 
-会话结束批量写入多轮对话：
-
-```bash
-# messages.json: [{"role":"user","content":"..."},{"role":"assistant","content":"..."}, ...]
-memhub add --messages-file messages.json --user-id u1
-
-# 或内联 JSON
-memhub add --messages-json '[{"role":"user","content":"我搬到北京了"}]' \
-  --user-id u1
-```
-
-检索与管理：
-
-```bash
+# 检索与管理
 memhub search "用户做什么工作" --user-id u1
+memhub search "SQLite database is locked" --user-id u1 --procedure-limit 3
 memhub search-conversation "原话" --user-id u1
-memhub list --user-id u1
 memhub list --user-id u1 --include-history
 memhub get <memory_id>
 memhub update <memory_id> --content "新内容"   # 返回新 id，旧 id 仍可 get
 memhub delete <memory_id>                     # 归档当前版本，不物理删除
-memhub delete-scope --user-id u1 --confirm
-memhub list-scopes
-memhub digest                                 # 仅 dual 生成 L3_DERIVED
+memhub digest --mode dual                     # dual 模式生成 L3_DERIVED
 ```
-
-## MCP 示例
 
 ```text
 memory_add(user_id="u1", content="...")
-memory_add(user_id="u1", messages=[{"role":"user","content":"..."}, ...])
-memory_search(query="...", user_id="u1")
+memory_add(user_id="u1", messages=[{"role":"user","content":"..."}, ...], workspace_id="~/code/app")
+memory_search(query="...", user_id="u1", procedure_limit=3)
 conversation_search(query="...", user_id="u1")
 memory_list(user_id="u1", include_history=false)
 memory_get(memory_id="...")
-memory_update(memory_id="...", content="...")   # 新 id
-memory_delete(memory_id="...")                  # 归档
-memory_delete_scope(user_id="u1", confirm=true)
-memory_list_scopes()
+memory_update(memory_id="...", content="...")   # 返回新 id
+memory_delete(memory_id="...")                  # 归档当前版本
 memory_digest()                                 # dual → L3_DERIVED
 ```
 
-启动：`memhub-mcp`（stdio）或 `memhub-mcp --transport streamable-http --port 8765`
+## 7. 检索结果解读
 
-## 检索结果解读
-
-- **profile** — `L2_PROFILE` 与画像类记忆（优先用）
-- **proactive** — `L1_FACT` 里 `kind=intention` 的意图；默认 `intention_limit=0`，这一路为空
-- **normal** — `L1_FACT` 事实。默认检索不返回 `L0_RAW`；核对原话用 `conversation_search`
-- **procedures** — `L1_FACT` 里 `kind=procedure` 的工程排障经验（`task` / `solution` / `files`）；传 `procedure_limit > 0` 时返回
-
-**evolution_chain**：同一记忆多次更新时，按最新→最旧排列；`[0]` 为当前版本。system1 要看到链，检索时传 `include_derived=true`。
-
-`update` 追加新版本并返回**新** `memory_id`。`delete` 把当前版本标成 `is_latest=false`，旧 id 仍可 `get`；对已经不是当前版本的 id 再删会失败。
-
-## 模式
-
-- **system1**（默认）：写入即检索。`digest` 返回 `processed=0`，不生成 `L3_DERIVED`。
-- **dual**：写入路径与 system1 相同；显式 `digest` / `memory_digest` 才生成 `L3_DERIVED`。没有自动后台巩固。
-
-构造需要三组凭证：LLM、embedding、JEV（`llm_api_key` / `embed_api_key` / `jev_api_key`，或对应的 `MEMHUB_*` 环境变量）。
+- **profile** — `L2_PROFILE` 画像与当前状态（优先参考）
+- **proactive** — `L1_FACT` 里 `kind=intention` 的计划/待办意图；默认 `intention_limit=0` 为空
+- **normal** — `L1_FACT` 事实与事件。默认检索不返回 `L0_RAW`；核对原话用 `conversation_search`
+- **procedures** — `L1_FACT` 里 `kind=procedure` 的工程排障经验（`item.procedure` 含 `task` / `solution` / `files` / `workspace_id`）；传 `procedure_limit > 0` 时返回
+- **catalog / schema** — `dual` 模式下 `digest()` 生成的 `L3_DERIVED` 画像目录与跨证据行为规律
+- **evolution_chain / previous**：同一记忆多次更新时，`evolution_chain` 按最新→最旧排列（`[0]` 为当前版本，传 `include_derived=True` 展开完整链），`previous` 默认带一跳旧值。
