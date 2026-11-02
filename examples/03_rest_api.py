@@ -4,7 +4,7 @@ system1 档走 add / search / list / get / update / delete / health。
 update 追加新版本并返回新 memory_id，旧 id 仍可 get，且 is_latest=false。
 delete 归档当前版本，不是物理删除；归档后的 id 不能再 update/delete。
 
-本进程用 Starlette TestClient 拉起 ASGI app，等价于 `memhub serve`。
+本进程用 Starlette TestClient 拉起 ASGI app，等价于 `memhub serve-api`。
 环境要求：jev_*、llm_*、embed_*。auth_disabled=True 时不需要 Bearer。
 
 运行：python examples/03_rest_api.py

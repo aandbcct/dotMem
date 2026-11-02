@@ -1,6 +1,6 @@
 <h1 align="center">memhub</h1>
 
-<p align="center"><b>Facts now. Patterns over time.</b><br />System 1 writes facts and changes while you talk. dual (System 2) turns them into stable patterns. MemHub lets several agents share that one memory.</p>
+<p align="center"><b>One memory across your agents. Facts now, patterns over time.</b><br />Claude Code, Codex, Cursor, Agentica and 4 other tools read and write one local memory with cross-device sync — powered by System 1 (real-time layered memory & version evolution) and System 2 (cross-evidence pattern induction).</p>
 
 <p align="center">
   <a href="https://badge.fury.io/py/memhub"><img src="https://badge.fury.io/py/memhub.svg" alt="PyPI version" /></a>
@@ -14,9 +14,40 @@
 
 ## Why memhub
 
-You've told your assistant three times that you no longer eat spicy food, and it still recommends a Sichuan restaurant. After dozens of turns it can quote what you said, and still cannot name the habit that shows up every time. The coding conventions you explained in Cursor are unknown to Codex.
+The coding conventions you explained in Cursor are unknown to Codex. You've told your assistant three times that you no longer eat spicy food, and it still recommends a Sichuan restaurant. After dozens of turns it can quote what you said, and still cannot name the habit that shows up every time.
 
-### 1. Same model, sharper memory, faster writes
+### 1. 🔗 Several agents, one memory (Memory Hub)
+
+`memhub` connects the AI tools on your machine to one personal memory: Claude Code, Codex, Cursor, Hermes, Agentica, CodeBuddy, OpenCode, and WorkBuddy read and write the same local store. By default the data stays on your computer.
+
+```bash
+pip install "memhub[all]"
+
+memhub install-service       # runs in the background, starts at login (remove with uninstall-service)
+memhub install-host all      # connect every supported AI tool on this machine (remove with uninstall-host all)
+memhub scan --source all     # turn your past conversations into memory
+
+memhub recall "what technical choices have I made before"
+memhub ui                    # open http://127.0.0.1:8765/ui to browse, search, edit and delete memories by project
+```
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/shibing624/memhub/main/docs/public/ui-mem.png" width="820" alt="memhub ui memory browser" />
+</p>
+
+Tools discover the local service with no URL to paste. A conversation is saved and acknowledged immediately; organizing happens in the background. When a turn ends, the host's hook hands the new messages to the local Core, and the next prompt you type gets the relevant project-scoped memories injected; agents can also query through MCP. Coding sessions arrive with the file paths touched by tool calls and become reusable engineering experience.
+
+To share one memory across computers, every computer keeps a full local copy and recalls from it (offline too); the computers exchange a change log. Use a synced folder such as iCloud Drive or Dropbox, a private git repository, or the Core on your own server:
+
+```bash
+memhub connect dir "~/Library/Mobile Documents/com~apple~CloudDocs/memhub"
+memhub connect git git@github.com:you/my-memory.git
+memhub connect ssh user@your-server
+```
+
+What travels is adjudicated memory with its compressed vectors, so a receiving computer calls no model. See the [Memory Hub docs](https://github.com/shibing624/memhub/blob/main/docs/memhub.md) and [multi-device sync](https://github.com/shibing624/memhub/blob/main/docs/memhub-server.md).
+
+### 2. 🏆 Same model, sharper memory, faster writes
 
 One model (Qwen3.8-27B) does extraction, answering and grading. One embedding model (bge-m3). The same questions. **Only the memory system changes**:
 
@@ -28,43 +59,16 @@ One model (Qwen3.8-27B) does extraction, answering and grading. One embedding mo
 
 **First on all three public benchmarks, and about one fifth the ingestion time of hy-memory.** Protocol, significance tests, per-category results and reproduction commands: [Benchmarks](https://github.com/shibing624/memhub/blob/main/docs/benchmarks.md).
 
-### 2. Two systems. That is the dual.
+### 3. 🧠 Fast & slow dual systems: facts now, patterns over time
 
-The name means two chat-memory systems. That is the method a paper should describe.
+Under the hood, `memhub` runs a dual-system layered memory engine:
 
-- **System 1 (default `system1`)** writes while the conversation is happening. Raw words, facts, and profile live in separate layers. When you change your mind, move cities, or update a plan, it appends a new version and keeps the history. Answers use the latest.
-- **dual / System 2 (`mode="dual"`, then `digest()`)** runs after the session. It induces behavioral patterns and a longer-term profile (L3) across many pieces of evidence.
+- **System 1 (default `mode="system1"`)** writes while the conversation is happening. Raw words (`L0_RAW`), facts and intentions (`L1_FACT`), and profile (`L2_PROFILE`) live in separate layers, guarded by a dedicated decision model (JEV). When you change your mind, move cities, or update a plan, it appends a new version and keeps the history. Answers use the latest.
+- **System 2 / dual (`mode="dual"`, then `digest()`)** runs after the session. It clusters evidence to induce behavioral patterns (`schema` / `core_schema`) and a longer-term profile catalog (`persona_catalog`, `L3_DERIVED`).
 
 See [`examples/02_dual.py`](https://github.com/shibing624/memhub/blob/main/examples/02_dual.py).
 
-### 3. Several agents, one memory
-
-MemHub connects those two systems to the tools on your machine. Claude Code, Codex, Cursor, Hermes, Agentica, CodeBuddy, OpenCode, and WorkBuddy read and write the same memory. By default the data stays on your computer.
-
-```bash
-pip install "memhub[all]"
-
-memhub install-service       # runs in the background, starts at login (remove with uninstall-service)
-memhub install-host all      # connect every supported AI tool on this machine (remove with uninstall-host all)
-memhub scan --source all     # turn your past conversations into memory
-
-memhub recall "what technical choices have I made before"
-memhub ui                    # browse, search, edit and delete memories by project in your browser
-```
-
-Tools discover the local service with no URL to paste. A conversation is saved and acknowledged immediately; organizing happens in the background. When a turn ends, the host's hook hands the new messages to the Core, and the next prompt you type gets the relevant memories injected; agents can also query through MCP. Coding sessions arrive with their tool calls and become reusable engineering experience.
-
-To share one memory across computers, every computer keeps a full local copy and recalls from it (offline too); the computers exchange a change log. Use a synced folder such as iCloud Drive or Dropbox, a private git repository, or the Core on your own server:
-
-```bash
-memhub connect dir "~/Library/Mobile Documents/com~apple~CloudDocs/memhub"
-memhub connect git git@github.com:you/my-memory.git
-memhub connect ssh user@your-server
-```
-
-What travels is adjudicated memory with its vectors, so a receiving computer calls no model. See [multi-device sync](https://github.com/shibing624/memhub/blob/main/docs/memhub-server.md) and the [MemHub docs](https://github.com/shibing624/memhub/blob/main/docs/memhub.md).
-
-### 4. Debugging sessions stay useful
+### 4. 🛠️ Debugging sessions stay useful
 
 Chat and coding share one `add()` / `search()`. When `messages` carry a tool trace (a `role="tool"` turn or assistant `tool_calls`) and JEV calls the session engineering work, the write also yields reusable engineering experience (`kind="procedure"`: task, solution, files, boundary) next to the usual facts and profile. Procedures share the store, the version chain and JEV adjudication with chat memories; `search(procedure_limit=3)` returns them as a separate `procedures` group, and in `dual` mode they feed `digest()` too. Details: [Quickstart · Coding memory](https://github.com/shibing624/memhub/blob/main/docs/getting-started/quickstart.md#coding).
 
@@ -163,9 +167,9 @@ Two worth opening: [`examples/02_dual.py`](https://github.com/shibing624/memhub/
 
 **Ways in**
 
-- **Python SDK** — `pip install memhub`
-- **MemHub** — `memhub install-host all`
-- **MCP / REST / CLI** — `memhub-mcp`, `memhub serve`, `memhub add` / `memhub search`
+- **Memory Hub** — `memhub install-service`, `memhub install-host all`, `memhub ui`, `memhub connect`
+- **Python SDK** — `pip install memhub` (`MemoryClient` / `SyncMemoryClient`)
+- **MCP / REST / CLI** — `memhub-mcp`, `memhub serve-api`, `memhub add` / `memhub search`
 - **Framework plugins** — Agentica, Claude Code hooks, Hermes, OpenClaw. See [Integrations](https://github.com/shibing624/memhub/blob/main/docs/integrations.md).
 
 ## Roadmap
@@ -173,12 +177,12 @@ Two worth opening: [`examples/02_dual.py`](https://github.com/shibing624/memhub/
 - [x] System 1 layered memory and version evolution
 - [x] dual / System 2: explicit `digest()` builds L3
 - [x] Dedicated decision model guarding writes
-- [x] MemHub: 8 AI tools (Claude Code / Codex / Cursor / Hermes / Agentica / CodeBuddy / OpenCode / WorkBuddy) share memory, history import, background organizing
+- [x] Memory Hub: 8 AI tools (Claude Code / Codex / Cursor / Hermes / Agentica / CodeBuddy / OpenCode / WorkBuddy) share memory, history import, background organizing
 - [x] Multi-device sync: local recall on every computer, works offline, exchanges changes via a synced folder / git / a server
 - [x] Chat and coding unified: coding sessions yield procedure experience, and `dual` induces engineering habits too
 - [x] Leads head-to-head on LoCoMo / LongMemEval / PersonaMem-v2
 - [x] Visual memory management: `memhub ui` to browse by project, search, edit and delete memories
-- [ ] MemHub for more tools: Gemini CLI, Windsurf, Trae and others — 10+ in total
+- [ ] More host tools: Gemini CLI, Windsurf, Trae and others — 10+ in total
 - [ ] Cloud HTTP MCP: remote agents connect to hosted memory directly
 - [ ] Better retrieval for multi-hop questions (LoCoMo multi-hop still has headroom)
 - [ ] More public benchmarks (CodeMemoryBench and others, once their data is released)
@@ -187,17 +191,17 @@ Vote or request features in [Issues](https://github.com/shibing624/memhub/issues
 
 ## News
 
-- [2026/11/02] **v0.2.2**: Rebranded the repository and PyPI package to **`memhub`** (`pip install memhub`, `import memhub`, CLI `memhub`, config `~/.memhub/config.yaml`). Added the local memory browser `memhub ui` (browse by project, hybrid search, edit into new versions, delete and sync); added CodeBuddy, OpenCode and WorkBuddy host integrations (8 hosts total); bounded sync targets with float16 vectors and snapshot compaction; scoped prompt-time recall to the current project and relevant dialogue passages (35/36 on the offline coding eval). See [Release-v0.2.2](https://github.com/shibing624/memhub/releases/tag/v0.2.2).
-- [2026/11/01] **v0.2.1**: Every computer keeps a full local memory and recalls locally. Changes sync through a folder, a private git repo, or a server; the always-on SSH tunnel is gone. Model config lives in `~/.dual-mem/config.yaml`. Coding memory keeps the question and the final answer; tool output is no longer sent to a model. Auto digest runs at most once a day. See [Release-v0.2.1](https://github.com/shibing624/memhub/releases/tag/v0.2.1).
-- [2026/10/24] **v0.2.0**: Chat and coding now share one `add()` / `search()`. An engineering session with a tool trace yields `kind="procedure"` experience next to its chat memories, on the same store, version chain and JEV adjudication; `search(procedure_limit=3)` returns them as a separate `procedures` group, and `dual` `digest()` covers them too. `search_coding` and the separate coding store are gone. Chat prompts, adjudication and recall are unchanged. MemHub captures tool traces from Claude Code / Codex / Agentica and auto-digests when idle in dual mode; new `dual-mem hub connect user@server` sets up the tunnel, reads the token and writes `hub.json` in one command. MCP moves to mcp 2.x; `install-host` keeps YAML comments. See [Release-v0.2.0](https://github.com/shibing624/memhub/releases/tag/v0.2.0).
+- [2026/11/02] **v0.2.2**: Rebranded the repository and PyPI package to **`memhub`** (`pip install memhub`, `import memhub`, CLI `memhub`, config `~/.memhub/config.yaml`, default `storage_dir` `./.memhub_data`), promoting all Hub commands to top-level `memhub` subcommands (`memhub install-service`, `memhub install-host`, `memhub ui`, `memhub connect`, etc.; standalone multi-tenant REST API server is `memhub serve-api`). Added the local memory browser `memhub ui` (browse by project, hybrid search, edit into new versions, delete and sync); added CodeBuddy, OpenCode and WorkBuddy host integrations (8 hosts total); bounded sync targets with float16 vectors and snapshot compaction; scoped prompt-time recall to the current project and relevant dialogue passages (35/36 on the offline coding eval). See [Release-v0.2.2](https://github.com/shibing624/memhub/releases/tag/v0.2.2).
+- [2026/11/01] **v0.2.1**: Every computer keeps a full local memory and recalls locally. Changes sync through a folder, a private git repo, or a server; the always-on SSH tunnel is gone. Model config and Hub home live in the same directory. Coding memory keeps the question and the final answer; tool output is no longer sent to a model. Auto digest runs at most once a day. See [Release-v0.2.1](https://github.com/shibing624/memhub/releases/tag/v0.2.1).
+- [2026/10/24] **v0.2.0**: Chat and coding now share one `add()` / `search()`. An engineering session with a tool trace yields `kind="procedure"` experience next to its chat memories, on the same store, version chain and JEV adjudication; `search(procedure_limit=3)` returns them as a separate `procedures` group, and `dual` `digest()` covers them too. `search_coding` and the separate coding store are gone. Chat prompts, adjudication and recall are unchanged. Captures tool traces from Claude Code / Codex / Agentica and auto-digests when idle in dual mode; MCP moves to mcp 2.x; `install-host` keeps YAML comments. See [Release-v0.2.0](https://github.com/shibing624/memhub/releases/tag/v0.2.0).
 
 <details>
 <summary>Earlier releases</summary>
 
 - [2026/10/23] **v0.1.5**: Fixed Coding memory writes against real models. Extraction now returns a `{"candidates": [...]}` object so the default `llm_json_mode` keeps the payload; the coverage hard gate is gone; one batch can supersede the same head; JEV only sees heads inside the draft's version boundary; concurrent writes for one user serialize per scope. The quickstart now has a Coding memory section, and `examples/06_coding_memory.py` shows search returning only the current solution after an update. See [Release-v0.1.5](https://github.com/shibing624/memhub/releases/tag/v0.1.5).
-- [2026/10/23] **v0.1.4**: Added MemHub local single-Core cross-tool memory hub (incremental session import for Claude Code / Codex / Cursor / Hermes / Agentica, durable background write queue, login service, and SSH/Tailscale tunnel attach); upgraded System 2 v3 clustered cognition and version-bridge recall; added Coding memory runnable demo and removed zero-gain settings; ranked #1 head-to-head on LoCoMo (74.7), LongMemEval (91.7), and PersonaMem-v2 (50.0). See [Release-v0.1.4](https://github.com/shibing624/memhub/releases/tag/v0.1.4).
+- [2026/10/23] **v0.1.4**: Added local single-Core cross-tool memory hub (incremental session import for Claude Code / Codex / Cursor / Hermes / Agentica, durable background write queue, login service, and SSH/Tailscale tunnel attach); upgraded System 2 v3 clustered cognition and version-bridge recall; added Coding memory runnable demo and removed zero-gain settings; ranked #1 head-to-head on LoCoMo (74.7), LongMemEval (91.7), and PersonaMem-v2 (50.0). See [Release-v0.1.4](https://github.com/shibing624/memhub/releases/tag/v0.1.4).
 - [2026/10/15] **v0.1.3**: Redesigned around four canonical layers (`L0_RAW` / `L1_FACT` / `L2_PROFILE` / `L3_DERIVED`) and target-first JEV write decisions with linked version history; added native integrations for Agentica / Claude Code / Hermes / OpenClaw and the Coding memory subsystem (incompatible storage schema; use a new `storage_dir`). See [Release-v0.1.3](https://github.com/shibing624/memhub/releases/tag/v0.1.3).
-- [2026/06/20] **v0.1.2**: Added `SyncMemoryClient` synchronous wrapper, automatic `~/.dual_mem/config.yaml` bootstrap on first run, unified REST / MCP / CLI contracts, and the online documentation site. See [Release-v0.1.2](https://github.com/shibing624/memhub/releases/tag/v0.1.2).
+- [2026/06/20] **v0.1.2**: Added `SyncMemoryClient` synchronous wrapper, automatic default config bootstrap on first run, unified REST / MCP / CLI contracts, and the online documentation site. See [Release-v0.1.2](https://github.com/shibing624/memhub/releases/tag/v0.1.2).
 - [2026/06/19] **v0.1.1**: Released dual-system layered memory SDK with hybrid retrieval (semantic + BM25 + RRF) and CLI / REST / MCP interfaces. See [Release-v0.1.1](https://github.com/shibing624/memhub/releases/tag/v0.1.1).
 - [2026/06/18] **v0.1.0**: First open-source release.
 
@@ -212,15 +216,15 @@ Full documentation: **[https://shibing624.github.io/memhub](https://shibing624.g
 | Doc | Contents |
 |---|---|
 | [Installation & configuration](https://github.com/shibing624/memhub/blob/main/docs/getting-started/installation.md) | extras, config file, credentials and precedence |
-| [Quickstart](https://github.com/shibing624/memhub/blob/main/docs/getting-started/quickstart.md) | sync / async clients, multi-turn writes, agent integration |
+| [Quickstart](https://github.com/shibing624/memhub/blob/main/docs/getting-started/quickstart.md) | sync / async clients, coding memory, multi-turn writes, agent integration |
+| [Memory Hub](https://github.com/shibing624/memhub/blob/main/docs/memhub.md) | local Core, 8 host integrations, history import, `memhub ui` |
+| [Multi-device sync](https://github.com/shibing624/memhub/blob/main/docs/memhub-server.md) | `dir` / `git` / `ssh` / `http` change-log replication, local recall |
+| [Integrations](https://github.com/shibing624/memhub/blob/main/docs/integrations.md) | Agentica / Claude Code / Hermes / OpenClaw |
+| [MCP / REST](https://github.com/shibing624/memhub/blob/main/docs/mcp_integration.md) | tool ↔ HTTP ↔ SDK mapping |
+| [Benchmarks](https://github.com/shibing624/memhub/blob/main/docs/benchmarks.md) | protocol, question sets, reproduction, breakdowns |
 | [Architecture](https://github.com/shibing624/memhub/blob/main/docs/architecture.md) | optional: how the SDK relates to each frontend; storage |
 | [Memory layers](https://github.com/shibing624/memhub/blob/main/docs/memory_layers.md) | optional: L0 raw / L1 facts / L2 profile / L3 derived |
 | [Write decisions](https://github.com/shibing624/memhub/blob/main/docs/jev-memory-design.md) | optional: decision-model actions, version chains |
-| [MemHub](https://github.com/shibing624/memhub/blob/main/docs/memhub.md) | local Core, 8 host integrations, history import |
-| [Multi-device sync](https://github.com/shibing624/memhub/blob/main/docs/memhub-server.md) | `dir` / `git` / `ssh` / `http` change-log replication, local recall |
-| [MCP / REST](https://github.com/shibing624/memhub/blob/main/docs/mcp_integration.md) | tool ↔ HTTP ↔ SDK mapping |
-| [Integrations](https://github.com/shibing624/memhub/blob/main/docs/integrations.md) | Agentica / Claude Code / Hermes / OpenClaw |
-| [Benchmarks](https://github.com/shibing624/memhub/blob/main/docs/benchmarks.md) | protocol, question sets, reproduction, breakdowns |
 | [Examples](https://github.com/shibing624/memhub/blob/main/examples/README.md) | 6 runnable end-to-end example scripts |
 
 Local preview: `pip install -r requirements-docs.txt && mkdocs serve`
@@ -238,12 +242,12 @@ Local preview: `pip install -r requirements-docs.txt && mkdocs serve`
 
 If you use memhub in research, please cite:
 
-> Xu, M. (2026). memhub: Dual-System Layered Memory SDK for LLM Applications. GitHub. https://github.com/shibing624/memhub
+> Xu, M. (2026). memhub: Personal Memory Hub and Dual-System Layered Memory SDK for AI Agents. GitHub. https://github.com/shibing624/memhub
 
 ```bibtex
 @misc{xu2026memhub,
   author    = {Xu, Ming},
-  title     = {memhub: Dual-System Layered Memory SDK for LLM Applications},
+  title     = {memhub: Personal Memory Hub and Dual-System Layered Memory SDK for AI Agents},
   year      = {2026},
   publisher = {GitHub},
   url       = {https://github.com/shibing624/memhub}

@@ -59,6 +59,8 @@ memhub ui
 
 会在浏览器打开 `http://127.0.0.1:8765/ui`（页面由本机已经在跑的 Core 提供，无需额外安装；访问令牌放在 URL 的 `#` 片段里，不进服务端日志）。
 
+![memhub ui 记忆管理页](public/ui-mem.png)
+
 - **按主线浏览**：左栏按**项目**（从工程经验的 `workspace_id` 自动推导，同段对话的原文与事实自动继承同一项目）和**类型**（工程经验 / 事实 / 画像 / 待办意图 / 原始对话）筛选；勾选「显示历史版本」可查看已被取代或删除的旧版本。
 - **搜索**：顶部输入框边打字边按关键字过滤正文；按回车调用本机 Core 的混合检索（语义 + BM25）。
 - **查看详情与溯源**：点开卡片可查看完整方案、涉及文件、适用条件、版本演化链（旧 → 新），以及它最初来自哪段原始对话。
@@ -112,18 +114,18 @@ memhub connect git git@github.com:<你的用户名>/my-vibecoding-memory.git
 
 ```text
 ┌──────────────────── 每台电脑 ─────────────────────┐
-│ Claude Code ┐                                     │
-│ Codex       ├ capture Hook ──┐                    │
-│ Agentica    ┘（一轮对话结束）  ├─▶ 127.0.0.1:8765  │
-│                              │   memhub serve│──▶ 同步目标（可选）
-│ 你输入提示词 ─ hub hook ──────┤   （本机唯一写者）   │◀── 其它电脑的变更
-│ Agent 主动查 ─ MCP memory_* ──┘   ~/.memhub/store │
+│ Claude Code / Codex / Cursor / Agentica 等 8 种工具 │
+│   ├── 会话结束 Hook ───────┐                       │
+│   ├── 你输入提示词 (hook) ──┼─▶ 127.0.0.1:8765     │
+│   └── Agent 主动查 (MCP) ──┘   memhub serve       │──▶ 同步目标（可选）
+│                                （本机唯一写者）      │◀── 其它电脑的变更
+│                                ~/.memhub/store    │
 └───────────────────────────────────────────────────┘
 ```
 
-1. **写**：一轮对话结束，宿主触发 capture Hook（Claude Code `Stop`、Agentica `run.completed`、Codex `Stop`）。它按本机 `cursors.db` 的游标读出会话日志里新增的轮次，交给本机 Core 后立刻返回，不等 LLM。
+1. **写**：一轮对话结束，宿主触发采集 Hook（Claude Code / Codex / CodeBuddy / WorkBuddy `Stop`、Agentica `run.completed` / `session.ended`、OpenCode `session.idle`）。它按本机 `cursors.db` 的游标读出会话日志里新增的轮次，交给本机 Core 后立刻返回，不等 LLM。
 2. **整理**：Core 先把 Evidence 写进持久队列 `hub.db`，再由唯一 worker 在后台抽取、JEV 裁决、写入记忆；dual 模式下，距上次成功归纳满一天且仍有新证据时，在写入空档自动 `digest()`（多设备时只有一台负责）。
-3. **读**：你提交提示词时，`memhub hook` 收到 `UserPromptSubmit`，把相关记忆注入上下文；Agent 也可以通过 MCP 工具（`memory_search` 等）主动查。都只读本机库。
+3. **读**：你提交提示词时，`memhub hook` 收到 `UserPromptSubmit`，按当前项目召回相关记忆注入上下文；Agent 也可以通过 MCP 工具（`memory_search` 等）主动查。都只读本机库。
 4. **同步**（`connect` 之后）：本机库的每次变更带着向量记进变更日志，Core 在后台把它推到同步目标，并拉回其它电脑的变更。
 
 ## 常用命令

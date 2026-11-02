@@ -195,6 +195,7 @@ memory_digest()                                 # dual → L3_DERIVED
 - **profile** — `L2_PROFILE` 与画像类记忆（优先用）
 - **proactive** — `L1_FACT` 里 `kind=intention` 的意图；默认 `intention_limit=0`，这一路为空
 - **normal** — `L1_FACT` 事实。默认检索不返回 `L0_RAW`；核对原话用 `conversation_search`
+- **procedures** — `L1_FACT` 里 `kind=procedure` 的工程排障经验（`task` / `solution` / `files`）；传 `procedure_limit > 0` 时返回
 
 **evolution_chain**：同一记忆多次更新时，按最新→最旧排列；`[0]` 为当前版本。system1 要看到链，检索时传 `include_derived=true`。
 

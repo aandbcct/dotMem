@@ -24,7 +24,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# REST API (`memhub serve`, `from memhub.api import create_app`)
+# REST API & Hub Core (`memhub serve-api`, `memhub serve`, `from memhub.api import create_app`)
 api = [
     "fastapi>=0.110",
     "uvicorn>=0.29",
@@ -67,7 +67,7 @@ memhub-hook = "memhub.integrations.claude_code:main"
 include = ["memhub*"]
 
 [tool.setuptools.package-data]
-memhub = ["config.default.yaml", "memhub/ui.html"]
+memhub = ["config.default.yaml", "hub/ui.html"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

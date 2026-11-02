@@ -18,18 +18,16 @@
 4. 候选与当前 head / 批内较早候选的最高 cosine 低于 `reconcile_relation_threshold`（默认 0.6）时，
    直接作为独立记忆（`ADD_SUPPLEMENT` 或带有效期的 `ADD_TEMPORAL`）追加，不调用 JEV。达到阈值时，
    先问 target；选中 target 后，第二阶段再问 action，并且只提供与 target 匹配的选项。
-5. 有 target：`ADD_OVERRIDE` / `ADD_MERGE` / `ADD_NEGATE` / `ADD_CONFLICT` / `SKIP` /
+5. 有 target：`ADD_OVERRIDE` / `ADD_SUPPLEMENT` / `ADD_NEGATE` / `ADD_CONFLICT` / `SKIP` /
    `DELETE` / `INVALID` / `NEED_CONTEXT`。来源 `memory_at` 早于所选 head 时（乱序灌入），选项换成
-   `ADD_HISTORICAL` / `ADD_MERGE` / `ADD_CONFLICT` / `SKIP` / `INVALID` / `NEED_CONTEXT`：旧报告不能
+   `ADD_HISTORICAL` / `ADD_CONFLICT` / `SKIP` / `INVALID` / `NEED_CONTEXT`：旧报告不能
    覆盖、否定或删除更新的 head。`HISTORICAL` 作为非 latest 版本插到 head 之后（新节点
    `superseded_by=[head]`，head 的 `supersedes` 追加它），head 保持 current。无 target：`ADD_SUPPLEMENT` / `ADD_TEMPORAL` /
    `RAW_ONLY` / `INVALID` / `NEED_CONTEXT`。`TEMPORAL` 不链接 baseline。`SUPPLEMENT`
-   可以与其他 latest 共存，但不携带 target。两边的说明文字也分开，无 target 时不再提到 SKIP。
-   `SKIP` 只能为一个 target 建立可引用别名；多目标共同覆盖时应选择 `MERGE`。
-   `DELETE` 只能选择已提交的 current head；若批内关系选择的 earlier proposal 最终没有产生
-   memory，整批按依赖计划冲突重裁决。
-6. 多目标才追加 INCLUDE 问题。MERGE 才用生成模型合成文本，并用 JEV 验证所有数字、
-   独立事件与旧维度不丢失。动作和 target 不匹配是 provider 契约错误，抛
+   可以与其他 latest 共存，但不携带 target（同一对象的互补片段按 `ADD_SUPPLEMENT` 各自独立写入，检索侧同组呈现，不做有损文本合并）。两边的说明文字也分开，无 target 时不再提到 SKIP。
+   `SKIP` 只能为一个 target 建立可引用别名；多目标共同覆盖时选 `ADD_SUPPLEMENT`。
+   `DELETE` 只能选择已提交的 current head。
+6. 动作和 target 不匹配是 provider 契约错误，抛
    `DecisionContextError`，不把整批拿去重试。注入 provider 也必须精确回答全部问题，
    且 answer type 与 choice 必须属于对应问题。
 7. 批量 embedding；检查 target revision、scope epoch、作用域、依赖顺序与重复消费；
@@ -116,11 +114,11 @@ JEV 可使用 `jev=` 注入 provider，或配置 `jev_api_key` / `jev_endpoint` 
 
 材料上限默认 64、最多 220；每个 target choice 至多 255 个选项。选项文本是完整节点 JSON（layer、kind、revision、有效期、source_ids），不只是正文，所以更容易先撞上 `jev_max_question_chars`。提议特别多时应拆 source。
 默认提议问题批量 12。材料/历史过长或动作与目标矛盾时显式报错并保留 source，
-不会无依据地转成 SUPPLEMENT。连续 MERGE 传递全部祖先片段与来源，保持一批合并的一次生成/一次校验。JEV 的质量和完整真实生成链路速度仍须业务数据评测。
+不会无依据地转成 SUPPLEMENT。
 
 删除配置：reconcile_sync、reconcile_skip_llm、reconcile_weak_candidate_score、
 reconcile_policy、reconcile_non_destructive、content_hash_dedup 以及 cluster 写入门控。
-旧键及嵌套 mem0 配置不再兼容，Settings 校验直接报错。默认 `storage_dir` 是 `./.memhub_data`，旧的 `.memhub_data` 不再使用。显式打开 `layer_schema_version` 不是 4、或状态不是 `ACTIVE` 的目录时抛 `ValueError` 并且不改写文件。
+旧键及嵌套 mem0 配置不再兼容，Settings 校验直接报错。默认 `storage_dir` 是 `./.memhub_data`。显式打开 `layer_schema_version` 不是 4、或状态不是 `ACTIVE` 的目录时抛 `ValueError` 并且不改写文件。
 
 ## Coding 场景：procedure 记忆
 
@@ -141,8 +139,8 @@ chat 和 coding 不是两套系统。场景是每条数据的属性：带工具�
    `kind="procedure"` 的 current head，且只看**同一版本边界**（workspace / branch /
    boundary_scope，`strict` 还要求同一 session）。有可选 head 时先选 target（含 `NONE` /
    `MULTIPLE`），再按是否选中给出 action；head 超过 `candidate_limit` 时先分页 INCLUDE / EXCLUDE。
-5. **执行**：裁决结果转成主路径的版本计划。`OVERRIDE` / `MERGE` / `NEGATE` 追加新版本并退役
-   target；`DELETE` 只归档；`SUPPLEMENT` / `TEMPORAL` / `CONFLICT` 不退役任何 head。
+5. **执行**：裁决结果转成主路径的版本计划。`OVERRIDE` / `NEGATE` 追加新版本并退役
+   target；`DELETE` 只归档；`SUPPLEMENT` / `TEMPORAL` / `CONFLICT` 不退役任何 head（工程经验不做 `MERGE`，补充新信息时两个版本都保持现行，避免合并重写丢掉旧版本里的约束）。
    同一批多个候选替换同一个 head 时，head 退役一次并链接全部后继。`INVALID` 只丢弃那一条候选，
    `NEED_CONTEXT` 写成独立版本，都不让整次写入失败。
 6. **检索**：hybrid 的 chat 各路（profile / proactive / normal / 派生融合）过滤掉 procedure；

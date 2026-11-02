@@ -14,10 +14,10 @@
 
 | 你的情况 | 用法 | 需要什么 |
 |---|---|---|
-| 普通用户，几台电脑都登录了同一个网盘 | `connect dir <文件夹>` | iCloud Drive、Dropbox、OneDrive、坚果云、Syncthing、NAS 挂载……任何会自动同步的文件夹 |
-| 开发者，有 GitHub / GitLab 账号 | `connect git <仓库地址>` | 一个**私有**空仓库，本机 `git` 能免密推送 |
-| 有一台常开的服务器 | `connect ssh user@server` | 服务器上跑着 `memhub install-service`，SSH 免密登录 |
-| 服务器已经有 HTTPS 反代 | `connect http https://... --api-key ...` | 服务器 Core 的 `runtime-token` |
+| 普通用户，几台电脑都登录了同一个网盘 | `memhub connect dir <文件夹>` | iCloud Drive、Dropbox、OneDrive、坚果云、Syncthing、NAS 挂载……任何会自动同步的文件夹 |
+| 开发者，有 GitHub / GitLab 账号 | `memhub connect git <仓库地址>` | 一个**私有**空仓库，本机 `git` 能免密推送 |
+| 有一台常开的服务器 | `memhub connect ssh user@server` | 服务器上跑着 `memhub install-service`，SSH 免密登录 |
+| 服务器已经有 HTTPS 反代 | `memhub connect http https://... --api-key ...` | 服务器 Core 的 `runtime-token` |
 
 只需要选一种。每台电脑都执行同一条 `connect`，连到同一个目标。
 

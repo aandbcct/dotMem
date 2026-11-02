@@ -5,21 +5,26 @@
 ## PyPI
 
 ```bash
-pip install memhub              # 核心 SDK（MemoryClient）
-pip install memhub[all]         # SDK + REST + CLI + MCP
-pip install memhub[api]         # REST（fastapi + uvicorn）
-pip install memhub[cli]         # CLI（typer）
-pip install memhub[mcp]         # MCP server（mcp 2.x，可单独安装）
+pip install memhub              # 核心 SDK（MemoryClient / SyncMemoryClient）
+pip install "memhub[all]"       # SDK + Hub + REST + CLI + MCP
+pip install "memhub[api]"       # REST 与 Hub Core（fastapi + uvicorn）
+pip install "memhub[cli]"       # CLI（typer）
+pip install "memhub[mcp]"       # MCP server（mcp 2.x，可单独安装）
 ```
 
 ## 配置
 
-首次 `MemoryClient(...)` 或 `Settings()` 会在 **`~/.memhub/config.yaml`** 自动创建默认配置（与包内 `memhub/config.default.yaml` 一致），只需填入 API key：
+首次 `MemoryClient(...)` 或 `Settings()` 会在 **`~/.memhub/config.yaml`** 自动创建默认配置（与包内 `memhub/config.default.yaml` 一致），填入三把 API key（对应地址均可修改）：
 
 ```yaml
-jev_api_key: ...
-llm_api_key: sk-...
-embed_api_key: sk-...
+jev_api_key: ""    # 写入裁决。System One，不是 Chat Completions
+jev_endpoint: https://api.typesafe.ai/v1/systemone
+
+llm_api_key: ""    # 抽取与 System 2。OpenAI 兼容，地址可改
+llm_base_url: https://api.openai.com/v1
+
+embed_api_key: ""  # 向量索引与检索。OpenAI 兼容，地址可改
+embed_base_url: https://api.openai.com/v1
 ```
 
 构造需要三组凭证：JEV（`jev_api_key`）、生成 LLM（`llm_api_key`）、Embedding（`embed_api_key`）。缺任何一组都无法启动。

@@ -15,7 +15,6 @@ from memhub.config import Settings
 from memhub.retrieval.formatter import format_memories
 
 app = typer.Typer(help="memhub 个人记忆中枢与分层记忆 SDK 命令行")
-app.add_typer(hub_app, name="hub", hidden=True)
 
 
 def make_client(mode: str | None = None) -> MemoryClient:

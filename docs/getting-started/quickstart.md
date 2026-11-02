@@ -157,7 +157,7 @@ for m in res.memories.procedures:
   建议会话结束时整段写入，不要每轮调用。`procedure_enabled=False` 可整体关闭。
 - **接口**：REST `POST /v1/memories/`（`workspace_id` / `branch`）与 `POST /v1/memories/search`
   （`procedure_limit` / `procedure_min_score`）、MCP 同名参数、CLI `memhub add --workspace-id`
-  和 `memhub search --procedure-limit`。MemHub 采集 Claude Code / Codex / Agentica 会话时保留对话正文与工具调用涉及的文件路径（不读取工具输出）。
+  和 `memhub search --procedure-limit`。MemHub 采集 Claude Code / Codex / Agentica / CodeBuddy / OpenCode / WorkBuddy 会话时保留对话正文与工具调用涉及的文件路径（不读取工具输出）。
 
 完整可运行示例（含方案演化）：[`examples/06_coding_memory.py`](https://github.com/shibing624/memhub/blob/main/examples/06_coding_memory.py)。
 
@@ -276,7 +276,7 @@ L3 推导记忆默认只写入、不进入检索结果（`derived_context_limit=
 ```bash
 pip install "memhub[all]"
 
-memhub serve --host 0.0.0.0 --port 8000              # REST
+memhub serve-api --host 0.0.0.0 --port 8000          # 独立多租户 REST 服务（本机个人 Hub 用 memhub serve）
 memhub-mcp                                              # MCP stdio
 memhub-mcp --transport streamable-http --port 8765     # MCP HTTP /mcp
 memhub add --content "用户喜欢咖啡" --user-id u1

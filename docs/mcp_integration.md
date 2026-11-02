@@ -8,7 +8,7 @@ memhub 面向 Agent 提供 **两条 MCP 接入路径**，工具名与 REST 路�
 | **Cloud-hosted HTTP MCP** | 🔜 规划中 | 托管记忆服务 + 远程 Agent；基于 REST API 暴露同一套 `memory_*` 契约 |
 
 **当前**：仅本地 Python MCP Server（stdio / streamable-http）可用。  
-**后续**：REST 层（`memhub serve` + `GET /v1/capabilities`）已对齐 MCP 工具契约，可直接作为 HTTP MCP 的传输底座——无需重复实现业务逻辑，只需在 REST 之上封装 MCP streamable-http 协议（或 npm/TypeScript 薄客户端）。
+**后续**：REST 层（`memhub serve-api` + `GET /v1/capabilities`）已对齐 MCP 工具契约，可直接作为 HTTP MCP 的传输底座——无需重复实现业务逻辑，只需在 REST 之上封装 MCP streamable-http 协议（或 npm/TypeScript 薄客户端）。
 
 **依赖**：MCP 服务基于 mcp 2.x 的 `MCPServer`（`[mcp]` extra 为 `mcp>=2.2,<3`）。mcp 1.x 的 `mcp.server.fastmcp` 已不再使用；只装 `[mcp]` 即可运行，不需要 `[api]` 的 fastapi。
 
@@ -74,7 +74,7 @@ memhub mcp
 REST 服务本身已可用，可作为 cloud-hosted HTTP MCP 的后端：
 
 ```bash
-memhub serve --host 0.0.0.0 --port 8000
+memhub serve-api --host 0.0.0.0 --port 8000
 curl http://localhost:8000/v1/capabilities
 curl http://localhost:8000/openapi.json
 ```
@@ -82,7 +82,7 @@ curl http://localhost:8000/openapi.json
 后续 HTTP MCP 接入方式（规划）：
 
 - **自托管**：REST + MCP streamable-http 网关（同一 `memory_*` 工具，Bearer 鉴权走 REST）
-- **Cloud-hosted**：托管 `memhub serve` 实例，Agent 通过 URL + appkey 连接，无需本机 Python 环境
+- **Cloud-hosted**：托管 `memhub serve-api` 实例，Agent 通过 URL + appkey 连接，无需本机 Python 环境
 
 Cursor 侧预期形态（示意，尚未提供官方 npm 包）：
 

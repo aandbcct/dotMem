@@ -62,8 +62,7 @@ python examples/06_coding_memory.py  # 工具轨迹写入：procedure 经验、�
   默认 `search` 不返回 L0；`search_conversation` 只查 L0。
 - `06_coding_memory.py` 演示 coding 场景：`messages` 含 tool 调用、JEV 判为工程会话时，
   同一次 `add()` 既写对话事实，又抽出 `kind="procedure"` 的工程经验（`task / solution / files`）。
-  三轮写入：两条独立经验（`ADD/SUPPLEMENT`），第三轮新方案替换第一轮（期望 `ADD/OVERRIDE`，
-  JEV 也可能判 MERGE）。`search(procedure_limit=3)` 的 `procedures` 组只返回当前版本，
+  三轮写入：两条独立经验（`ADD/SUPPLEMENT`），第三轮新方案替换第一轮（`ADD/OVERRIDE`）。`search(procedure_limit=3)` 的 `procedures` 组只返回当前版本，
   对话事实仍在 `normal` 组。消息使用标准 OpenAI `tool_calls` 格式。
   用法细节见 [快速开始 · Coding 记忆](../docs/getting-started/quickstart.md#coding)。
 - MCP 工具直接对应上面这些 client 方法。
