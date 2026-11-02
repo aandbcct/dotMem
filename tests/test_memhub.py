@@ -1755,8 +1755,7 @@ def test_agentica_install_replaces_the_old_two_consumers_with_one(tmp_path: Path
 
 def test_hook_dispatches_on_the_event_name(tmp_path: Path, monkeypatch) -> None:
     """``UserPromptSubmit`` recalls and never captures; any other event captures
-    and never prints context. The pre-merge command names still exit 0: a
-    missing command exits 2, which a prompt host reads as a refusal."""
+    and never prints context."""
     hub = tmp_path / "hub"
     spawned, recalled = [], []
     monkeypatch.setattr(cli_hub, "_spawn_detached", lambda argv, _log: spawned.append(argv))
@@ -1776,10 +1775,6 @@ def test_hook_dispatches_on_the_event_name(tmp_path: Path, monkeypatch) -> None:
     hook("hook", "agentica", hook_event_name="run.completed", prompt="q1",
          transcript_path=str(transcript))
     assert recalled == ["q1"] and len(spawned) == 1
-
-    hook("hook-search", hook_event_name="UserPromptSubmit", prompt="q2")
-    hook("capture", "agentica", hook_event_name="session.ended", transcript_path=str(transcript))
-    assert recalled == ["q1", "q2"] and len(spawned) == 2
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="needs node to run the plugin")

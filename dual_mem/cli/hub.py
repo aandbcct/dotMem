@@ -520,27 +520,6 @@ def hub_hook(
             _capture(source, payload, hub_dir)
 
 
-# Configs written by an older ``install-host`` still name these two. A missing
-# command makes typer exit 2, which a UserPromptSubmit host reads as "block this
-# prompt", so they stay until every install has been rewritten.
-@hub_app.command("hook-search", hidden=True)
-def hub_hook_search(
-    limit: int = typer.Option(8, "--limit"),
-    hub_dir: str | None = HubDir,
-) -> None:
-    with _hook_errors_logged(hub_dir, "hook-search"):
-        _recall(json.loads(sys.stdin.read() or "{}"), limit, hub_dir)
-
-
-@hub_app.command("capture", hidden=True)
-def hub_capture(
-    source: str = typer.Argument(..., help=f"{' | '.join(SOURCES)}"),
-    hub_dir: str | None = HubDir,
-) -> None:
-    with _hook_errors_logged(hub_dir, f"capture {source}"):
-        _capture(source, json.loads(sys.stdin.read() or "{}"), hub_dir)
-
-
 @hub_app.command("recall")
 def hub_recall(
     query: str = typer.Argument(...),
