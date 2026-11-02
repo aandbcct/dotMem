@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shutil
 import sqlite3
+import subprocess
 import sys
 import time
 from contextlib import asynccontextmanager
@@ -1778,3 +1780,39 @@ def test_hook_dispatches_on_the_event_name(tmp_path: Path, monkeypatch) -> None:
     hook("hook-search", hook_event_name="UserPromptSubmit", prompt="q2")
     hook("capture", "agentica", hook_event_name="session.ended", transcript_path=str(transcript))
     assert recalled == ["q1", "q2"] and len(spawned) == 2
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="needs node to run the plugin")
+def test_opencode_plugin_bridges_events_onto_hub_hook(tmp_path, monkeypatch):
+    from dual_mem.memhub.hosts import Launch, OpenCodePlugin
+
+    log = tmp_path / "calls.jsonl"
+    fake = tmp_path / "fake_hook.py"
+    fake.write_text(
+        "import json, sys\n"
+        "p = json.load(sys.stdin)\n"
+        f"open({str(log)!r}, 'a').write(json.dumps(p) + '\\n')\n"
+        "if p['hook_event_name'] == 'UserPromptSubmit':\n"
+        "    print(json.dumps({'hookSpecificOutput': {'additionalContext': 'CTX:' + p['prompt']}}))\n"
+    )
+    monkeypatch.setattr(Launch, "hook", lambda self: [sys.executable, str(fake)])
+    plugin = tmp_path / "dual-mem-hub.mjs"
+    OpenCodePlugin().install(plugin, Launch("opencode", tmp_path))
+    driver = tmp_path / "drive.mjs"
+    driver.write_text(
+        f"import make from {json.dumps(plugin.as_uri())};\n"
+        "const hooks = await make();\n"
+        "const output = { message: { system: 'base' }, parts: [\n"
+        "  { type: 'text', text: '问题' }, { type: 'text', text: 'x', synthetic: true }] };\n"
+        "await hooks['chat.message']({ sessionID: 's1' }, output);\n"
+        "await hooks.event({ event: { type: 'session.status', properties: { sessionID: 's1', status: { type: 'idle' } } } });\n"
+        "await hooks.event({ event: { type: 'session.idle', properties: { sessionID: 's1' } } });\n"
+        "console.log(output.message.system);\n"
+    )
+    proc = subprocess.run(["node", str(driver)], capture_output=True, text=True, check=True)
+    assert proc.stdout.strip() == "base\n\nCTX:问题"
+    calls = [json.loads(line) for line in log.read_text().splitlines()]
+    assert calls == [
+        {"hook_event_name": "UserPromptSubmit", "session_id": "s1", "prompt": "问题"},
+        {"hook_event_name": "Stop", "session_id": "s1"},
+    ]
