@@ -229,6 +229,26 @@ async def test_override_retires_head_and_search_bridges_to_current(
     await c.aclose()
 
 
+async def test_supplement_to_a_head_keeps_both_current(tmp_storage, fake_embed):
+    """An addition to a head is its own version; the head keeps its constraints."""
+    jev = FakeJev({"scene": "CODING"})
+    llm = FakeLLMClient({"json": {"candidates": [CANDIDATE]}})
+    c = client(tmp_storage, fake_embed, jev, llm)
+    head = (await c.add(messages=trajectory(), user_id="u")).procedure_ids[0]
+
+    llm.responses["json"] = {"candidates": [OVERRIDE]}
+    jev.responses = {"scene": "CODING", "0:target": head, "0:action": "ADD_SUPPLEMENT"}
+    r = await c.add(messages=trajectory("WAL mode fixed it"), user_id="u")
+    new = r.procedure_ids[0]
+    old_node, new_node = c.factory.vector.get(head), c.factory.vector.get(new)
+    assert old_node.is_latest and new_node.is_latest
+    assert new_node.supersedes == [] and new_node.custom["update_type"] == "SUPPLEMENT"
+    assert r.decisions[-1].targets == []
+    action = [s for s in jev.calls if "0:action" in s["questions"]][-1]
+    assert "ADD_MERGE" not in action["questions"]["0:action"]["criteria"]
+    await c.aclose()
+
+
 async def test_heads_outside_the_version_boundary_are_never_offered(
     tmp_storage, fake_embed
 ):
@@ -475,12 +495,12 @@ async def test_update_replaces_the_solution_and_delete_archives(
 def test_settle_gives_each_head_one_retiring_claim():
     ops = [
         CodingReconcileOp("ADD", 0, "h", "OVERRIDE", confidence=0.6),
-        CodingReconcileOp("ADD", 1, "h", "MERGE", confidence=0.9),
+        CodingReconcileOp("ADD", 1, "h", "NEGATE", confidence=0.9),
         CodingReconcileOp("DELETE", 2, "h", confidence=0.5),
         CodingReconcileOp("ADD", 3, "h", "CONFLICT", confidence=0.1),
     ]
     out = _settle(ops)
-    assert (out[1].update_type, out[1].target_memory_id) == ("MERGE", "h")
+    assert (out[1].update_type, out[1].target_memory_id) == ("NEGATE", "h")
     assert (out[0].update_type, out[0].target_memory_id) == ("SUPPLEMENT", None)
     assert (out[2].action, out[2].target_memory_id) == ("RAW_ONLY", None)
     assert out[3] == ops[3]  # CONFLICT keeps both, it does not retire

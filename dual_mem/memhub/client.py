@@ -106,6 +106,7 @@ class HubClient:
         limit: int = 10,
         raw_limit: int = 5,
         procedure_limit: int = 3,
+        workspace: str | None = None,
     ) -> dict[str, Any]:
         return await self._request(
             "POST",
@@ -115,6 +116,7 @@ class HubClient:
                 "limit": limit,
                 "raw_limit": raw_limit,
                 "procedure_limit": procedure_limit,
+                "workspace": workspace,
             },
         )
 

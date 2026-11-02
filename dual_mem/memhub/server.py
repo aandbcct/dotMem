@@ -60,12 +60,22 @@ class HubWriteRequest(BaseModel):
     wait: bool = False
 
 
+# A coding question rarely shares wording with the fact that answers it, so the
+# fused scores of real matches sit well below the SDK default.
+HUB_RECALL_MIN_SCORE = 0.2
+# Profile items (who the user is, how they want the work done) are recalled as
+# their own group and for every project.
+HUB_RECALL_PROFILE_LIMIT = 3
+
+
 class HubRecallRequest(BaseModel):
     query: str
     limit: int = 10
     raw_limit: int = 5
     # MemHub serves coding CLIs: engineering experience is recalled by default.
     procedure_limit: int = 3
+    # The project the prompt comes from; evidence is limited to its sessions.
+    workspace: str | None = None
 
 
 class HubLogExport(BaseModel):
@@ -375,6 +385,8 @@ def create_hub_app(
             app.state.syncer.pull_if_stale()
         memories = SearchMemories()
         conversations = SearchMemories()
+        sessions = app.state.queue.sessions_of(body.workspace) if body.workspace else []
+        scope = sessions or None
         if body.limit > 0 or body.procedure_limit > 0:
             memories = (
                 await core_client.search(
@@ -383,8 +395,41 @@ def create_hub_app(
                     agent_ids=[""],
                     limit=body.limit,
                     procedure_limit=body.procedure_limit,
+                    profile_limit=0 if scope else HUB_RECALL_PROFILE_LIMIT,
+                    min_score=HUB_RECALL_MIN_SCORE,
+                    profile_min_score=HUB_RECALL_MIN_SCORE,
+                    session_ids=scope,
                 )
             ).memories
+            if scope:
+                # The profile holds for every project. Another project's fact comes
+                # in only when it matches better than anything of this project: the
+                # prompt is then about that project.
+                wider = (
+                    await core_client.search(
+                        query=body.query,
+                        user_id=HUB_USER_ID,
+                        agent_ids=[""],
+                        limit=body.limit,
+                        procedure_limit=0,
+                        profile_limit=HUB_RECALL_PROFILE_LIMIT,
+                        min_score=HUB_RECALL_MIN_SCORE,
+                        profile_min_score=HUB_RECALL_MIN_SCORE,
+                    )
+                ).memories
+                memories.profile = wider.profile
+                best = max((item.score for item in memories.normal), default=0.0)
+                seen = {item.memory_id for item in memories.normal}
+                memories.normal = sorted(
+                    memories.normal
+                    + [
+                        item
+                        for item in wider.normal
+                        if item.memory_id not in seen and item.score > best
+                    ],
+                    key=lambda item: item.score,
+                    reverse=True,
+                )[: body.limit]
         if body.raw_limit > 0:
             conversations = (
                 await core_client.search_conversation(
@@ -392,6 +437,7 @@ def create_hub_app(
                     user_id=HUB_USER_ID,
                     agent_ids=[""],
                     limit=body.raw_limit,
+                    session_ids=scope,
                 )
             ).memories
         return {

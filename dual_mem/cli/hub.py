@@ -487,16 +487,23 @@ def _recall(payload: dict[str, Any], limit: int, hub_dir: str | None) -> None:
 
     async def search() -> dict[str, Any]:
         async with make_client(hub_dir) as client:
-            return await client.recall(query=prompt, limit=limit, raw_limit=3)
+            return await client.recall(
+                query=prompt, limit=limit, raw_limit=3, workspace=payload.get("cwd")
+            )
 
     result = asyncio.run(search())
     context = format_memories(result["memories"]).strip()
     if result["conversations"]:
+        # Oldest first with a time on each, so a later turn reads as the correction
+        # of an earlier one instead of two equal claims.
+        turns = sorted(result["conversations"], key=lambda item: item["memory_at"] or 0)
         raw = "\n".join(
-            f"- [{item['session_id']}] {item['content'].strip()}"
-            for item in result["conversations"]
+            f"- [{format_time(item['memory_at'])}] {item['content'].strip()}"
+            for item in turns
         )
-        context = f"{context}\n\n历史对话：\n{raw}".strip()
+        context = (
+            f"{context}\n\n历史对话（从旧到新，同一件事以最新的为准）：\n{raw}"
+        ).strip()
     if context:
         # Tagged so strip_memory_injection drops it if a host echoes it back.
         context = f"<relevant-memories>\n{context}\n</relevant-memories>"

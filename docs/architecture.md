@@ -66,7 +66,7 @@ Agent / Cursor  ──MCP──▶  MCP Server（受 Skill 指导）  ──▶ 
 | L3_DERIVED | 跨证据模式（`schema` / `core_schema`）、人格目录（`persona_catalog`） | 显式 digest → 聚类生成与证据校验 |
 
 System1 两种模式共用：保留来源 → 生成候选（事实 / 画像 / 意图，工程会话并行抽 procedure） → 相似度达到 `reconcile_relation_threshold` 的候选进入批量 JEV target/action 裁决（低于阈值直接作为独立记忆追加） → 批量 embedding → 校验 scope epoch/revision → durable append/link（同步写入 `versions.db` 复制日志 `log`）。
-MERGE 才增加文本合并及无损校验。默认 latest 读取，历史可显式查看。
+默认 latest 读取，历史可显式查看。
 
 dual 写入后登记 scope；digest 对未归纳的 L1/L2（含 procedure）做层次聚类，生成 schema、跨领域 core schema 与 persona catalog 并校验证据引用。不同 scope 默认并行 4，同 scope 有序处理。失败任务保留 pending。
 版本提交与图投影（含追加到已有 schema 的证据边）之间通过持久待处理记录恢复，图只作为证据关系投影。

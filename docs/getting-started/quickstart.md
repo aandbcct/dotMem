@@ -144,7 +144,8 @@ for m in res.memories.procedures:
 - **存储与隔离**：和对话记忆同一个向量库、同一个 scope（`app_id / user_id / agent_id`）和同一条
   版本链。chat 的 profile / proactive / normal 组和 chat 写入裁决都看不到 procedure，
   两边分数不需要互相比较。
-- **版本演化**：同一问题出现新方案时，JEV 判 OVERRIDE / MERGE 追加新版本并退役旧版本；
+- **版本演化**：同一问题出现新方案时，JEV 判 OVERRIDE 追加新版本并退役旧版本；只是补充时判
+  SUPPLEMENT，两条都保持现行（没有 MERGE：合并重写会丢掉旧方案里的约束）；
   检索只返回当前版本，`evolution_chain` 指向被替换的旧版本。只有同一版本边界
   （workspace / branch / boundary_scope，`strict` 还要求同一 session）内的经验之间才会建立关系。
   `update()` / `delete()` / `get()` / `list()` 对 procedure 同样适用。

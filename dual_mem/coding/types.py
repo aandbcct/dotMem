@@ -23,13 +23,12 @@ UpdateType = Literal[
     "",
     "SUPPLEMENT",
     "OVERRIDE",
-    "MERGE",
     "TEMPORAL",
     "NEGATE",
     "CONFLICT",
 ]
 # A new version of one of these replaces (retires) its target head.
-RETIRING_UPDATES = frozenset({"OVERRIDE", "MERGE", "NEGATE"})
+RETIRING_UPDATES = frozenset({"OVERRIDE", "NEGATE"})
 
 
 class CodingDecisionError(RuntimeError):

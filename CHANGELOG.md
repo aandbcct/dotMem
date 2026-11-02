@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **每轮召回按项目限定，原始对话带时间、从旧到新排列**。离线评测（4 个项目 27 段真实改写会话、36 道 coding 题，按注入上下文逐点评审）里，只看 dual-mem 注入的上下文从 32/36 提到 35/36；同一份数据上 agentica 原生召回是 33/36。
+  - `hub hook` 把宿主传来的 `cwd` 交给 Core（`/v1/hub/recall` 新字段 `workspace`）。Core 按写入时记录的 `workspace_id` 找出这个项目的会话，事实、工程经验和原始对话只从这些会话里召回。别的项目的事实只在比本项目任何一条都更相关时才进来（问题本身就是在问那个项目）。画像（用户是谁、希望怎么干活）不分项目。没有 `cwd` 或这个目录还没有写入时不限定。
+  - 原始对话每段标上时间、按时间从旧到新排列，标题写明「同一件事以最新的为准」。之前按会话 id 标注、按相关度排序，先后两次相反的说法看起来是并列的。
+  - hub 召回的事实和画像门槛从 SDK 默认的 0.4 / 0.3 降到 0.2：coding 提问和答案很少用同样的词，真实命中的融合分常在 0.2～0.4。SDK 默认值不变。
+- **工程经验不再有 MERGE**。合并会生成一个新版本并退役旧版本，实测合并后的方案丢掉了旧版本里用户定的约束（例如测试命令）。对已有 head 的补充现在是 `ADD_SUPPLEMENT`：两个版本都保持现行，不带 target。破坏性变更：`UpdateType` 里去掉了 `MERGE`。
 - **MemHub 新增支持 CodeBuddy、OpenCode、WorkBuddy，共支持 8 种宿主工具**（`agentica` / `claude-code` / `codebuddy` / `codex` / `cursor` / `hermes` / `opencode` / `workbuddy`）。
   - `dual-mem hub install-host codebuddy|opencode|workbuddy|all` 自动写入 MCP、recall skill 与自动召回/会话沉淀 Hook（CodeBuddy / WorkBuddy 写入 `~/.codebuddy/{mcp.json,settings.json}` 与 `~/.workbuddy/{mcp.json,settings.json}`；OpenCode 写入 `~/.config/opencode/opencode.json` 的 `mcp.dual-mem` 与 `~/.config/opencode/plugins/dual-mem-hub.js` 插件）。
   - `dual-mem hub scan --source codebuddy|opencode|workbuddy|all` 与 `hub capture` 支持增量读取 `~/.codebuddy/projects/**/*.jsonl`、`~/.workbuddy/projects/**/*.jsonl` 及 `~/.local/share/opencode/opencode.db`，连同工具调用（含 `filePath` 参数）与项目路径一并采集沉淀。

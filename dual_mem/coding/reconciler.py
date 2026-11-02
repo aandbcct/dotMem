@@ -16,7 +16,6 @@ from dual_mem.providers.jev import DecisionProvider
 _ACTIONS = {
     "ADD_SUPPLEMENT": "Independent learning or a distinct occurrence; append. Initial solution without a baseline belongs here.",
     "ADD_OVERRIDE": "Confirmed replacement of the same task and boundary. Append a complete version. Returning to an ancestor solution overrides the current head, never SKIP.",
-    "ADD_MERGE": "Complementary fragments of ONE solution; the new version must preserve every unaffected fact, number and constraint.",
     "ADD_TEMPORAL": "Explicit limited exception that coexists with the long-term solution. Do not retire the baseline.",
     "ADD_NEGATE": "Explicit termination of an existing solution.",
     "ADD_CONFLICT": "Competing simultaneous solutions with no explicit change or authority. Keep both; do not retire either.",
@@ -28,9 +27,9 @@ _ACTIONS = {
 }
 _WITH_TARGET = (
     "ADD_OVERRIDE",
-    "ADD_MERGE",
     "ADD_NEGATE",
     "ADD_CONFLICT",
+    "ADD_SUPPLEMENT",
     "SKIP",
     "DELETE",
     "INVALID",
@@ -43,7 +42,7 @@ _WITHOUT_TARGET = (
     "INVALID",
     "NEED_CONTEXT",
 )
-_NEEDS_TARGET = set(_WITH_TARGET) - {"INVALID", "NEED_CONTEXT"}
+_NEEDS_TARGET = set(_WITH_TARGET) - {"ADD_SUPPLEMENT", "INVALID", "NEED_CONTEXT"}
 # Room the questions and the envelope take next to the state.
 _QUESTION_OVERHEAD = 4_000
 
@@ -58,10 +57,11 @@ def _action_question(draft_idx: int, *, has_target: bool) -> dict:
             f"Draft {draft_idx} already has one selected current head in the same version boundary. "
             "Its environment constraints must describe the same solution context. "
             "Choose only a relation to that head: SKIP if it fully covers the draft, "
-            "ADD_OVERRIDE or ADD_MERGE or ADD_NEGATE to replace or end it, "
+            "ADD_OVERRIDE or ADD_NEGATE to replace or end it, "
             "ADD_CONFLICT to keep both, DELETE to archive it. "
             "INVALID if the draft invents facts. NEED_CONTEXT if a lossless version is unavailable. "
-            "Do not append an independent solution."
+            "ADD_SUPPLEMENT when the draft only adds to the head (a complementary "
+            "fragment, not a replacement): both stay current, the head is not retired."
         )
         keys = _WITH_TARGET
     else:

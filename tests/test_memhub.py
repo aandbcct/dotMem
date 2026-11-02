@@ -1708,6 +1708,112 @@ async def test_memory_browser_groups_by_project_and_edits_through_versions(
     await core.aclose()
 
 
+async def test_recall_stays_in_the_prompts_project_except_profile(
+    tmp_path: Path, fake_embed
+) -> None:
+    """Facts and dialogue come from the prompt's project; the profile from any."""
+    from conftest import FakeJev, FakeLLMClient
+
+    rule = "用 tmp 放临时脚本"
+    style = "有歧义先按推荐方案做"
+    other = "b 项目的部署走 k8s"
+
+    def extract(system: str, user: str) -> dict:
+        identity = [{"content": style, "speaker": "user"}] if style in user else []
+        facts = [{"content": t, "speaker": "user"} for t in (rule, other) if t in user]
+        return {"facts": facts,
+                "identity": identity, "intentions": [], "is_ephemeral": False,
+                "basic_info": {}}
+
+    core = MemoryClient(
+        settings=Settings(storage_dir=str(tmp_path / "hub" / "store"), mode="system1"),
+        embed=fake_embed,
+        llm=FakeLLMClient({"extract": extract}),
+        jev=FakeJev(),
+    )
+    app = create_hub_app(api_key="secret", hub_dir=tmp_path / "hub", client=core,
+                         settings=core.settings)
+    async with app.router.lifespan_context(app):
+        transport = httpx.ASGITransport(app=app)
+        async with HubClient(base_url="http://hub", api_key="secret",
+                             transport=transport) as remote:
+            for i, (text, workspace) in enumerate([
+                (rule, "/w/a"), (rule, "/w/b"), (style, "/w/b"),
+            ]):
+                await remote.write(
+                    messages=[{"role": "user", "content": text},
+                              {"role": "assistant", "content": "好"}],
+                    session_id=f"agentica:s{i}", request_id=f"r{i}", wait=True,
+                    workspace_id=workspace,
+                )
+            facts = await remote.recall(query=rule, raw_limit=3, workspace="/w/a")
+            assert {m["session_id"] for m in facts["memories"]["normal"]} == {"agentica:s0"}
+            assert {c["session_id"] for c in facts["conversations"]} == {"agentica:s0"}
+
+            profile = await remote.recall(query=style, raw_limit=3, workspace="/w/a")
+            assert [m["content"] for m in profile["memories"]["profile"]] == [style]
+            assert {m["session_id"] for m in profile["memories"]["normal"]} <= {"agentica:s0"}
+            assert {c["session_id"] for c in profile["conversations"]} <= {"agentica:s0"}
+
+            # No workspace (a plain chat host): everything is in scope.
+            anywhere = await remote.recall(query=rule, raw_limit=3)
+            assert {m["session_id"] for m in anywhere["memories"]["normal"]} == {
+                "agentica:s0", "agentica:s1"}
+
+            # A question about another project: its fact matches better than
+            # anything of this one, so it comes in; this project's fact stays.
+            await remote.write(
+                messages=[{"role": "user", "content": other},
+                          {"role": "assistant", "content": "好"}],
+                session_id="agentica:s3", request_id="r3", wait=True, workspace_id="/w/b",
+            )
+            crossed = await remote.recall(query=other, workspace="/w/a")
+            contents = [m["content"] for m in crossed["memories"]["normal"]]
+            assert contents[0] == other and "agentica:s1" not in {
+                m["session_id"] for m in crossed["memories"]["normal"]}
+
+            # The hook's cwd and the write's workspace are the same directory
+            # written differently (a trailing slash, a symlinked parent).
+            alias = await remote.recall(query=rule, workspace="/w/a/")
+            assert {m["session_id"] for m in alias["memories"]["normal"]} == {"agentica:s0"}
+    await core.aclose()
+
+
+def test_recalled_dialogue_is_dated_and_oldest_first(tmp_path: Path, monkeypatch) -> None:
+    """A later turn must read as the correction of an earlier one."""
+    sent: list[dict] = []
+
+    class FakeRemote:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_exc):
+            return None
+
+        async def recall(self, **kwargs):
+            sent.append(kwargs)
+            empty = {k: [] for k in ("profile", "proactive", "normal", "raw", "schema", "catalog")}
+            return {"memories": empty, "conversations": [
+                {"session_id": "agentica:new", "content": "改成默认 300 秒超时",
+                 "memory_at": 1_793_600_000},
+                {"session_id": "agentica:old", "content": "一直阻塞不加超时",
+                 "memory_at": 1_793_500_000},
+            ]}
+
+    monkeypatch.setattr(cli_hub, "make_client", lambda _hub: FakeRemote())
+    out = runner.invoke(
+        cli_main.app, ["hub", "hook", "agentica", "--hub-dir", str(tmp_path)],
+        input=json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": "超时?",
+                          "cwd": "/w/repo"}, ensure_ascii=False),
+    )
+    assert out.exit_code == 0, out.output
+    context = json.loads(out.output)["hookSpecificOutput"]["additionalContext"]
+    old, new = context.index("一直阻塞不加超时"), context.index("改成默认 300 秒超时")
+    assert old < new
+    assert f"[{format_time(1_793_500_000)}] 一直阻塞" in context
+    assert sent[0]["workspace"] == "/w/repo"
+
+
 def test_hub_ui_opens_the_page_with_the_token_in_the_fragment(
     tmp_path: Path, monkeypatch
 ) -> None:

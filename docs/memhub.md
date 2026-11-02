@@ -103,7 +103,7 @@ dual-mem hub connect git git@github.com:<你的用户名>/my-vibecoding-memory.g
 
 1. **MCP 工具（`~/.agentica/mcp_config.json`）**：注册 `dual-mem` MCP 服务，Agent 可主动调用 `memory_search`、`memory_add`、`conversation_search`、`memory_status`。
 2. **每轮提问前召回 + 每轮结束沉淀（`~/.agentica/config.yaml` → 一个消费者 `dual-mem`）**：命令是 `dual-mem hub hook agentica`，按事件分派：
-   - `UserPromptSubmit`：你每次在 `agentica` 输入提示词时，几十毫秒内从本机库召回相关画像、事实与最多 3 条 `[procedure]` 工程排障经验，以 `<relevant-memories>` 注入上下文（与 Agentica 原生的 `<memory_recall>` / `<session_recall>` 并存）。
+   - `UserPromptSubmit`：你每次在 `agentica` 输入提示词时，几十毫秒内从本机库召回相关画像、事实与最多 3 条 `[procedure]` 工程排障经验，以 `<relevant-memories>` 注入上下文（与 Agentica 原生的 `<memory_recall>` / `<session_recall>` 并存）。事实、工程经验和原始对话只取当前目录（hook 的 `cwd`）这个项目的会话，别的项目的事实只在明显更相关时才进来；画像不分项目。原始对话标时间、从旧到新排列。
    - `run.completed` / `session.ended`：后台增量读取用户请求、最终回答以及 `tool_calls` 涉及的文件路径（工具输出不采集），连同 `cwd` 和 `git_branch` 交给本机 Core 沉淀，几秒后把新增的变更日志（含向量）推送到 `my-vibecoding-memory` 仓库。
 
 换到第二台电脑（例如家里的 Mac）时，装好 `dual-mem`、跑完上面第 1、2 步后，执行同一条 `dual-mem hub connect git git@github.com:<你的用户名>/my-vibecoding-memory.git`，之前所有的记忆和向量就会直接拉回新电脑本机库，不重新调任何模型。
