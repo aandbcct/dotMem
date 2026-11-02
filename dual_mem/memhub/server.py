@@ -24,9 +24,10 @@ from pydantic import BaseModel
 
 from dual_mem import __version__
 from dual_mem.client import MemoryClient
+from dual_mem.coding.types import PROCEDURE_KIND
 from dual_mem.config import Settings
 from dual_mem.errors import IdempotencyConflictError
-from dual_mem.memhub.browse import browse_rows
+from dual_mem.memhub.browse import browse_rows, workspace_sessions
 from dual_mem.memhub.config import (
     SyncConfig,
     format_time,
@@ -162,6 +163,26 @@ def last_digest_due(root: Path, *, min_hours: float, now: float | None = None) -
     return current - last >= min_hours * 3600.0
 
 
+def project_sessions(client: MemoryClient, workspace: str) -> list[str]:
+    """Session ids of the dialogues written from ``workspace``, read from the store.
+
+    The store replicates, so dialogues written from the same project on another
+    device scope recall here too. Procedures carry the workspace as well, which
+    covers dialogues stored before the evidence kept it.
+    """
+    vector = client.factory.vector
+    scope = {
+        "app_ids": [client.settings.default_app_id],
+        "user_id": HUB_USER_ID,
+        "agent_ids": [""],
+        "statuses": [MemoryStatus.ACTIVE],
+    }
+    nodes = vector.get_many(
+        build_filter(**scope, layers=[Layer.L0_RAW]), None
+    ) + vector.get_many(build_filter(**scope, kinds=[PROCEDURE_KIND]), None)
+    return workspace_sessions(nodes, workspace)
+
+
 def create_hub_app(
     *,
     api_key: str | None = None,
@@ -247,13 +268,16 @@ def create_hub_app(
                     "memory_at": payload["memory_at"],
                     "request_id": payload["request_id"],
                 }
+                # Rows queued before boundaries existed carry none.
+                workspace_id = payload.get("workspace_id")
                 if payload["raw_only"]:
-                    result = await core_client.add_raw(**kwargs)
+                    result = await core_client.add_raw(
+                        **kwargs, workspace_id=workspace_id
+                    )
                 else:
-                    # Rows queued before procedures existed carry no boundary.
                     result = await core_client.add(
                         **kwargs,
-                        workspace_id=payload.get("workspace_id"),
+                        workspace_id=workspace_id,
                         branch=payload.get("branch"),
                     )
                 if syncer is not None:
@@ -385,7 +409,11 @@ def create_hub_app(
             app.state.syncer.pull_if_stale()
         memories = SearchMemories()
         conversations = SearchMemories()
-        sessions = app.state.queue.sessions_of(body.workspace) if body.workspace else []
+        sessions = (
+            await asyncio.to_thread(project_sessions, core_client, body.workspace)
+            if body.workspace
+            else []
+        )
         scope = sessions or None
         if body.limit > 0 or body.procedure_limit > 0:
             memories = (
@@ -404,7 +432,8 @@ def create_hub_app(
             if scope:
                 # The profile holds for every project. Another project's fact comes
                 # in only when it matches better than anything of this project: the
-                # prompt is then about that project.
+                # prompt is then about that project. The query vector is cached by
+                # the embed service, so this second pass costs no embedding call.
                 wider = (
                     await core_client.search(
                         query=body.query,

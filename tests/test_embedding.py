@@ -176,3 +176,39 @@ async def test_generation_transport_failure_is_not_retried():
         await llm.chat_json(system="test", user="test")
     assert route.call_count == 1 and llm.client.max_retries == 0
     await llm.aclose()
+
+
+@respx.mock
+async def test_embed_cache_keeps_the_most_recently_used_texts():
+    """A full cache evicts the least recently used text, not new ones."""
+    route = respx.post("https://api.test/v1/embeddings").mock(
+        return_value=httpx.Response(200, json=_embed_response([[0.1, 0.2, 0.3, 0.4]]))
+    )
+    svc = EmbedService(
+        base_url="https://api.test/v1", api_key="sk-x", model="embed-test", dim=4,
+        cache_size=2,
+    )
+    await svc.embed("a")
+    await svc.embed("b")
+    await svc.embed("a")  # hit: "a" is now the most recent
+    await svc.embed("c")  # evicts "b"
+    assert route.call_count == 3
+    await svc.embed("a")
+    await svc.embed("c")
+    assert route.call_count == 3
+    await svc.embed("b")
+    assert route.call_count == 4
+
+
+@respx.mock
+async def test_embed_cache_size_zero_caches_nothing():
+    route = respx.post("https://api.test/v1/embeddings").mock(
+        return_value=httpx.Response(200, json=_embed_response([[0.1, 0.2, 0.3, 0.4]]))
+    )
+    svc = EmbedService(
+        base_url="https://api.test/v1", api_key="sk-x", model="embed-test", dim=4,
+        cache_size=0,
+    )
+    await svc.embed("a")
+    await svc.embed("a")
+    assert route.call_count == 2

@@ -9,6 +9,7 @@ import asyncio
 import hashlib
 import logging
 import time
+from collections import OrderedDict
 
 from openai import AsyncOpenAI
 import httpx
@@ -78,7 +79,9 @@ class EmbedService:
             http_client=httpx.AsyncClient(timeout=timeout),
         )
 
-        self._cache: dict[str, list[float]] = {}
+        # LRU: a long-running process keeps embedding new texts, and the recent
+        # ones (the query a recall embeds for each of its searches) must stay.
+        self._cache: OrderedDict[str, list[float]] = OrderedDict()
         self._cache_size = cache_size
 
         self._queue_batch_size = queue_batch_size
@@ -92,11 +95,23 @@ class EmbedService:
         """Stable cache key for a text (md5 over utf-8 bytes)."""
         return hashlib.md5(text.encode("utf-8")).hexdigest()
 
+    def _cached(self, text: str) -> list[float] | None:
+        """The cached vector of ``text``, marked as most recently used."""
+        key = self._cache_key(text)
+        vector = self._cache.get(key)
+        if vector is not None:
+            self._cache.move_to_end(key)
+        return vector
+
     def _maybe_cache(self, text: str, vector: list[float]) -> None:
-        """Insert (text, vector) into the in-memory cache when the cache has room."""
-        if len(self._cache) >= self._cache_size:
+        """Insert (text, vector), evicting the least recently used entry when full."""
+        if self._cache_size <= 0:
             return
-        self._cache[self._cache_key(text)] = vector
+        key = self._cache_key(text)
+        self._cache[key] = vector
+        self._cache.move_to_end(key)
+        while len(self._cache) > self._cache_size:
+            self._cache.popitem(last=False)
 
     async def aclose(self) -> None:
         await self.client.close()
@@ -149,7 +164,7 @@ class EmbedService:
 
     async def embed(self, text: str) -> list[float]:
         """Embed a single text directly (no queue), using the cache when possible."""
-        cached = self._cache.get(self._cache_key(text))
+        cached = self._cached(text)
         if cached is not None:
             return cached
         vectors = await self.embed_batch([text])
@@ -159,7 +174,7 @@ class EmbedService:
 
     async def embed_queued(self, text: str) -> list[float]:
         """Embed a single text via the write-side queue: batches concurrent calls."""
-        cached = self._cache.get(self._cache_key(text))
+        cached = self._cached(text)
         if cached is not None:
             return cached
 

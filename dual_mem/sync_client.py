@@ -165,6 +165,7 @@ class SyncMemoryClient:
         session_id: str = "",
         memory_at: int | None = None,
         request_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> WriteResult:
         return self._run(
             self._client.add_raw(
@@ -176,6 +177,7 @@ class SyncMemoryClient:
                 session_id=session_id,
                 memory_at=memory_at,
                 request_id=request_id,
+                workspace_id=workspace_id,
             )
         )
 

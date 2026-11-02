@@ -266,7 +266,9 @@ class MemoryClient:
         only contribute the files they touched, tool output is not kept.
         ``workspace_id`` / ``branch`` are the
         version boundary of those procedures: one only replaces another inside the
-        same workspace and branch.
+        same workspace and branch. ``workspace_id`` is also kept on the L0_RAW
+        evidence (``custom["workspace_id"]``), chat or coding, so recall can be
+        scoped to a project on every device the store replicates to.
 
         Cost per add: one candidate generation; a candidate with no similar current
         head is appended without a Jev call, otherwise one target question and (when a
@@ -336,6 +338,7 @@ class MemoryClient:
             "session_id": session_id,
             "request_id": request_id,
             "memory_at": memory_at,
+            "workspace_id": workspace_id,
         }
         async with self._user_write_lock_ctx(resolved_app_id, user_id):
             result = await self.writer.write(**write_kwargs, messages=normalized)
@@ -386,8 +389,12 @@ class MemoryClient:
         session_id: str = "",
         memory_at: int | None = None,
         request_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> WriteResult:
-        """Write L0_RAW only (embed + store). Does not run extract."""
+        """Write L0_RAW only (embed + store). Does not run extract.
+
+        ``workspace_id`` is kept on the evidence, as in ``add``.
+        """
         request_id = request_id or str(uuid.uuid4())
         start = time.perf_counter()
         resolved_app_id = self._resolve_app_id(app_id)
@@ -416,6 +423,7 @@ class MemoryClient:
                 session_id=session_id,
                 memory_at=memory_at,
                 request_id=request_id,
+                workspace_id=workspace_id,
             )
         return WriteResult(
             success=True,

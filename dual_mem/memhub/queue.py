@@ -144,15 +144,6 @@ class HubWriteQueue:
         )
         return cursor.rowcount
 
-    def sessions_of(self, workspace: str) -> list[str]:
-        """Session ids of the writes made from ``workspace`` (paths compared resolved)."""
-        target = str(Path(workspace).resolve())
-        rows = self._conn.execute(
-            "SELECT DISTINCT json_extract(payload, '$.session_id'), "
-            "json_extract(payload, '$.workspace_id') FROM hub_writes"
-        ).fetchall()
-        return [sid for sid, ws in rows if ws and str(Path(ws).resolve()) == target]
-
     def extract_raw(self) -> int:
         """Queue extraction for every write that was stored raw-only."""
         with self._conn:

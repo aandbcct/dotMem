@@ -2,29 +2,63 @@
 """Rows for the MemHub memory browser (``/ui``) and its JSON API.
 
 A memory belongs to a project when the write that produced it carried a
-workspace: a procedure stores its ``workspace_id``; the raw dialogue it came
-from and every other memory extracted from that dialogue share it through
-``source_ids``. Memories of plain chats have no project.
+workspace: the raw dialogue keeps it as ``custom["workspace_id"]`` and a
+procedure as its ``workspace_id``; every other memory extracted from that
+dialogue shares it through ``source_ids``. Memories of plain chats have no
+project. Both live in the replicated store, so every device sees the same
+projects.
 """
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from dual_mem.coding.types import procedure_detail
 from dual_mem.types import MemoryNode
 
 
+def node_workspace(node: MemoryNode) -> str:
+    """The workspace a raw dialogue or a procedure was written from, else ``""``."""
+    detail = procedure_detail(node)
+    if detail is not None:
+        return detail.workspace_id or ""
+    return str((node.custom or {}).get("workspace_id") or "")
+
+
 def workspaces_by_source(nodes: list[MemoryNode]) -> dict[str, str]:
-    """Raw dialogue id -> workspace of the procedures extracted from it."""
+    """Raw dialogue id -> its workspace (its own, else its procedures')."""
     out: dict[str, str] = {}
     for node in nodes:
-        detail = procedure_detail(node)
-        if detail is None or not detail.workspace_id:
+        workspace = node_workspace(node)
+        if not workspace:
+            continue
+        if procedure_detail(node) is None:
+            out[node.node_id] = workspace
             continue
         for source_id in (node.custom or {}).get("source_ids", []):
-            out.setdefault(source_id, detail.workspace_id)
+            out.setdefault(source_id, workspace)
     return out
+
+
+def workspace_sessions(nodes: list[MemoryNode], workspace: str) -> list[str]:
+    """Session ids of the dialogues written from ``workspace`` (paths resolved).
+
+    ``nodes`` are raw dialogues and procedures; every memory extracted from a
+    dialogue carries its session id, so these ids scope all of them.
+    """
+    target = str(Path(workspace).resolve())
+    resolved: dict[str, str] = {}
+    sessions: set[str] = set()
+    for node in nodes:
+        found = node_workspace(node)
+        if not found or not node.session_id:
+            continue
+        if found not in resolved:
+            resolved[found] = str(Path(found).resolve())
+        if resolved[found] == target:
+            sessions.add(node.session_id)
+    return sorted(sessions)
 
 
 def browse_rows(nodes: list[MemoryNode]) -> list[dict[str, Any]]:
@@ -34,12 +68,11 @@ def browse_rows(nodes: list[MemoryNode]) -> list[dict[str, Any]]:
     for node in nodes:
         detail = procedure_detail(node)
         source_ids = list((node.custom or {}).get("source_ids", []))
-        if detail is not None and detail.workspace_id:
-            project = detail.workspace_id
-        else:
-            project = by_source.get(node.node_id) or next(
-                (by_source[s] for s in source_ids if s in by_source), ""
-            )
+        project = (
+            node_workspace(node)
+            or by_source.get(node.node_id)
+            or next((by_source[s] for s in source_ids if s in by_source), "")
+        )
         rows.append(
             {
                 "id": node.node_id,
@@ -63,4 +96,9 @@ def browse_rows(nodes: list[MemoryNode]) -> list[dict[str, Any]]:
     return rows
 
 
-__all__ = ["browse_rows", "workspaces_by_source"]
+__all__ = [
+    "browse_rows",
+    "node_workspace",
+    "workspace_sessions",
+    "workspaces_by_source",
+]

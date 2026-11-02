@@ -1779,6 +1779,72 @@ async def test_recall_stays_in_the_prompts_project_except_profile(
     await core.aclose()
 
 
+async def test_recall_scope_includes_project_sessions_from_another_device(
+    tmp_path: Path, fake_embed
+) -> None:
+    """The project's sessions are read from the replicated store, not this
+    device's write queue: once this device writes one session of the project,
+    the sessions another device wrote there still count."""
+    from conftest import FakeJev, FakeLLMClient
+
+    away = "部署脚本放在 deploy/ 目录"
+    here = "单测用 tmp_path"
+    elsewhere = "部署脚本放在 ops/ 目录"
+
+    def extract(system: str, user: str) -> dict:
+        facts = [{"content": t, "speaker": "user"}
+                 for t in (away, here, elsewhere) if t in user]
+        return {"facts": facts, "identity": [], "intentions": [],
+                "is_ephemeral": False, "basic_info": {}}
+
+    def device(name: str) -> MemoryClient:
+        return MemoryClient(
+            settings=Settings(storage_dir=str(tmp_path / name / "store"), mode="system1"),
+            embed=fake_embed,
+            llm=FakeLLMClient({"extract": extract}),
+            jev=FakeJev(),
+        )
+
+    other = device("a")
+    for i, (text, workspace) in enumerate([(away, "/w/repo"), (elsewhere, "/w/ops")]):
+        await other.add(
+            messages=[{"role": "user", "content": text},
+                      {"role": "assistant", "content": "好"}],
+            user_id="default", session_id=f"cursor:a{i}", request_id=f"a{i}",
+            workspace_id=workspace,
+        )
+    raw = await other.add_raw(
+        content="只存原文的会话", user_id="default", session_id="cursor:a9",
+        request_id="a9", workspace_id="/w/repo",
+    )
+    assert other.factory.vector.get(raw.memory_id).custom == {"workspace_id": "/w/repo"}
+
+    core = device("b")
+    core.factory.vector.import_log(other.factory.vector.export_log())
+    app = create_hub_app(api_key="secret", hub_dir=tmp_path / "b" / "hub", client=core,
+                         settings=core.settings)
+    async with app.router.lifespan_context(app):
+        transport = httpx.ASGITransport(app=app)
+        async with HubClient(base_url="http://hub", api_key="secret",
+                             transport=transport) as remote:
+            # Nothing written here yet: the synced sessions already scope recall.
+            first = await remote.recall(query=away, raw_limit=5, workspace="/w/repo")
+            assert {m["session_id"] for m in first["memories"]["normal"]} == {"cursor:a0"}
+            await remote.write(
+                messages=[{"role": "user", "content": here},
+                          {"role": "assistant", "content": "好"}],
+                session_id="agentica:b0", request_id="b0", wait=True,
+                workspace_id="/w/repo",
+            )
+            recalled = await remote.recall(query=away, raw_limit=5, workspace="/w/repo")
+            normal = {m["session_id"] for m in recalled["memories"]["normal"]}
+            assert "cursor:a0" in normal and "cursor:a1" not in normal
+            assert {c["session_id"] for c in recalled["conversations"]} == {
+                "cursor:a0", "cursor:a9", "agentica:b0"}
+    await other.aclose()
+    await core.aclose()
+
+
 def test_recalled_dialogue_is_dated_and_oldest_first(tmp_path: Path, monkeypatch) -> None:
     """A later turn must read as the correction of an earlier one."""
     sent: list[dict] = []
