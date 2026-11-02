@@ -7,7 +7,7 @@ from conftest import FakeLLMClient
 from dual_mem import MemoryClient
 from dual_mem.config import Settings
 from dual_mem.storage.graph_store import GraphNode
-from dual_mem.retrieval.hybrid_engine import _source_excerpt
+from dual_mem.retrieval.hybrid_engine import source_excerpt
 from dual_mem.types import Layer, MemoryNode, MemoryStatus
 
 
@@ -393,7 +393,7 @@ def test_source_excerpt_preserves_late_answer_and_speaker_context():
     content += "\n[user]: What is the return authorization for the damaged amplifier?\n"
     content += "[assistant]: The return authorization is RMA-81273; send it within 14 days.\n"
     content += "[user]: Thank you.\n[assistant]: " + "more unrelated notes " * 200
-    excerpt = _source_excerpt(content, "amplifier return authorization", [])
+    excerpt = source_excerpt(content, "amplifier return authorization", [])
     assert len(excerpt) <= 3200
     assert "[user]: What is the return authorization" in excerpt
     assert "[assistant]: The return authorization is RMA-81273" in excerpt

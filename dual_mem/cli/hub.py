@@ -37,10 +37,13 @@ from dual_mem.memhub.config import (
 )
 from dual_mem.memhub.sources import SOURCES, locate_transcript, scan_file, scan_sources
 from dual_mem.retrieval.formatter import format_memories
+from dual_mem.retrieval.hybrid_engine import source_excerpt
 
 hub_app = typer.Typer(help="MemHub：每台设备一个本地 Core，跨 CLI 共享个人记忆，可跨设备同步")
 HubDir = typer.Option(None, "--hub-dir", help="Hub 根目录（默认 ~/.dual-mem）")
 LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
+# Per recalled dialogue in the UserPromptSubmit injection.
+RAW_EXCERPT_CHARS = 1600
 
 
 def make_client(hub_dir: str | None) -> HubClient:
@@ -497,8 +500,11 @@ def _recall(payload: dict[str, Any], limit: int, hub_dir: str | None) -> None:
         # Oldest first with a time on each, so a later turn reads as the correction
         # of an earlier one instead of two equal claims.
         turns = sorted(result["conversations"], key=lambda item: item["memory_at"] or 0)
+        # A whole session can run to tens of thousands of characters; only the
+        # passages that bear on the prompt go in.
         raw = "\n".join(
-            f"- [{format_time(item['memory_at'])}] {item['content'].strip()}"
+            f"- [{format_time(item['memory_at'])}] "
+            f"{source_excerpt(item['content'].strip(), prompt, [], RAW_EXCERPT_CHARS)}"
             for item in turns
         )
         context = (

@@ -187,7 +187,7 @@ def _current_versions(
     return out
 
 
-def _source_excerpt(content: str, query: str, anchors: list[str], max_chars: int = 3200) -> str:
+def source_excerpt(content: str, query: str, anchors: list[str], max_chars: int = 3200) -> str:
     """Select verbatim, role-labelled passages instead of head-truncating a source."""
     if len(content) <= max_chars:
         return content
@@ -862,7 +862,7 @@ async def search_hybrid(
         top = max((row["rrf_score"] for row in merged), default=0) or 1
         raw_hits = [
             {"node_id": row["node_id"],
-             "node": replace(raw_nodes[row["node_id"]], content=_source_excerpt(
+             "node": replace(raw_nodes[row["node_id"]], content=source_excerpt(
                  raw_nodes[row["node_id"]].content, query, anchors.get(row["node_id"], [])
              )),
              "score": _RAW_SCORE_SCALE * row["rrf_score"] / top, "source": "raw"}

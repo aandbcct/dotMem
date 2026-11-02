@@ -1814,6 +1814,37 @@ def test_recalled_dialogue_is_dated_and_oldest_first(tmp_path: Path, monkeypatch
     assert sent[0]["workspace"] == "/w/repo"
 
 
+def test_long_recalled_dialogue_is_cut_to_the_passages_on_the_prompt(
+    tmp_path: Path, monkeypatch
+) -> None:
+    filler = "".join(f"[user]: 第 {i} 件无关的事 {'x ' * 300}\n[assistant]: 好\n" for i in range(30))
+    session = f"{filler}[user]: 迁移脚本要先备份 ledger 库\n[assistant]: 明白，先备份\n{filler}"
+
+    class FakeRemote:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_exc):
+            return None
+
+        async def recall(self, **_kwargs):
+            empty = {k: [] for k in ("profile", "proactive", "normal", "raw", "schema", "catalog")}
+            return {"memories": empty, "conversations": [
+                {"session_id": "agentica:s", "content": session, "memory_at": 1_793_500_000},
+            ]}
+
+    monkeypatch.setattr(cli_hub, "make_client", lambda _hub: FakeRemote())
+    out = runner.invoke(
+        cli_main.app, ["hub", "hook", "agentica", "--hub-dir", str(tmp_path)],
+        input=json.dumps({"hook_event_name": "UserPromptSubmit",
+                          "prompt": "迁移脚本前要备份 ledger 吗"}, ensure_ascii=False),
+    )
+    assert out.exit_code == 0, out.output
+    context = json.loads(out.output)["hookSpecificOutput"]["additionalContext"]
+    assert "迁移脚本要先备份 ledger 库" in context
+    assert len(context) < cli_hub.RAW_EXCERPT_CHARS + 400 < len(session)
+
+
 def test_hub_ui_opens_the_page_with_the_token_in_the_fragment(
     tmp_path: Path, monkeypatch
 ) -> None:
