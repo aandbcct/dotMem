@@ -39,7 +39,7 @@ See [`examples/02_dual.py`](https://github.com/shibing624/dual-mem/blob/main/exa
 
 ### 3. Several agents, one memory
 
-MemHub connects those two systems to the tools on your machine. Claude Code, Codex, Cursor, Hermes, and Agentica read and write the same memory. By default the data stays on your computer.
+MemHub connects those two systems to the tools on your machine. Claude Code, Codex, Cursor, Hermes, Agentica, CodeBuddy, OpenCode, and WorkBuddy read and write the same memory. By default the data stays on your computer.
 
 ```bash
 pip install "dual-mem[all]"
@@ -173,12 +173,12 @@ Two worth opening: [`examples/02_dual.py`](https://github.com/shibing624/dual-me
 - [x] System 1 layered memory and version evolution
 - [x] dual / System 2: explicit `digest()` builds L3
 - [x] Dedicated decision model guarding writes
-- [x] MemHub: 5 AI tools share memory, history import, background organizing
+- [x] MemHub: 8 AI tools (Claude Code / Codex / Cursor / Hermes / Agentica / CodeBuddy / OpenCode / WorkBuddy) share memory, history import, background organizing
 - [x] Multi-device sync: local recall on every computer, works offline, exchanges changes via a synced folder / git / a server
 - [x] Chat and coding unified: coding sessions yield procedure experience, and `dual` induces engineering habits too
 - [x] Leads head-to-head on LoCoMo / LongMemEval / PersonaMem-v2
 - [x] Visual memory management: `dual-mem hub ui` to browse by project, search, edit and delete memories
-- [ ] MemHub for more tools: OpenCode, WorkBuddy and others — 10+ in total
+- [ ] MemHub for more tools: Gemini CLI, Windsurf, Trae and others — 10+ in total
 - [ ] Cloud HTTP MCP: remote agents connect to hosted memory directly
 - [ ] Better retrieval for multi-hop questions (LoCoMo multi-hop still has headroom)
 - [ ] More public benchmarks (CodeMemoryBench and others, once their data is released)
@@ -215,7 +215,7 @@ Full documentation: **[https://shibing624.github.io/dual-mem](https://shibing624
 | [Architecture](https://github.com/shibing624/dual-mem/blob/main/docs/architecture.md) | optional: how the SDK relates to each frontend; storage |
 | [Memory layers](https://github.com/shibing624/dual-mem/blob/main/docs/memory_layers.md) | optional: L0 raw / L1 facts / L2 profile / L3 derived |
 | [Write decisions](https://github.com/shibing624/dual-mem/blob/main/docs/jev-memory-design.md) | optional: decision-model actions, version chains |
-| [MemHub](https://github.com/shibing624/dual-mem/blob/main/docs/memhub.md) | local Core, 5 host integrations, history import |
+| [MemHub](https://github.com/shibing624/dual-mem/blob/main/docs/memhub.md) | local Core, 8 host integrations, history import |
 | [Multi-device sync](https://github.com/shibing624/dual-mem/blob/main/docs/memhub-server.md) | `dir` / `git` / `ssh` / `http` change-log replication, local recall |
 | [MCP / REST](https://github.com/shibing624/dual-mem/blob/main/docs/mcp_integration.md) | tool ↔ HTTP ↔ SDK mapping |
 | [Integrations](https://github.com/shibing624/dual-mem/blob/main/docs/integrations.md) | Agentica / Claude Code / Hermes / OpenClaw |

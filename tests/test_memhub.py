@@ -107,6 +107,41 @@ def _hermes_db(path: Path, rows: list[tuple[str, str, str, float]]) -> None:
     conn.close()
 
 
+def _opencode_db(
+    path: Path,
+    sessions: list[tuple[str, str, str | None]],
+    messages: list[tuple[str, str, int, dict]],
+    parts: list[tuple[str, str, str, int, dict]],
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(path)
+    conn.execute(
+        "CREATE TABLE session (id TEXT PRIMARY KEY, directory TEXT NOT NULL, parent_id TEXT)"
+    )
+    conn.execute(
+        "CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, "
+        "time_created INTEGER NOT NULL, data TEXT NOT NULL)"
+    )
+    conn.execute(
+        "CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT NOT NULL, "
+        "session_id TEXT NOT NULL, time_created INTEGER NOT NULL, data TEXT NOT NULL)"
+    )
+    conn.executemany("INSERT INTO session VALUES (?,?,?)", sessions)
+    conn.executemany(
+        "INSERT INTO message VALUES (?,?,?,?)",
+        [(mid, sid, ts, json.dumps(data, ensure_ascii=False)) for mid, sid, ts, data in messages],
+    )
+    conn.executemany(
+        "INSERT INTO part VALUES (?,?,?,?,?)",
+        [
+            (pid, mid, sid, ts, json.dumps(data, ensure_ascii=False))
+            for pid, mid, sid, ts, data in parts
+        ],
+    )
+    conn.commit()
+    conn.close()
+
+
 def _seed_transcripts(home: Path) -> dict[str, Path]:
     roots = default_source_roots(home)
     _jsonl(
@@ -147,6 +182,37 @@ def _seed_transcripts(home: Path) -> dict[str, Path]:
                 "type": "assistant",
                 "sessionId": "cc-1",
                 "message": {"content": [{"type": "text", "text": "好的"}]},
+            },
+        ],
+    )
+    _jsonl(
+        roots["codebuddy"] / "proj" / "cb-1.jsonl",
+        [
+            {
+                "type": "message",
+                "role": "user",
+                "sessionId": "cb-1",
+                "timestamp": 1791001000123,
+                "cwd": "/Users/me/cb",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": "<system-reminder>ctx</system-reminder>我习惯用 uv 管理虚拟环境",
+                    }
+                ],
+            },
+            {
+                "type": "reasoning",
+                "sessionId": "cb-1",
+                "rawContent": [{"type": "reasoning_text", "text": "thinking"}],
+            },
+            {
+                "type": "message",
+                "role": "assistant",
+                "sessionId": "cb-1",
+                "timestamp": 1791001002000,
+                "cwd": "/Users/me/cb",
+                "content": [{"type": "output_text", "text": "已记录 uv 偏好"}],
             },
         ],
     )
@@ -203,6 +269,69 @@ def _seed_transcripts(home: Path) -> dict[str, Path]:
             ("he-1", "assistant", "不错", 1791000001.0),
         ],
     )
+    _opencode_db(
+        roots["opencode"],
+        [
+            ("oc-1", "/Users/me/oc", None),
+            ("oc-sub", "/Users/me/oc", "oc-1"),
+        ],
+        [
+            ("m-u1", "oc-1", 1791002000000, {"role": "user"}),
+            ("m-a1", "oc-1", 1791002001000, {"role": "assistant"}),
+            ("m-sub", "oc-sub", 1791002002000, {"role": "user"}),
+        ],
+        [
+            (
+                "p-1",
+                "m-u1",
+                "oc-1",
+                1791002000000,
+                {"type": "text", "text": "我喜欢用ruff做lint"},
+            ),
+            (
+                "p-2",
+                "m-a1",
+                "oc-1",
+                1791002001000,
+                {"type": "text", "text": "收到"},
+            ),
+            (
+                "p-sub",
+                "m-sub",
+                "oc-sub",
+                1791002002000,
+                {"type": "text", "text": "subagent ignored"},
+            ),
+        ],
+    )
+    _jsonl(
+        roots["workbuddy"] / "proj" / "wb-1.jsonl",
+        [
+            {"type": "session-meta", "sessionId": "wb-1", "timestamp": 1791003000000},
+            {
+                "type": "message",
+                "role": "user",
+                "sessionId": "wb-1",
+                "timestamp": 1791003001000,
+                "cwd": "/Users/me/wb",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": "<system-reminder>SOUL.md</system-reminder>\n"
+                        "<user_query>默认用中文写技术方案</user_query>",
+                    }
+                ],
+            },
+            {
+                "type": "message",
+                "role": "assistant",
+                "sessionId": "wb-1",
+                "timestamp": 1791003002000,
+                "cwd": "/Users/me/wb",
+                "content": [{"type": "output_text", "text": "好的，按中文输出"}],
+            },
+        ],
+    )
     return roots
 
 
@@ -217,9 +346,15 @@ def test_readers_keep_only_real_dialogue(tmp_path: Path) -> None:
     assert turns["agentica"][0].assistant == "推荐先读 Sutton 的书"
     assert turns["agentica"][0].user == "我在研究强化学习"
     assert turns["claude-code"][0].user == "我常用 Python 3.12"
+    assert turns["codebuddy"][0].user == "我习惯用 uv 管理虚拟环境"
+    assert turns["codebuddy"][0].at == 1791001000
     assert turns["codex"][0].session_id == "cx-1"
     assert turns["cursor"][0].user == "喜欢简洁的代码"
     assert turns["hermes"][0].at == 1791000000
+    assert len(turns["opencode"]) == 1 and turns["opencode"][0].user == "我喜欢用ruff做lint"
+    assert turns["opencode"][0].workspace == "/Users/me/oc"
+    assert turns["workbuddy"][0].user == "默认用中文写技术方案"
+    assert turns["workbuddy"][0].workspace == "/Users/me/wb"
 
 
 def test_build_turns_merges_users_and_drops_orphan_answer() -> None:
@@ -470,6 +605,19 @@ def test_install_uninstall_hosts_use_local_proxy(tmp_path: Path, monkeypatch) ->
     )["mcpServers"]["dual-mem"]
     assert mcp["args"][:2] == ["-m", "dual_mem.memhub.mcp"]
     assert "env" not in mcp and "secret" not in json.dumps(mcp)
+    oc_mcp = json.loads(
+        (home / ".config" / "opencode" / "opencode.json").read_text()
+    )["mcp"]["dual-mem"]
+    assert oc_mcp["type"] == "local"
+    assert oc_mcp["command"][1:3] == ["-m", "dual_mem.memhub.mcp"]
+    oc_plugin = (
+        home / ".config" / "opencode" / "plugins" / "dual-mem-hub.js"
+    ).read_text()
+    assert "chat.message" in oc_plugin and "hub" in oc_plugin and "opencode" in oc_plugin
+    for buddy in (".codebuddy", ".workbuddy"):
+        assert "dual-mem" in json.loads((home / buddy / "mcp.json").read_text())["mcpServers"]
+        buddy_hooks = json.loads((home / buddy / "settings.json").read_text())["hooks"]
+        assert set(buddy_hooks) >= {"UserPromptSubmit", "Stop"}
     skill = (
         home
         / ".claude"
@@ -1081,6 +1229,60 @@ def test_tool_calls_become_turn_steps_and_tool_output_is_dropped(tmp_path: Path)
     roles = [m["role"] for m in turn.messages()]
     assert roles == ["user", "assistant", "assistant"]
     assert "xxxx" not in json.dumps(turn.messages())
+
+    from dual_mem.coding.preproc import extract_files
+
+    codebuddy = roots["codebuddy"] / "proj" / "cb-tools.jsonl"
+    _jsonl(
+        codebuddy,
+        [
+            {"type": "message", "role": "user", "sessionId": "cb", "cwd": "/cb",
+             "gitBranch": "feat/cb", "timestamp": 1791000000000,
+             "content": [{"type": "input_text", "text": "fix parser"}]},
+            {"type": "function_call", "sessionId": "cb", "cwd": "/cb",
+             "callId": "fc1", "name": "Read",
+             "arguments": "{\"file_path\": \"src/parser.py\"}"},
+            {"type": "function_call_result", "sessionId": "cb", "cwd": "/cb",
+             "callId": "fc1", "name": "Read", "output": "secret_body"},
+            {"type": "message", "role": "assistant", "sessionId": "cb", "cwd": "/cb",
+             "timestamp": 1791000005000,
+             "content": [{"type": "output_text", "text": "parser fixed"}]},
+        ],
+    )
+    messages, _ = SOURCE_SPECS["codebuddy"].read(codebuddy, 0)
+    _, open_turn = build_turns(messages)
+    assert open_turn is not None
+    assert (open_turn.session_id, open_turn.workspace, open_turn.branch) == ("cb", "/cb", "feat/cb")
+    assert extract_files(open_turn.messages()) == ["src/parser.py"]
+    assert "secret_body" not in json.dumps(open_turn.messages())
+
+    opencode = roots["opencode"]
+    _opencode_db(
+        opencode,
+        [("oc-s", "/oc/repo", None)],
+        [
+            ("m1", "oc-s", 1791000010000, {"role": "user"}),
+            ("m2", "oc-s", 1791000011000, {"role": "assistant"}),
+            ("m3", "oc-s", 1791000012000, {"role": "assistant"}),
+        ],
+        [
+            ("p1", "m1", "oc-s", 1791000010000, {"type": "text", "text": "write svg"}),
+            ("p2", "m2", "oc-s", 1791000011000, {
+                "type": "tool", "tool": "write", "callID": "tc1",
+                "state": {"status": "completed", "input": {
+                    "filePath": "/oc/repo/out.svg", "content": "<svg>huge</svg>",
+                }, "output": "wrote file"},
+            }),
+            ("p3", "m3", "oc-s", 1791000012000, {"type": "text", "text": "done svg"}),
+        ],
+    )
+    messages, _ = SOURCE_SPECS["opencode"].read(opencode, 0)
+    _, open_turn = build_turns(messages)
+    assert open_turn is not None
+    assert (open_turn.session_id, open_turn.workspace) == ("oc-s", "/oc/repo")
+    assert extract_files(open_turn.messages()) == ["/oc/repo/out.svg"]
+    assert "<svg>huge</svg>" not in json.dumps(open_turn.messages())
+    assert "wrote file" not in json.dumps(open_turn.messages())
 
 
 async def test_scan_forwards_tool_steps_and_boundary(tmp_path: Path) -> None:

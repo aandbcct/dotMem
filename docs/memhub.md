@@ -5,11 +5,11 @@
 **MemHub 让你的 AI 工具共享一份个人记忆。** 记忆是你的长期资产，不被任何单一工具锁定，每次开口都从懂你开始。
 
 ```text
-   Claude Code   Codex   Cursor   Hermes   Agentica
-        \          |        |        |       /
-         ─────────────  MemHub  ─────────────
-                         │
-            你的个人记忆（每台电脑一份，可跨设备同步）
+ Claude Code  Codex  Cursor  Hermes  Agentica  CodeBuddy  OpenCode  WorkBuddy
+      \         \      |       |        |          |         /         /
+       ───────────────────────────  MemHub  ───────────────────────────
+                                      │
+                         你的个人记忆（每台电脑一份，可跨设备同步）
 ```
 
 ## 你会得到什么
@@ -20,7 +20,7 @@
 - **历史不浪费**：已有的会话记录一键导入，第一天就"懂你"。
 - **数据归你**：默认只存在你的电脑上；多台电脑可以经你自己的网盘文件夹、git 仓库或服务器同步。
 
-当前支持：**Claude Code、Codex、Cursor、Hermes、Agentica**。OpenCode、WorkBuddy 等更多工具正在接入，见 [Roadmap](https://github.com/shibing624/dual-mem#roadmap)。
+当前支持：**Claude Code、Codex、Cursor、Hermes、Agentica、CodeBuddy、OpenCode、WorkBuddy**。更多工具正在接入，见 [Roadmap](https://github.com/shibing624/dual-mem#roadmap)。
 
 ## 三步开始
 
@@ -30,7 +30,7 @@ pip install "dual-mem[all]"
 # 1. 启动记忆服务（登录后自动运行）
 dual-mem hub install-service
 
-# 2. 接入本机的 AI 工具。all 会写入下面五个的配置；只用其中几个就写出名字
+# 2. 接入本机的 AI 工具。all 会写入上面八个的配置；只用其中几个就写出名字
 dual-mem hub install-host all
 # dual-mem hub install-host claude-code
 # dual-mem hub install-host codex
@@ -193,8 +193,8 @@ dual-mem hub serve（唯一写者）
 - 会话扫描游标存在发起扫描那台机器的 `cursors.db`，只越过 Core 已接收的批次；Core 不可达时游标不动。
 - 冷启动可以先 `scan --raw-only`，只存 L0 原文、不调抽取模型；之后 `dual-mem hub extract` 在后台补跑抽取，复用已存的 L0。
 - 普通扫描按会话分批写入，`session_id` 带来源前缀，例如 `codex:<session-id>`。
-- Claude Code / Codex / Agentica 会话里的工具调用随对话一起送达（只用于提取涉及的文件；工具输出不采集），会话的工作目录和 git 分支作为 `workspace_id` / `branch`。Core 据此在对话记忆之外沉淀 procedure 工程经验；`recall` 和 `hub hook` 的召回默认返回最多 3 条相关经验，在注入块里标为 `[procedure]`。
-- 三家宿主的每轮召回走同一个 `UserPromptSubmit` hook 协议（stdin `prompt`，stdout `hookSpecificOutput.additionalContext`）；`install-host agentica` 在 `settings.hooks.consumers` 里订阅 `UserPromptSubmit`，召回块与 agentica 内置的 `<memory_recall>` / `<session_recall>` 并存。
+- Claude Code / Codex / Agentica / CodeBuddy / OpenCode / WorkBuddy 会话里的工具调用随对话一起送达（只用于提取涉及的文件；工具输出不采集），会话的工作目录和 git 分支作为 `workspace_id` / `branch`。Core 据此在对话记忆之外沉淀 procedure 工程经验；`recall` 和 `hub hook` 的召回 默认返回最多 3 条相关经验，在注入块里标为 `[procedure]`。
+- 各宿主的每轮召回走统一的 `UserPromptSubmit` hook 协议（stdin `prompt`，stdout `hookSpecificOutput.additionalContext`；OpenCode 通过自动加载插件桥接 `chat.message` 与 `session.idle`）；`install-host agentica` 在 `settings.hooks.consumers` 里订阅 `UserPromptSubmit`，召回块与 agentica 内置的 `<memory_recall>` / `<session_recall>` 并存。
 - Core 以 dual 模式运行时（`hub serve --mode dual`）自己 `digest()`，一天最多一次。写入队列排空后，距上次成功已满 `--digest-every` 小时（默认 24），并且还有待归纳证据，才跑。`--digest-every 0` 关闭。各台电脑不用自己触发。
 
 ### 多设备复制

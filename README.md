@@ -39,7 +39,7 @@
 
 ### 3. 🔗 多个 Agent，一份记忆
 
-MemHub 把上面这两套系统接到本机上的多个工具。Claude Code、Codex、Cursor、Hermes、Agentica 读写同一份记忆，数据默认留在你的电脑上。
+MemHub 把上面这两套系统接到本机上的多个工具。Claude Code、Codex、Cursor、Hermes、Agentica、CodeBuddy、OpenCode、WorkBuddy 读写同一份记忆，数据默认留在你的电脑上。
 
 ```bash
 pip install "dual-mem[all]"
@@ -173,12 +173,12 @@ with SyncMemoryClient() as memory:
 - [x] System 1 分层记忆 + 版本演化
 - [x] dual / System 2：显式 `digest()` 归纳 L3
 - [x] 专用决策模型把关写入
-- [x] MemHub：5 个 AI 工具共享记忆、历史会话导入、后台整理
+- [x] MemHub：8 个 AI 工具（Claude Code / Codex / Cursor / Hermes / Agentica / CodeBuddy / OpenCode / WorkBuddy）共享记忆、历史会话导入、后台整理
 - [x] 多设备同步：每台本地检索、离线可用，经同步文件夹 / git / 服务器交换变更
 - [x] chat 与 coding 统一：工程会话沉淀 procedure 经验，`dual` 也归纳工程习惯
 - [x] LoCoMo / LongMemEval / PersonaMem-v2 同场评测领先
 - [x] 记忆可视化管理：`dual-mem hub ui` 按项目查看、搜索、编辑、删除记忆
-- [ ] MemHub 接入更多工具：OpenCode、WorkBuddy等，目标 10+ 种
+- [ ] MemHub 接入更多工具：Gemini CLI、Windsurf、Trae 等，目标 10+ 种
 - [ ] 云端 HTTP MCP：远程 Agent 直接连接托管记忆
 - [ ] 多跳推理类问题的检索增强（LoCoMo multi-hop 仍有提升空间）
 - [ ] 补充更多公开评测（CodeMemoryBench 等，待数据公开）
@@ -215,7 +215,7 @@ with SyncMemoryClient() as memory:
 | [架构说明](https://github.com/shibing624/dual-mem/blob/main/docs/architecture.md) | 可选阅读：SDK 与各接入层的关系、存储 |
 | [四层记忆](https://github.com/shibing624/dual-mem/blob/main/docs/memory_layers.md) | 可选阅读：L0 原文 / L1 事实 / L2 画像 / L3 推导 |
 | [写入决策设计](https://github.com/shibing624/dual-mem/blob/main/docs/jev-memory-design.md) | 可选阅读：决策模型动作与关系、版本链 |
-| [MemHub](https://github.com/shibing624/dual-mem/blob/main/docs/memhub.md) | 本地 Core、5 个宿主接入、历史会话导入 |
+| [MemHub](https://github.com/shibing624/dual-mem/blob/main/docs/memhub.md) | 本地 Core、8 个宿主接入、历史会话导入 |
 | [多设备同步](https://github.com/shibing624/dual-mem/blob/main/docs/memhub-server.md) | `dir` / `git` / `ssh` / `http` 变更日志复制，每台本地检索 |
 | [MCP / REST](https://github.com/shibing624/dual-mem/blob/main/docs/mcp_integration.md) | 工具 ↔ HTTP ↔ SDK 对照 |
 | [生态集成](https://github.com/shibing624/dual-mem/blob/main/docs/integrations.md) | Agentica / Claude Code / Hermes / OpenClaw |

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **MemHub 新增支持 CodeBuddy、OpenCode、WorkBuddy，共支持 8 种宿主工具**（`agentica` / `claude-code` / `codebuddy` / `codex` / `cursor` / `hermes` / `opencode` / `workbuddy`）。
+  - `dual-mem hub install-host codebuddy|opencode|workbuddy|all` 自动写入 MCP、recall skill 与自动召回/会话沉淀 Hook（CodeBuddy / WorkBuddy 写入 `~/.codebuddy/{mcp.json,settings.json}` 与 `~/.workbuddy/{mcp.json,settings.json}`；OpenCode 写入 `~/.config/opencode/opencode.json` 的 `mcp.dual-mem` 与 `~/.config/opencode/plugins/dual-mem-hub.js` 插件）。
+  - `dual-mem hub scan --source codebuddy|opencode|workbuddy|all` 与 `hub capture` 支持增量读取 `~/.codebuddy/projects/**/*.jsonl`、`~/.workbuddy/projects/**/*.jsonl` 及 `~/.local/share/opencode/opencode.db`，连同工具调用（含 `filePath` 参数）与项目路径一并采集沉淀。
 - **`dual-mem hub status` 时间字段改为人类可读格式**：`runtime.started_at`、`digest.last_at` 和 `sync.last_at` 由原先的 Unix 秒时间戳（整数/浮点数）改为本地时间字符串 `YYYY-MM-DD HH:MM:SS`（`dual_mem.memhub.config.format_time`）。
 - **宿主 Hook 合并成一条命令 `dual-mem hub hook <source>`**：按 stdin 的 `hook_event_name` 分派，`UserPromptSubmit` 召回注入，其余事件（Claude Code / Codex 的 `Stop`，agentica 的 `run.completed` / `session.ended`）后台采集。agentica 里原来的两个消费者 `dual-mem-hub`（采集）和 `dual-mem-hub-recall`（召回）合并为一个 `dual-mem`：装了 hub 就该召回，拆成两个只会让人以为可以只装一半，名字也看不出谁管什么。重跑 `dual-mem hub install-host agentica` 会按命令签名（`-m dual_mem.cli`）删掉旧的两个、写入新的一个，其它消费者不动。`hub hook-search` / `hub capture` 保留为隐藏别名：旧配置里还写着它们，而命令不存在时 typer 退出码是 2，宿主会把它当作「拒绝这条提示词」。
 - **记忆管理页 `dual-mem hub ui`**：本机 Core 在 `/ui` 提供一个单文件页面，命令会带着令牌在浏览器打开它（令牌放在 URL 的 `#` 片段里，不进服务端日志）。

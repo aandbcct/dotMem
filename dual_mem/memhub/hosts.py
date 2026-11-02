@@ -127,7 +127,7 @@ class Part(Protocol):
 
 
 class JsonMcp:
-    """``{"mcpServers": {...}}`` — Agentica, Claude Code (~/.claude.json), Cursor."""
+    """``{"mcpServers": {...}}`` — Agentica, Claude Code, CodeBuddy, Cursor, WorkBuddy."""
 
     def install(self, path: Path, launch: Launch) -> None:
         data = _load_json(path)
@@ -144,6 +144,30 @@ class JsonMcp:
 
     def installed(self, path: Path) -> bool:
         return MCP_NAME in _load_json(path).get("mcpServers", {})
+
+
+class OpenCodeMcp:
+    """OpenCode ``opencode.json`` ``mcp``: ``{"type": "local", "command": [...]}``."""
+
+    def install(self, path: Path, launch: Launch) -> None:
+        data = _load_json(path)
+        mcp = launch.mcp()
+        data.setdefault("mcp", {})[MCP_NAME] = {
+            "type": "local",
+            "command": [mcp["command"], *mcp["args"]],
+        }
+        _dump_json(path, data)
+
+    def uninstall(self, path: Path) -> bool:
+        data = _load_json(path)
+        if MCP_NAME not in data.get("mcp", {}):
+            return False
+        del data["mcp"][MCP_NAME]
+        _dump_json(path, data)
+        return True
+
+    def installed(self, path: Path) -> bool:
+        return MCP_NAME in _load_json(path).get("mcp", {})
 
 
 class YamlMcp:
@@ -271,6 +295,65 @@ class ClaudeStyleHooks:
         return any(self._ours(e) for entries in hooks.values() for e in entries)
 
 
+class OpenCodePlugin:
+    """OpenCode auto-loaded plugin bridging its events onto ``hub hook opencode``:
+    ``chat.message`` → ``UserPromptSubmit`` (recall), ``session.idle`` → ``Stop`` (capture)."""
+
+    def install(self, path: Path, launch: Launch) -> None:
+        hook = json.dumps(launch.hook(), ensure_ascii=False)
+        script = f"""// {SKILL_MARKER}
+import {{ spawn }} from "child_process";
+
+const HOOK = {hook};
+
+function run(payload) {{
+  return new Promise((resolve) => {{
+    try {{
+      const child = spawn(HOOK[0], HOOK.slice(1), {{ stdio: ["pipe", "pipe", "ignore"] }});
+      let out = "";
+      child.stdout.on("data", (chunk) => {{ out += chunk.toString(); }});
+      child.on("close", () => resolve(out));
+      child.on("error", () => resolve(""));
+      child.stdin.end(JSON.stringify(payload));
+    }} catch {{
+      resolve("");
+    }}
+  }});
+}}
+
+export default async () => ({{
+  "chat.message": async (input, output) => {{
+    const prompt = output.parts
+      .filter((p) => p.type === "text" && !p.synthetic && p.text)
+      .map((p) => p.text)
+      .join("\\n")
+      .trim();
+    if (!prompt) return;
+    const raw = await run({{ hook_event_name: "UserPromptSubmit", session_id: input.sessionID, prompt }});
+    if (!raw) return;
+    const ctx = JSON.parse(raw).hookSpecificOutput?.additionalContext;
+    if (ctx) output.message.system = output.message.system ? `${{output.message.system}}\\n\\n${{ctx}}` : ctx;
+  }},
+  event: async ({{ event }}) => {{
+    if (event.type === "session.idle") {{
+      await run({{ hook_event_name: "Stop", session_id: event.properties.sessionID }});
+    }}
+  }},
+}});
+"""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(script, encoding="utf-8")
+
+    def uninstall(self, path: Path) -> bool:
+        if not self.installed(path):
+            return False
+        path.unlink()
+        return True
+
+    def installed(self, path: Path) -> bool:
+        return path.is_file() and SKILL_MARKER in path.read_text(encoding="utf-8")
+
+
 @dataclass(frozen=True)
 class HostSpec:
     # Relative to $HOME; the skill lives at <home_dir>/skills/<SKILL_NAME>/SKILL.md.
@@ -286,6 +369,9 @@ HOSTS: dict[str, HostSpec] = {
     "claude-code": HostSpec(
         ".claude", (JsonMcp(), ".claude.json"), (ClaudeStyleHooks(), ".claude/settings.json")
     ),
+    "codebuddy": HostSpec(
+        ".codebuddy", (JsonMcp(), ".codebuddy/mcp.json"), (ClaudeStyleHooks(), ".codebuddy/settings.json")
+    ),
     # Codex runs hooks only with `[features] hooks = true` and after the user trusts them.
     "codex": HostSpec(
         ".codex", (TomlMcp(), ".codex/config.toml"), (ClaudeStyleHooks(), ".codex/hooks.json")
@@ -293,13 +379,21 @@ HOSTS: dict[str, HostSpec] = {
     "cursor": HostSpec(".cursor", (JsonMcp(), ".cursor/mcp.json")),
     # Hermes is scanned from its state.db; it gets MCP + skill, no hooks.
     "hermes": HostSpec(".hermes", (YamlMcp(), ".hermes/config.yaml")),
+    "opencode": HostSpec(
+        ".config/opencode",
+        (OpenCodeMcp(), ".config/opencode/opencode.json"),
+        (OpenCodePlugin(), ".config/opencode/plugins/dual-mem-hub.js"),
+    ),
+    "workbuddy": HostSpec(
+        ".workbuddy", (JsonMcp(), ".workbuddy/mcp.json"), (ClaudeStyleHooks(), ".workbuddy/settings.json")
+    ),
 }
 
 
 def render_skill(*, host: str, recall_argv: list[str]) -> str:
     return f"""---
 name: {SKILL_NAME}
-description: 用户的全局个人记忆（dual-mem MemHub，跨 Agentica / Claude Code / Codex / Cursor / Hermes 共享）。回答涉及用户偏好、兴趣、长期约定、过往决策，或用户问「我之前问过什么 / 之前在别的 CLI 聊到哪了」时使用。
+description: 用户的全局个人记忆（dual-mem MemHub，跨 Agentica / Claude Code / CodeBuddy / Codex / Cursor / Hermes / OpenCode / WorkBuddy 共享）。回答涉及用户偏好、兴趣、长期约定、过往决策，或用户问「我之前问过什么 / 之前在别的 CLI 聊到哪了」时使用。
 ---
 
 {SKILL_MARKER}

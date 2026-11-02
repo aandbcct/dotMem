@@ -18,6 +18,7 @@ from typing import Any
 PATH_KEYS: tuple[str, ...] = (
     "path",
     "file_path",
+    "filePath",
     "filename",
     "file",
     "filepath",

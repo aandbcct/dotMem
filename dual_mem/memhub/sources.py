@@ -9,10 +9,13 @@ blocks, harness markup tags); they never guess meaning from wording:
 
 - agentica    ``~/.agentica/projects/**/<session>.jsonl``  (type user/assistant)
 - claude-code ``~/.claude/projects/**/<session>.jsonl``    (message.content text blocks)
+- codebuddy   ``~/.codebuddy/projects/**/<session>.jsonl`` (type message/function_call)
 - codex       ``~/.codex/sessions/**/rollout-*.jsonl``     (event_msg UserMessage/AgentMessage
   items — the real input, unlike response_item which also carries AGENTS.md)
 - cursor      ``~/.cursor/projects/*/agent-transcripts/**/*.jsonl``
 - hermes      ``~/.hermes/state.db`` table ``messages`` (cursor = message id)
+- opencode    ``~/.local/share/opencode/opencode.db`` tables ``part``/``message``/``session`` (cursor = part rowid)
+- workbuddy   ``~/.workbuddy/projects/**/<session>.jsonl`` (type message/function_call)
 
 A turn is the user's message plus the assistant's *last* text before the next
 user message — the answer, not the tool-call narration in between. Where a host
@@ -38,7 +41,16 @@ from typing import Any, Protocol
 from dual_mem.client import strip_memory_injection
 from dual_mem.memhub.config import CursorStore
 
-SOURCES = ("agentica", "claude-code", "codex", "cursor", "hermes")
+SOURCES = (
+    "agentica",
+    "claude-code",
+    "codebuddy",
+    "codex",
+    "cursor",
+    "hermes",
+    "opencode",
+    "workbuddy",
+)
 
 _TEXT_BLOCK_TYPES = {"text", "input_text", "output_text", "Text"}
 # Harness markup Claude Code writes into user records (reminders, slash-command echo).
@@ -50,6 +62,11 @@ _CLAUDE_MARKUP = (
     "local-command-stdout",
     "local-command-stderr",
     "local-command-caveat",
+)
+_CODEBUDDY_MARKUP = (
+    *_CLAUDE_MARKUP,
+    "conversation_history_summary",
+    "task-notification",
 )
 _CURSOR_QUERY_RE = re.compile(r"<user_query>\s*(.*?)\s*</user_query>", re.DOTALL)
 
@@ -101,6 +118,11 @@ class Turn:
         if self.assistant:
             out.append({"role": "assistant", "content": self.assistant})
         return out
+
+
+def _ms_seconds(value: int | None) -> int | None:
+    """CodeBuddy / WorkBuddy / OpenCode record epoch milliseconds."""
+    return value // 1000 if value is not None else None
 
 
 def _iso_seconds(value: Any) -> int | None:
@@ -199,6 +221,37 @@ def _parse_claude(record: dict, state: dict) -> tuple[str, str, str, int | None]
         record.get("sessionId") or state["session_id"],
         _iso_seconds(record.get("timestamp")),
     )
+
+
+def _parse_codebuddy(record: dict, state: dict) -> tuple[str, str, str, int | None] | None:
+    """CodeBuddy and WorkBuddy share one JSONL format: ``message`` and ``function_call``."""
+    if record.get("cwd"):
+        state["workspace"] = record["cwd"]
+    if record.get("gitBranch"):
+        state["branch"] = record["gitBranch"]
+    kind = record.get("type")
+    if kind == "session-meta":
+        state["session_id"] = record.get("sessionId") or state["session_id"]
+        return None
+    session_id = record.get("sessionId") or state["session_id"]
+    at = _ms_seconds(record.get("timestamp"))
+    if kind == "function_call":
+        state["steps"].append(
+            _tool_call(
+                str(record.get("callId") or record.get("id") or ""),
+                str(record.get("name") or ""),
+                record.get("arguments") or {},
+            )
+        )
+        return "assistant", "", session_id, at
+    role = record.get("role")
+    if kind != "message" or role not in ("user", "assistant"):
+        return None
+    text = _blocks_text(record.get("content"))
+    if role == "user":
+        query = _CURSOR_QUERY_RE.search(text)
+        text = query.group(1) if query else _strip_tags(text, _CODEBUDDY_MARKUP)
+    return role, text, session_id, at
 
 
 def _parse_codex(record: dict, state: dict) -> tuple[str, str, str, int | None] | None:
@@ -324,6 +377,46 @@ def _read_hermes(path: Path, start: int) -> tuple[list[Message], int]:
     return messages, rows[-1][0] if rows else start
 
 
+def _read_opencode(path: Path, start: int) -> tuple[list[Message], int]:
+    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        rows = conn.execute(
+            "SELECT p.rowid, s.id, s.directory, m.time_created, m.data, p.data "
+            "FROM part p "
+            "JOIN message m ON m.id = p.message_id "
+            "JOIN session s ON s.id = p.session_id "
+            "WHERE p.rowid > ? AND s.parent_id IS NULL "
+            "ORDER BY p.rowid",
+            (start,),
+        ).fetchall()
+    finally:
+        conn.close()
+    messages: list[Message] = []
+    for row_id, session_id, directory, created_ms, msg_json, part_json in rows:
+        msg = json.loads(msg_json)
+        role = msg.get("role")
+        if role not in ("user", "assistant") or msg.get("summary") is True:
+            continue
+        part = json.loads(part_json)
+        at = _ms_seconds(created_ms)
+        workspace = directory or (msg.get("path") or {}).get("cwd") or None
+        kind = part.get("type")
+        if kind == "text" and not part.get("synthetic"):
+            text = strip_memory_injection(part.get("text") or "").strip()
+            if text:
+                messages.append(
+                    Message(role, text, session_id, at, row_id - 1, row_id, (), workspace)
+                )
+        elif role == "assistant" and kind == "tool":
+            # Arguments locate the files touched; a write's ``content`` is output, not kept.
+            inp = {k: v for k, v in part["state"]["input"].items() if k != "content"}
+            step = _tool_call(str(part.get("callID") or ""), str(part.get("tool") or ""), inp)
+            messages.append(
+                Message("assistant", "", session_id, at, row_id - 1, row_id, (step,), workspace)
+            )
+    return messages, rows[-1][0] if rows else start
+
+
 @dataclass(frozen=True)
 class SourceSpec:
     name: str
@@ -358,6 +451,12 @@ SOURCE_SPECS: dict[str, SourceSpec] = {
         _jsonl_files("*.jsonl"),
         lambda p, s: _read_jsonl(p, s, _parse_claude),
     ),
+    "codebuddy": SourceSpec(
+        "codebuddy",
+        ".codebuddy/projects",
+        _jsonl_files("*.jsonl"),
+        lambda p, s: _read_jsonl(p, s, _parse_codebuddy),
+    ),
     "codex": SourceSpec(
         "codex",
         ".codex/sessions",
@@ -375,6 +474,18 @@ SOURCE_SPECS: dict[str, SourceSpec] = {
         ".hermes/state.db",
         lambda root: [root] if root.is_file() else [],
         _read_hermes,
+    ),
+    "opencode": SourceSpec(
+        "opencode",
+        ".local/share/opencode/opencode.db",
+        lambda root: [root] if root.is_file() else [],
+        _read_opencode,
+    ),
+    "workbuddy": SourceSpec(
+        "workbuddy",
+        ".workbuddy/projects",
+        _jsonl_files("*.jsonl"),
+        lambda p, s: _read_jsonl(p, s, _parse_codebuddy),
     ),
 }
 
@@ -535,14 +646,14 @@ def locate_transcript(
 ) -> Path | None:
     """The transcript a host hook payload refers to.
 
-    Claude Code / Codex / Cursor hooks carry ``transcript_path``. Agentica's
-    ``run.completed`` notice carries only ``session_id``, which names its log file.
+    Claude Code / CodeBuddy / Codex / Cursor / WorkBuddy hooks carry ``transcript_path``.
+    Agentica's ``run.completed`` and OpenCode's ``session.idle`` carry ``session_id``.
     """
     if payload.get("transcript_path"):
         return Path(payload["transcript_path"]).expanduser()
     root = (roots or default_source_roots())[source]
-    if source == "hermes":
-        return root
+    if source in ("hermes", "opencode"):
+        return root if root.is_file() else None
     session_id = payload.get("session_id")
     if not session_id or not root.is_dir():
         return None
