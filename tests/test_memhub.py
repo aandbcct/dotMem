@@ -2166,13 +2166,14 @@ def test_cursor_hooks_install_beside_other_hooks_and_uninstall_cleanly(tmp_path:
     assert data["version"] == 1
     assert data["hooks"]["afterFileEdit"] == [other]
     assert data["hooks"]["stop"][0] == other and len(data["hooks"]["stop"]) == 2
-    assert shlex.split(data["hooks"]["stop"][1]["command"])[1:] == [
-        "-m", "memhub.cli", "hook", "cursor", "--hub-dir", str(tmp_path / "hub"),
-    ]
+    ours = ["-m", "memhub.cli", "hook", "cursor", "--hub-dir", str(tmp_path / "hub")]
+    assert shlex.split(data["hooks"]["stop"][1]["command"])[1:] == ours
+    assert [shlex.split(e["command"])[1:] for e in data["hooks"]["beforeSubmitPrompt"]] == [ours]
     assert hosts_status(home=home)["cursor"]["hooks"] is True
 
     assert uninstall_host("cursor", home=home)["hooks"] is True
     assert json.loads(path.read_text())["hooks"]["stop"] == [other]
+    assert json.loads(path.read_text())["hooks"]["beforeSubmitPrompt"] == []
     assert hosts_status(home=home)["cursor"]["hooks"] is False
 
 
@@ -2210,3 +2211,38 @@ def test_locate_cursor_transcript_by_conversation_id_when_path_is_null(tmp_path:
     assert locate_transcript(
         "cursor", {"conversation_id": "c1", "transcript_path": None}, roots
     ) == path
+
+
+def test_cursor_prompt_hook_replies_additional_context_scoped_to_workspace_root(
+    tmp_path: Path, monkeypatch
+) -> None:
+    sent: list[dict] = []
+
+    class FakeRemote:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_exc):
+            return None
+
+        async def recall(self, **kwargs):
+            sent.append(kwargs)
+            empty = {k: [] for k in ("profile", "proactive", "normal", "raw", "schema", "catalog")}
+            return {"memories": empty, "conversations": [
+                {"session_id": "cursor:a", "content": "测试命令是 uv run pytest", "memory_at": 1_793_600_000},
+            ]}
+
+    monkeypatch.setattr(cli_hub, "make_client", lambda _hub: FakeRemote())
+    out = runner.invoke(
+        cli_main.app, ["hook", "cursor", "--hub-dir", str(tmp_path)],
+        input=json.dumps({
+            "hook_event_name": "beforeSubmitPrompt", "cursor_version": "3.27.22",
+            "workspace_roots": ["/w/repo", "/w/other"], "prompt": "测试命令?",
+        }, ensure_ascii=False),
+    )
+    assert out.exit_code == 0, out.output
+    reply = json.loads(out.output)
+    assert list(reply) == ["additional_context"]
+    assert reply["additional_context"].startswith("<relevant-memories>")
+    assert "uv run pytest" in reply["additional_context"]
+    assert sent[0]["workspace"] == "/w/repo" and sent[0]["query"] == "测试命令?"

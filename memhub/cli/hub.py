@@ -481,16 +481,18 @@ def _capture(source: str, payload: dict[str, Any], hub_dir: str | None) -> None:
     _spawn_detached(argv, hub_root(hub_dir) / "logs" / "capture.log")
 
 
-def _recall(payload: dict[str, Any], limit: int, hub_dir: str | None) -> None:
-    """Answer ``UserPromptSubmit`` with the memories relevant to this prompt."""
+def _recall(payload: dict[str, Any], limit: int, hub_dir: str | None, source: str) -> None:
+    """Answer the host's prompt event with the memories relevant to this prompt."""
     prompt = payload.get("prompt", "").strip()
     if not prompt:
         return
+    # Cursor names the open folders instead of a working directory.
+    workspace = payload.get("cwd") or next(iter(payload.get("workspace_roots") or []), None)
 
     async def search() -> dict[str, Any]:
         async with make_client(hub_dir) as client:
             return await client.recall(
-                query=prompt, limit=limit, raw_limit=3, workspace=payload.get("cwd")
+                query=prompt, limit=limit, raw_limit=3, workspace=workspace
             )
 
     result = asyncio.run(search())
@@ -514,7 +516,9 @@ def _recall(payload: dict[str, Any], limit: int, hub_dir: str | None) -> None:
         context = f"<relevant-memories>\n{context}\n</relevant-memories>"
         typer.echo(
             json.dumps(
-                {
+                {"additional_context": context}
+                if source == "cursor"
+                else {
                     "hookSpecificOutput": {
                         "hookEventName": "UserPromptSubmit",
                         "additionalContext": context,
@@ -540,8 +544,8 @@ def hub_hook(
         # ~/.cursor/hooks.json is the one that reads its transcript format.
         if source != "cursor" and "cursor_version" in payload:
             return
-        if payload.get("hook_event_name") == "UserPromptSubmit":
-            _recall(payload, limit, hub_dir)
+        if payload.get("hook_event_name") in ("UserPromptSubmit", "beforeSubmitPrompt"):
+            _recall(payload, limit, hub_dir, source)
         else:
             _capture(source, payload, hub_dir)
 

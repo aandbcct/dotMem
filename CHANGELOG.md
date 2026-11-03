@@ -2,8 +2,9 @@
 
 ## Unreleased
 
+- **Cursor 提问时自动注入记忆**：`memhub install-host cursor` 同时注册 `beforeSubmitPrompt`，召回结果以 `additional_context` 返回，项目取 `workspace_roots`。官方 hooks 文档里该事件的输出只列了 `continue` / `user_message`；Cursor 3.27.22 客户端实际会读取 `additional_context`，作为 `<system_reminder>` 随提示词发给模型（超过 1 万字转存文件）。已安装的用户需重跑 `memhub install-host cursor`。
 - **Cursor 接入补齐**：
-  - **自动采集**：`memhub install-host cursor` 会在 `~/.cursor/hooks.json` 的 `stop` 事件里挂上 `memhub hook cursor`，其它 hook 保持不动。Cursor 也会执行 `~/.claude/settings.json` 里的 Claude Code hook；带 `cursor_version` 的 payload 交给非 cursor 的 hook 时会被忽略，避免用 Claude 的格式去解析 Cursor 的 transcript。召回仍走 MCP 和 skill，因为 Cursor 的 `beforeSubmitPrompt` 不能注入上下文。
+  - **自动采集**：`memhub install-host cursor` 会在 `~/.cursor/hooks.json` 的 `stop` 事件里挂上 `memhub hook cursor`，其它 hook 保持不动。Cursor 也会执行 `~/.claude/settings.json` 里的 Claude Code hook；带 `cursor_version` 的 payload 交给非 cursor 的 hook 时会被忽略，避免用 Claude 的格式去解析 Cursor 的 transcript。
   - **工具轨迹**：`tool_use` 块记为工具步骤，Cursor 的编码会话现在也会沉淀 `procedure`。`contents` / `old_string` / `new_string` 和 `ApplyPatch` 的补丁正文属于产出，不保留，只留下路径之类的参数。
   - **项目与时间**：项目路径由 `~/.cursor/projects/<slug>` 反推（逐级匹配现存目录；一个 slug 对应两个目录时不猜）。目录已不存在时，改用工具参数里的路径推断。时间取每条提示的 `<timestamp>`，没有时沿用上一条，第一条之前用文件的 mtime。本机 223 个会话、3308 轮实测：时间 100% 有值，项目路径覆盖 99.3%（没有覆盖到的主要是 `empty-window`）。
   - Hook payload 里的 `transcript_path` 为空时，按 `conversation_id` 找 transcript。

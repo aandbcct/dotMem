@@ -355,8 +355,7 @@ export default async () => ({{
 
 
 class CursorHooks:
-    """``~/.cursor/hooks.json``: capture on ``stop``. Cursor's prompt hook
-    (``beforeSubmitPrompt``) can only allow or block, so recall stays with MCP + skill."""
+    """``~/.cursor/hooks.json``: recall on ``beforeSubmitPrompt``, capture on ``stop``."""
 
     @staticmethod
     def _ours(entry: dict) -> bool:
@@ -366,24 +365,29 @@ class CursorHooks:
         data = _load_json(path)
         data.setdefault("version", 1)
         hooks = data.setdefault("hooks", {})
-        entries = [e for e in hooks.get("stop", []) if not self._ours(e)]
-        entries.append({"command": shlex.join(launch.hook())})
-        hooks["stop"] = entries
+        command = shlex.join(launch.hook())
+        for event in ("beforeSubmitPrompt", "stop"):
+            entries = [e for e in hooks.get(event, []) if not self._ours(e)]
+            entries.append({"command": command})
+            hooks[event] = entries
         _dump_json(path, data)
 
     def uninstall(self, path: Path) -> bool:
         data = _load_json(path)
         hooks = data.get("hooks", {})
-        entries = hooks.get("stop", [])
-        kept = [e for e in entries if not self._ours(e)]
-        if len(kept) == len(entries):
-            return False
-        hooks["stop"] = kept
-        _dump_json(path, data)
-        return True
+        changed = False
+        for event, entries in list(hooks.items()):
+            kept = [e for e in entries if not self._ours(e)]
+            if len(kept) != len(entries):
+                hooks[event] = kept
+                changed = True
+        if changed:
+            _dump_json(path, data)
+        return changed
 
     def installed(self, path: Path) -> bool:
-        return any(self._ours(e) for e in _load_json(path).get("hooks", {}).get("stop", []))
+        hooks = _load_json(path).get("hooks", {})
+        return any(self._ours(e) for entries in hooks.values() for e in entries)
 
 
 @dataclass(frozen=True)
