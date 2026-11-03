@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **新增 `memhub remember "<内容>"`，重写宿主 skill**：`remember` 和 MCP 的 `memory_add` 一样，交给本机 Core 写入并绑定个人 scope，不用传 `--user-id`。宿主 skill 改成一张表，列出每件事对应的 MCP 工具和没有 MCP 时的命令；并写明不要用 `memhub add` / `memhub search`（SDK 命令，不经过 Core，会写进当前目录下的 `./.memhub_data`），也不要去读 `~/.memhub` 下的库。此前 WorkBuddy 在没加载 MCP 时，为了写一条记忆，先后调用了 `add --help`、`list-scopes`，还去读了配置、数据库和源码，最后写进了工作目录下的另一个库。已安装的宿主需要重跑 `memhub install-host`。
 - **skill 统一叫 `memhub-recall`**：仓库里的 `skills/memhub/` 改名为 `skills/memhub-recall/`，`name` 跟着改成 `memhub-recall`，和 `install-host` 写进各宿主的 skill 用同一个名字。宿主里已装的 skill 不受影响，不用重装。
 - **Cursor 提问时自动注入记忆**：`memhub install-host cursor` 同时注册 `beforeSubmitPrompt`，召回结果以 `additional_context` 返回，项目取 `workspace_roots`。官方 hooks 文档里该事件的输出只列了 `continue` / `user_message`；Cursor 3.27.22 客户端实际会读取 `additional_context`，作为 `<system_reminder>` 随提示词发给模型（超过 1 万字转存文件）。已安装的用户需重跑 `memhub install-host cursor`。
 - **Cursor 接入补齐**：

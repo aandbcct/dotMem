@@ -8,6 +8,7 @@ import json
 import logging
 import subprocess
 import sys
+import uuid
 import webbrowser
 from collections import Counter
 from collections.abc import Iterator
@@ -585,3 +586,17 @@ def hub_recall(
             )
         )
     typer.echo("\n\n".join(sections) or "没有相关记忆。")
+
+
+@hub_app.command("remember")
+def hub_remember(
+    content: str = typer.Argument(..., help="要长期记住的内容"),
+    hub_dir: str | None = HubDir,
+) -> None:
+    """交给本机 Core 写入一条记忆（与 MCP 的 memory_add 相同，已绑定个人 scope）。"""
+
+    async def write() -> dict[str, Any]:
+        async with make_client(hub_dir) as client:
+            return await client.write(content=content, request_id=f"hub-cli:{uuid.uuid4()}")
+
+    _echo(asyncio.run(write()))

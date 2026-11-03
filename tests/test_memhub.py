@@ -636,7 +636,10 @@ def test_install_uninstall_hosts_use_local_proxy(tmp_path: Path, monkeypatch) ->
         / "memhub-recall"
         / "SKILL.md"
     ).read_text()
-    assert "不传 `user_id`" in skill
+    assert "不需要也不能传 `user_id`" in skill
+    # The fallback commands go through the Core, never the SDK CLI's own store.
+    assert "-m memhub.cli recall --hub-dir" in skill
+    assert "-m memhub.cli remember --hub-dir" in skill
 
     for key in ("ENABLED", "CONSUMERS"):
         monkeypatch.delenv(f"AGENTICA_HOOKS_{key}", raising=False)
@@ -2246,3 +2249,28 @@ def test_cursor_prompt_hook_replies_additional_context_scoped_to_workspace_root(
     assert reply["additional_context"].startswith("<relevant-memories>")
     assert "uv run pytest" in reply["additional_context"]
     assert sent[0]["workspace"] == "/w/repo" and sent[0]["query"] == "测试命令?"
+
+
+def test_remember_writes_through_the_core_without_a_user_id(tmp_path: Path, monkeypatch) -> None:
+    sent: list[dict] = []
+
+    class FakeRemote:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_exc):
+            return None
+
+        async def write(self, **kwargs):
+            sent.append(kwargs)
+            return {"status": "pending", "request_id": kwargs["request_id"]}
+
+    monkeypatch.setattr(cli_hub, "make_client", lambda _hub: FakeRemote())
+    out = runner.invoke(
+        cli_main.app, ["remember", "我在开发 super agent", "--hub-dir", str(tmp_path)]
+    )
+    assert out.exit_code == 0, out.output
+    assert [s["content"] for s in sent] == ["我在开发 super agent"]
+    assert sent[0]["request_id"].startswith("hub-cli:")
+    assert "user_id" not in sent[0]
+    assert json.loads(out.output)["status"] == "pending"
