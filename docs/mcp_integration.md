@@ -99,4 +99,4 @@ Cursor 侧预期形态（示意，尚未提供官方 npm 包）：
 
 ## Skill
 
-`skills/memhub-recall/SKILL.md` — 指导 agent 何时读写记忆、如何解读 profile/proactive/normal 与演化链。
+`memhub/skills/memhub-sdk/SKILL.md` — 指导 agent 何时读写记忆、如何解读 profile/proactive/normal 与演化链。

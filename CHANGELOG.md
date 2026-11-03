@@ -2,8 +2,11 @@
 
 ## Unreleased
 
+- **两份 skill 都放进仓库，名字按用途区分**：
+  - `memhub/skills/memhub-recall/SKILL.md`：宿主用的 skill 模板，原先是 `hosts.py` 里的一段字符串。`install-host` 读这份模板，填上宿主名、`recall` / `remember` 命令后，写到 `~/.<宿主>/skills/memhub-recall/`。
+  - `memhub/skills/memhub-sdk/SKILL.md`：给开发者手动安装的 SDK 使用说明（CLI、REST、MCP 对照，以及 scope），原先在 `skills/memhub-recall/`，`name` 改为 `memhub-sdk`。两份内容和用途都不同，之前用同一个名字装进同一个宿主会互相覆盖。
+  - 两份都打进了安装包（`package-data`）。
 - **新增 `memhub remember "<内容>"`，重写宿主 skill**：`remember` 和 MCP 的 `memory_add` 一样，交给本机 Core 写入并绑定个人 scope，不用传 `--user-id`。宿主 skill 改成一张表，列出每件事对应的 MCP 工具和没有 MCP 时的命令；并写明不要用 `memhub add` / `memhub search`（SDK 命令，不经过 Core，会写进当前目录下的 `./.memhub_data`），也不要去读 `~/.memhub` 下的库。此前 WorkBuddy 在没加载 MCP 时，为了写一条记忆，先后调用了 `add --help`、`list-scopes`，还去读了配置、数据库和源码，最后写进了工作目录下的另一个库。已安装的宿主需要重跑 `memhub install-host`。
-- **skill 统一叫 `memhub-recall`**：仓库里的 `skills/memhub/` 改名为 `skills/memhub-recall/`，`name` 跟着改成 `memhub-recall`，和 `install-host` 写进各宿主的 skill 用同一个名字。宿主里已装的 skill 不受影响，不用重装。
 - **Cursor 提问时自动注入记忆**：`memhub install-host cursor` 同时注册 `beforeSubmitPrompt`，召回结果以 `additional_context` 返回，项目取 `workspace_roots`。官方 hooks 文档里该事件的输出只列了 `continue` / `user_message`；Cursor 3.27.22 客户端实际会读取 `additional_context`，作为 `<system_reminder>` 随提示词发给模型（超过 1 万字转存文件）。已安装的用户需重跑 `memhub install-host cursor`。
 - **Cursor 接入补齐**：
   - **自动采集**：`memhub install-host cursor` 会在 `~/.cursor/hooks.json` 的 `stop` 事件里挂上 `memhub hook cursor`，其它 hook 保持不动。Cursor 也会执行 `~/.claude/settings.json` 里的 Claude Code hook；带 `cursor_version` 的 payload 交给非 cursor 的 hook 时会被忽略，避免用 Claude 的格式去解析 Cursor 的 transcript。

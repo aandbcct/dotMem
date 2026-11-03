@@ -67,7 +67,7 @@ memhub-hook = "memhub.integrations.claude_code:main"
 include = ["memhub*"]
 
 [tool.setuptools.package-data]
-memhub = ["config.default.yaml", "hub/ui.html"]
+memhub = ["config.default.yaml", "hub/ui.html", "skills/*/SKILL.md"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

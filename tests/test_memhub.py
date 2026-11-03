@@ -640,6 +640,9 @@ def test_install_uninstall_hosts_use_local_proxy(tmp_path: Path, monkeypatch) ->
     # The fallback commands go through the Core, never the SDK CLI's own store.
     assert "-m memhub.cli recall --hub-dir" in skill
     assert "-m memhub.cli remember --hub-dir" in skill
+    # Rendered from the template in the repo; every placeholder is filled.
+    assert "{" not in skill.split("---", 2)[2]
+    assert "`claude-code`" in skill
 
     for key in ("ENABLED", "CONSUMERS"):
         monkeypatch.delenv(f"AGENTICA_HOOKS_{key}", raising=False)

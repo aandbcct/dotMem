@@ -45,7 +45,7 @@ Agent / Cursor  ──MCP──▶  MCP Server（受 Skill 指导）  ──▶ 
 | CLI（SDK 前端） | `memhub.cli`（`memhub`） | Hub 与 SDK 的统一命令行入口，`asyncio.run` 包装 | → SDK |
 | REST | `memhub.api`（`memhub serve-api`） | 独立多租户 HTTP 接口，鉴权 + 统一错误，契约见 [`mcp_integration.md`](./mcp_integration.md) | → SDK |
 | MCP（生态） | `memhub.mcp`（`memhub-mcp`） | 面向 agent 的工具协议；**本地** stdio / streamable-http 已实现；**云端** HTTP MCP 规划走 REST 同一契约 | → SDK（云端经 REST → SDK） |
-| Skill（生态） | `skills/memhub-recall/SKILL.md` | 指导 agent 何时/如何调用 MCP/CLI | → MCP/CLI |
+| Skill（生态） | `memhub/skills/memhub-sdk/SKILL.md` | 指导 agent 何时/如何调用 MCP/CLI | → MCP/CLI |
 | 存储 | `memhub.storage` | Chroma 向量是当前可读性；Kuzu 只投影 dual digest 的证据关系；SQLite 保存历史、版本计划与跨设备复制日志（`log` / `tombstones`） | — |
 
 > 关于目录结构：MCP/CLI 代码物理上仍位于 `memhub.*` 子包内（便于单包安装与

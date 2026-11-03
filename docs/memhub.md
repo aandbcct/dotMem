@@ -135,6 +135,9 @@ memhub connect git git@github.com:<你的用户名>/my-vibecoding-memory.git
 3. **读**：你提交提示词时，`memhub hook` 收到 `UserPromptSubmit`（Cursor 是 `beforeSubmitPrompt`，OpenCode 由插件转发 `chat.message`），按当前项目召回相关记忆注入上下文；Agent 也可以通过 MCP 工具（`memory_search` 等）主动查。都只读本机库。Hermes 目前只接了 MCP 和 skill，不会自动注入。
 4. **同步**（`connect` 之后）：本机库的每次变更带着向量记进变更日志，Core 在后台把它推到同步目标，并拉回其它电脑的变更。
 
+`install-host` 给每个宿主写入的 skill 叫 `memhub-recall`，模板在仓库的 `memhub/skills/memhub-recall/SKILL.md`。
+要直接用 SDK（`MemoryClient`、REST、自建 MCP）的开发者，另有一份 `memhub/skills/memhub-sdk/SKILL.md`，需要手动安装。
+
 ## 常用命令
 
 | 想做什么 | 命令 |
