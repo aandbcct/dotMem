@@ -44,7 +44,7 @@ memhub scan --source claude-code   # 或 --source all 导入全部已安装工�
 
 # 4. 随时检索，或在浏览器可视化管理记忆
 memhub recall "我之前做过哪些技术选择"
-memhub ui                          # 打开 http://127.0.0.1:8765/ui 按项目查看、搜索、编辑、删除记忆
+memhub ui                          # 打开 http://127.0.0.1:8765/ui 按项目查看、更新记忆
 ```
 
 <p align="center">

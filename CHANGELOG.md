@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **本机 `versions.db` 不再存第二份向量**：已提交的版本计划在 journal 里只保留节点 id、正文和元数据，向量只存在 Chroma 里；导出日志时再从 Chroma 读取。这期间被删除的节点不再随日志传出。真实库副本实测，`versions.db` 从 27MB 降到 4.3MB，其中 99% 是计划里重复存放的十进制向量。同步格式不变，旧设备推来的条目照常导入。已有的旧计划不做自动迁移；它们在导出时同样改从 Chroma 取向量。
 - **CLI 提升为一级命令、`memhub/memhub` 重命名为 `memhub/hub`、默认 `storage_dir` 改为 `./.memhub_data`**：
   - 所有 Hub 命令直接作为 `memhub` 一级子命令（`memhub install-service`、`memhub install-host`、`memhub ui`、`memhub status`、`memhub recall`、`memhub scan`、`memhub connect`、`memhub disconnect`、`memhub sync`、`memhub serve` 等），无需再敲 `memhub hub ...`；独立多租户 REST 服务命令改为 `memhub serve-api`。
   - 包内子目录由 `memhub/memhub/` 重命名为 `memhub/hub/`（`memhub.hub`）。

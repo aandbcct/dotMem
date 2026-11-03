@@ -67,6 +67,12 @@ def _unpacked(kind: str, data: Any) -> Any:
     return data
 
 
+def _without_vectors(payload: dict) -> dict:
+    """A committed plan as the journal keeps it: Chroma holds the vectors."""
+    nodes = [{k: v for k, v in n.items() if k != "embedding"} for n in payload["nodes"]]
+    return {**payload, "nodes": nodes}
+
+
 def _union(current: str, incoming: str) -> str:
     # Sorted, so replicas that merged the same links in another order agree.
     items = set(current.split(_LIST_SEP) if current else [])
@@ -657,6 +663,15 @@ class ChromaVectorStore(VectorStore):
                 "SELECT id, scope, epoch, payload FROM plans WHERE id=?", (body,)
             ).fetchone()
             payload = json.loads(payload)
+            # Vectors come from Chroma; a node deleted since then no longer travels.
+            vectors = {row["id"]: row["embedding"] for row in self._node_rows(
+                [n["id"] for n in payload["nodes"]]
+            )}
+            payload["nodes"] = [
+                {**n, "embedding": vectors[n["id"]]}
+                for n in payload["nodes"]
+                if n["id"] in vectors
+            ]
             payload["patches"] = self._live(payload["patches"])
             return {"id": plan_id, "scope": scope, "epoch": epoch, "payload": payload}
         if kind == "nodes":
@@ -834,7 +849,7 @@ class ChromaVectorStore(VectorStore):
         with self._journal:
             self._journal.execute(
                 "INSERT OR IGNORE INTO plans(id,scope,epoch,payload,done) VALUES (?,?,?,?,1)",
-                (plan_id, data["scope"], data["epoch"], json.dumps(payload)),
+                (plan_id, data["scope"], data["epoch"], json.dumps(_without_vectors(payload))),
             )
             if payload.get("request_key"):
                 self._journal.execute(
@@ -926,7 +941,11 @@ class ChromaVectorStore(VectorStore):
                 "INSERT INTO epochs(scope,epoch) VALUES (?,?) ON CONFLICT(scope) DO UPDATE SET epoch=excluded.epoch",
                 (scope_key, epoch + 1),
             )
-            self._journal.execute("UPDATE plans SET done=1 WHERE id=?", (plan_id,))
+            # Until now the journal held the vectors for recovery; Chroma has them.
+            self._journal.execute(
+                "UPDATE plans SET done=1, payload=? WHERE id=?",
+                (json.dumps(_without_vectors(payload)), plan_id),
+            )
 
     def scope_epoch(self, scope: tuple[str, str, str]) -> int:
         with self._guard():

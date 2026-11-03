@@ -821,3 +821,53 @@ def test_a_stale_copy_does_not_undo_a_deletion_after_a_revival_elsewhere(tmp_pat
              "meta": node("z").to_metadata()}
     a.import_log([{"origin": "stale", "seq": 1, "kind": "nodes", "data": [stale]}])
     assert a.get("x") is not None and a.get("z") is None
+
+
+# --- a committed plan keeps no vectors: Chroma is their one home -------------------
+
+
+def stored_plan_nodes(s: ChromaVectorStore) -> list[dict]:
+    return [
+        n
+        for (payload,) in s._journal.execute("SELECT payload FROM plans").fetchall()
+        for n in json.loads(payload)["nodes"]
+    ]
+
+
+def test_journal_keeps_no_vectors_and_a_new_device_still_receives_them(tmp_path):
+    a, b, c = store(tmp_path / "a"), store(tmp_path / "b"), store(tmp_path / "c")
+    plan(a, [node("x")], request_key="k")
+    b.import_log(a.export_log())
+    for s in (a, b):
+        (stored,) = stored_plan_nodes(s)
+        assert stored["id"] == "x" and "embedding" not in stored
+    # Exported again from a store that only received it, then replayed.
+    c.import_log(b.export_log())
+    assert c.get("x").embedding == pytest.approx([1.0, 0.0])
+    assert a.completed_request("k")["extra_node_ids"] == ["x"]
+
+
+def test_a_plan_node_deleted_later_does_not_travel(tmp_path):
+    a, b = store(tmp_path / "a"), store(tmp_path / "b")
+    plan(a, [node("gone"), node("kept")])
+    a.delete(["gone"])
+    entries = a.export_log()
+    assert [n["id"] for n in entries[0]["data"]["payload"]["nodes"]] == ["kept"]
+    assert b.import_log(entries)["pending"] == 0
+    assert b.get("gone") is None
+    assert b.get("kept").embedding == pytest.approx([1.0, 0.0])
+
+
+def test_a_plan_written_before_vectors_left_the_journal_still_exports(tmp_path):
+    a, b = store(tmp_path / "a"), store(tmp_path / "b")
+    plan(a, [node("x")])
+    (plan_id, payload), = a._journal.execute("SELECT id, payload FROM plans").fetchall()
+    fat = json.loads(payload)
+    fat["nodes"][0]["embedding"] = [0.0, 1.0]
+    with a._journal:
+        a._journal.execute(
+            "UPDATE plans SET payload=? WHERE id=?", (json.dumps(fat), plan_id)
+        )
+    b.import_log(a.export_log())
+    # The stored copy is ignored: what travels is the vector the node holds.
+    assert b.get("x").embedding == pytest.approx([1.0, 0.0])
