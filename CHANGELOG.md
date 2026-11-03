@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **`memhub ui` 改版为极简浅白风格，并修复点击条目自动跳回顶部的 bug**：
+  - **修复滚动跳顶与中文输入法中断**：此前每次点击条目展开、编辑或输入筛选词时，都会用 `root.innerHTML = ...` 整棵重建 `<aside>` 和 `<main>` 滚动容器，导致 `scrollTop` 归零跳回顶部，且打字时反复销毁 `<input>` 会打断中文拼音合成（IME composition）。现在外层骨架与搜索栏常驻挂载，展开/折叠/编辑改为单张卡片原位替换（`updateCardInPlace`），列表重绘保留 `scrollTop`，并处理 `compositionstart` / `compositionend`。
+  - **极简浅白视觉风格**：改为浅灰白背景（`#f7f8fa`）+ 纯白卡片（`#ffffff`）+ 柔和语义色标签；工程经验的 `files` 改为独立文件胶囊展示；语义搜索保留搜索词并限定当前选中的项目（`workspace`）。
 - **两份 skill 都放进仓库，名字按用途区分**：
   - `memhub/skills/memhub-recall/SKILL.md`：宿主用的 skill 模板，原先是 `hosts.py` 里的一段字符串。`install-host` 读这份模板，填上宿主名、`recall` / `remember` 命令后，写到 `~/.<宿主>/skills/memhub-recall/`。
   - `memhub/skills/memhub-sdk/SKILL.md`：给开发者手动安装的 SDK 使用说明（CLI、REST、MCP 对照，以及 scope），原先在 `skills/memhub-recall/`，`name` 改为 `memhub-sdk`。两份内容和用途都不同，之前用同一个名字装进同一个宿主会互相覆盖。
