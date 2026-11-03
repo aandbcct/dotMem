@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.2.3] — 2026-11-03
+
 - **`memhub ui` 改版为极简浅白风格，并修复点击条目自动跳回顶部的 bug**：
   - **修复滚动跳顶与中文输入法中断**：此前每次点击条目展开、编辑或输入筛选词时，都会用 `root.innerHTML = ...` 整棵重建 `<aside>` 和 `<main>` 滚动容器，导致 `scrollTop` 归零跳回顶部，且打字时反复销毁 `<input>` 会打断中文拼音合成（IME composition）。现在外层骨架与搜索栏常驻挂载，展开/折叠/编辑改为单张卡片原位替换（`updateCardInPlace`），列表重绘保留 `scrollTop`，并处理 `compositionstart` / `compositionend`。
   - **极简浅白视觉风格**：改为浅灰白背景（`#f7f8fa`）+ 纯白卡片（`#ffffff`）+ 柔和语义色标签；工程经验的 `files` 改为独立文件胶囊展示；语义搜索保留搜索词并限定当前选中的项目（`workspace`）。

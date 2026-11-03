@@ -146,6 +146,7 @@ embed_base_url: https://api.openai.com/v1
 
 ## News
 
+- [2026/11/03] **v0.2.3**：Cursor 对话自动采集，并在提问前注入本项目记忆；新增 `memhub remember` 写入个人记忆。宿主 skill（`memhub-recall`）与开发者 skill（`memhub-sdk`）分开，避免互相覆盖。`memhub ui` 改为浅白风格，并修复点击条目跳回顶部、中文输入被打断的问题。本机 `versions.db` 不再重复存放向量。已安装的宿主需重跑 `memhub install-host`。详见 [Release-v0.2.3](https://github.com/shibing624/memhub/releases/tag/v0.2.3)。
 - [2026/11/02] **v0.2.2**：项目与 PyPI 包名正式升级为 **`memhub`**（`pip install memhub`、`import memhub`、CLI `memhub`、配置 `~/.memhub/config.yaml`），所有 Hub 命令提升为 `memhub` 一级子命令（`memhub install-service`、`memhub install-host`、`memhub ui`、`memhub connect` 等）。新增本机可视化管理页 `memhub ui`（按项目浏览、混合检索、编辑生成新版本、删除同步）；新增支持 CodeBuddy、OpenCode、WorkBuddy（共 8 种宿主工具）；同步目标升级为 float16 向量压缩 + 快照折叠（不再无限增长）；每轮召回按项目限定并只截取相关对话段落，离线评测达到 35/36。详见 [Release-v0.2.2](https://github.com/shibing624/memhub/releases/tag/v0.2.2)。
 - [2026/11/01] **v0.2.1**：多设备改为每台电脑本地检索，用私有 git 仓库、网盘文件夹或服务器交换变更日志，删掉了常驻 SSH 隧道。模型配置与 Hub 目录统一。工程记忆只保留问题和最终回答，工具输出不再送进模型。自动归纳改为一天最多一次。详见 [Release-v0.2.1](https://github.com/shibing624/memhub/releases/tag/v0.2.1)。
 - [2026/10/24] **v0.2.0**：chat 与 coding 统一成同一套 `add()` / `search()`。带工具轨迹的工程会话在对话记忆之外沉淀 `kind="procedure"` 工程经验，共用存储、版本链和 JEV 裁决；`dual` 的 `digest()` 也覆盖工程经验。采集 Claude Code / Codex / Agentica 的工具轨迹，dual 模式空闲时自动 digest；`install-host` 改写 YAML 时保留注释。详见 [Release-v0.2.0](https://github.com/shibing624/memhub/releases/tag/v0.2.0)。
