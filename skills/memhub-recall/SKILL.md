@@ -1,5 +1,5 @@
 ---
-name: memhub
+name: memhub-recall
 description: >
   通过 memhub 为 agent 管理长期记忆：跨工具个人记忆中枢（Hub）、写入、检索、更新、删除与 scope 管理。
   触发场景：用户透露稳定个人信息/偏好、陈述值得长期记住的事实或计划、沉淀工程排障经验，或对话需要
@@ -52,7 +52,7 @@ memhub 原生对接 5 类社区生态，统一入口在 `memhub.integrations`：
 
 | 生态 | 接入方式 | 关键文件 / 命令 |
 |------|----------|----------------|
-| skill | 本 `SKILL.md` + `MemoryClient` | `skills/memhub/SKILL.md` |
+| skill | 本 `SKILL.md` + `MemoryClient` | `skills/memhub-recall/SKILL.md` |
 | mcp | MCP server（`memhub-mcp`，stdio / streamable-http） | `memhub/mcp/server.py` |
 | hermes agent | `MemHubHermesProvider` 原生插件（被动 prefetch + 异步 `sync_turn`） | `memhub/integrations/hermes.py` |
 | openclaw | `MemHubOpenClawProvider` 原生插件（同源 `MemoryProvider` 契约） | `memhub/integrations/openclaw.py` |

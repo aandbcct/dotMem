@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **skill 统一叫 `memhub-recall`**：仓库里的 `skills/memhub/` 改名为 `skills/memhub-recall/`，`name` 跟着改成 `memhub-recall`，和 `install-host` 写进各宿主的 skill 用同一个名字。宿主里已装的 skill 不受影响，不用重装。
 - **Cursor 提问时自动注入记忆**：`memhub install-host cursor` 同时注册 `beforeSubmitPrompt`，召回结果以 `additional_context` 返回，项目取 `workspace_roots`。官方 hooks 文档里该事件的输出只列了 `continue` / `user_message`；Cursor 3.27.22 客户端实际会读取 `additional_context`，作为 `<system_reminder>` 随提示词发给模型（超过 1 万字转存文件）。已安装的用户需重跑 `memhub install-host cursor`。
 - **Cursor 接入补齐**：
   - **自动采集**：`memhub install-host cursor` 会在 `~/.cursor/hooks.json` 的 `stop` 事件里挂上 `memhub hook cursor`，其它 hook 保持不动。Cursor 也会执行 `~/.claude/settings.json` 里的 Claude Code hook；带 `cursor_version` 的 payload 交给非 cursor 的 hook 时会被忽略，避免用 Claude 的格式去解析 Cursor 的 transcript。
