@@ -29,12 +29,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import sqlite3
 import time
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -69,6 +70,14 @@ _CODEBUDDY_MARKUP = (
     "task-notification",
 )
 _CURSOR_QUERY_RE = re.compile(r"<user_query>\s*(.*?)\s*</user_query>", re.DOTALL)
+# Cursor stamps each prompt: ``<timestamp>Wednesday, Oct 14, 2026, 1:16 PM (UTC+8)</timestamp>``.
+_CURSOR_TIME_RE = re.compile(
+    r"<timestamp>\w+, (\w{3} \d{1,2}, \d{4}, \d{1,2}:\d{2} [AP]M) "
+    r"\(UTC(?:([+-])(\d{1,2})(?::(\d{2}))?)?\)</timestamp>"
+)
+# Tool arguments that carry a file's text: output, not memory material. A
+# string input (``ApplyPatch``) is a whole patch and is dropped the same way.
+_CURSOR_WRITE_KEYS = ("contents", "old_string", "new_string")
 
 
 class HubWriter(Protocol):
@@ -298,15 +307,94 @@ def _parse_cursor(record: dict, state: dict) -> tuple[str, str, str, int | None]
     role = record.get("role")
     if role not in ("user", "assistant"):
         return None
-    text = _blocks_text((record.get("message") or {}).get("content"))
+    content = (record.get("message") or {}).get("content")
+    text = _blocks_text(content)
     if role == "user":
         # Cursor wraps what the user typed in <user_query>; user records without
         # it carry harness context (tool / MCP catalogs).
         query = _CURSOR_QUERY_RE.search(text)
         if query is None:
             return None
+        state["at"] = _cursor_time(text) or state["at"]
         text = query.group(1)
-    return role, text, state["session_id"], None
+    for block in content if isinstance(content, list) else []:
+        if block.get("type") != "tool_use":
+            continue
+        args = block.get("input")
+        args = (
+            {k: v for k, v in args.items() if k not in _CURSOR_WRITE_KEYS}
+            if isinstance(args, dict)
+            else {}
+        )
+        if state["workspace"] is None:
+            state["workspace"] = _workspace_in_args(args, state["project"])
+        state["steps"].append(_tool_call("", str(block.get("name") or ""), args))
+    return role, text, state["session_id"], state["at"]
+
+
+def _cursor_time(text: str) -> int | None:
+    match = _CURSOR_TIME_RE.search(text)
+    if match is None:
+        return None
+    stamp, sign, hours, minutes = match.groups()
+    offset = timedelta(hours=int(hours or 0), minutes=int(minutes or 0))
+    tz = timezone(-offset if sign == "-" else offset)
+    return int(datetime.strptime(stamp, "%b %d, %Y, %I:%M %p").replace(tzinfo=tz).timestamp())
+
+
+def _slug(name: str) -> str:
+    """Cursor names a project directory by its path with every non-alphanumeric run as ``-``."""
+    return re.sub(r"[^A-Za-z0-9]+", "-", name).strip("-")
+
+
+def _workspace_of_slug(slug: str) -> str | None:
+    """The one existing directory whose path Cursor encodes as ``slug``."""
+    found: list[str] = []
+
+    def walk(directory: str, rest: str) -> None:
+        try:
+            entries = [e for e in os.scandir(directory) if e.is_dir()]
+        except OSError:
+            return
+        for entry in entries:
+            head = _slug(entry.name)
+            if not head:
+                continue
+            if rest == head:
+                found.append(entry.path)
+            elif rest.startswith(f"{head}-"):
+                walk(entry.path, rest[len(head) + 1:])
+
+    walk("/", slug)
+    # ``a-b`` is both ``/a-b`` and ``/a/b``; two real directories leave it undecided.
+    return found[0] if len({os.path.realpath(p) for p in found}) == 1 else None
+
+
+def _workspace_in_args(args: dict, slug: str) -> str | None:
+    """A directory named by a tool's path argument that ``slug`` encodes — how a
+    project that has since moved or been deleted is still placed."""
+    for value in args.values():
+        if isinstance(value, str) and value.startswith("/") and "\n" not in value:
+            named = Path(value)
+            for candidate in (named, *named.parents):
+                if _slug(str(candidate)) == slug:
+                    return str(candidate)
+    return None
+
+
+def _read_cursor(path: Path, start: int) -> tuple[list[Message], int]:
+    """``~/.cursor/projects/<slug>/agent-transcripts/...``: records carry no working
+    directory, so the project comes from ``<slug>``; turns without a timestamp tag
+    take the previous one, or the file's mtime before the first."""
+    slug = path.parts[path.parts.index("agent-transcripts") - 1]
+    return _read_jsonl(
+        path,
+        start,
+        _parse_cursor,
+        project=slug,
+        workspace=_workspace_of_slug(slug),
+        at=int(path.stat().st_mtime),
+    )
 
 
 def _record(line: bytes) -> dict | None:
@@ -321,13 +409,17 @@ def _record(line: bytes) -> dict | None:
 
 
 def _read_jsonl(
-    path: Path, start: int, parse: RecordParser
+    path: Path, start: int, parse: RecordParser, **seed: Any
 ) -> tuple[list[Message], int]:
-    """Messages after byte ``start``; stops before a trailing line still being written."""
+    """Messages after byte ``start``; stops before a trailing line still being written.
+
+    ``seed`` adds per-file context to the parser state (Cursor's project and time).
+    """
     if start > path.stat().st_size:
         start = 0  # the transcript was rewritten or truncated
     state: dict[str, Any] = {
         "session_id": path.stem, "steps": [], "workspace": None, "branch": None,
+        **seed,
     }
     messages: list[Message] = []
     position = start
@@ -467,7 +559,7 @@ SOURCE_SPECS: dict[str, SourceSpec] = {
         "cursor",
         ".cursor/projects",
         _jsonl_files("*.jsonl", inside="agent-transcripts"),
-        lambda p, s: _read_jsonl(p, s, _parse_cursor),
+        _read_cursor,
     ),
     "hermes": SourceSpec(
         "hermes",
@@ -647,14 +739,15 @@ def locate_transcript(
     """The transcript a host hook payload refers to.
 
     Claude Code / CodeBuddy / Codex / Cursor / WorkBuddy hooks carry ``transcript_path``.
-    Agentica's ``run.completed`` and OpenCode's ``session.idle`` carry ``session_id``.
+    Agentica's ``run.completed`` and OpenCode's ``session.idle`` carry ``session_id``;
+    Cursor names the conversation ``conversation_id``.
     """
     if payload.get("transcript_path"):
         return Path(payload["transcript_path"]).expanduser()
     root = (roots or default_source_roots())[source]
     if source in ("hermes", "opencode"):
         return root if root.is_file() else None
-    session_id = payload.get("session_id")
+    session_id = payload.get("session_id") or payload.get("conversation_id")
     if not session_id or not root.is_dir():
         return None
     return next(root.rglob(f"{session_id}.jsonl"), None)

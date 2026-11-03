@@ -354,6 +354,38 @@ export default async () => ({{
         return path.is_file() and SKILL_MARKER in path.read_text(encoding="utf-8")
 
 
+class CursorHooks:
+    """``~/.cursor/hooks.json``: capture on ``stop``. Cursor's prompt hook
+    (``beforeSubmitPrompt``) can only allow or block, so recall stays with MCP + skill."""
+
+    @staticmethod
+    def _ours(entry: dict) -> bool:
+        return HOOK_SIGNATURE in entry.get("command", "")
+
+    def install(self, path: Path, launch: Launch) -> None:
+        data = _load_json(path)
+        data.setdefault("version", 1)
+        hooks = data.setdefault("hooks", {})
+        entries = [e for e in hooks.get("stop", []) if not self._ours(e)]
+        entries.append({"command": shlex.join(launch.hook())})
+        hooks["stop"] = entries
+        _dump_json(path, data)
+
+    def uninstall(self, path: Path) -> bool:
+        data = _load_json(path)
+        hooks = data.get("hooks", {})
+        entries = hooks.get("stop", [])
+        kept = [e for e in entries if not self._ours(e)]
+        if len(kept) == len(entries):
+            return False
+        hooks["stop"] = kept
+        _dump_json(path, data)
+        return True
+
+    def installed(self, path: Path) -> bool:
+        return any(self._ours(e) for e in _load_json(path).get("hooks", {}).get("stop", []))
+
+
 @dataclass(frozen=True)
 class HostSpec:
     # Relative to $HOME; the skill lives at <home_dir>/skills/<SKILL_NAME>/SKILL.md.
@@ -376,7 +408,7 @@ HOSTS: dict[str, HostSpec] = {
     "codex": HostSpec(
         ".codex", (TomlMcp(), ".codex/config.toml"), (ClaudeStyleHooks(), ".codex/hooks.json")
     ),
-    "cursor": HostSpec(".cursor", (JsonMcp(), ".cursor/mcp.json")),
+    "cursor": HostSpec(".cursor", (JsonMcp(), ".cursor/mcp.json"), (CursorHooks(), ".cursor/hooks.json")),
     # Hermes is scanned from its state.db; it gets MCP + skill, no hooks.
     "hermes": HostSpec(".hermes", (YamlMcp(), ".hermes/config.yaml")),
     "opencode": HostSpec(

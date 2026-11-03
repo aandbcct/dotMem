@@ -536,6 +536,10 @@ def hub_hook(
     agentica 同一协议。"""
     with _hook_errors_logged(hub_dir, f"hook {source}"):
         payload = json.loads(sys.stdin.read() or "{}")
+        # Cursor also runs the hooks in ~/.claude/settings.json; its own entry in
+        # ~/.cursor/hooks.json is the one that reads its transcript format.
+        if source != "cursor" and "cursor_version" in payload:
+            return
         if payload.get("hook_event_name") == "UserPromptSubmit":
             _recall(payload, limit, hub_dir)
         else:

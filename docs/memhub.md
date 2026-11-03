@@ -130,7 +130,7 @@ memhub connect git git@github.com:<你的用户名>/my-vibecoding-memory.git
 └───────────────────────────────────────────────────┘
 ```
 
-1. **写**：一轮对话结束，宿主触发采集 Hook（Claude Code / Codex / CodeBuddy / WorkBuddy `Stop`、Agentica `run.completed` / `session.ended`、OpenCode `session.idle`）。它按本机 `cursors.db` 的游标读出会话日志里新增的轮次，交给本机 Core 后立刻返回，不等 LLM。
+1. **写**：一轮对话结束，宿主触发采集 Hook（Claude Code / Codex / CodeBuddy / WorkBuddy `Stop`、Cursor `stop`（`~/.cursor/hooks.json`）、Agentica `run.completed` / `session.ended`、OpenCode `session.idle`）。它按本机 `cursors.db` 的游标读出会话日志里新增的轮次，交给本机 Core 后立刻返回，不等 LLM。Cursor 的 `beforeSubmitPrompt` 只能放行或拦截、不能注入上下文，所以 Cursor 里的召回靠 MCP 工具和 recall skill。
 2. **整理**：Core 先把 Evidence 写进持久队列 `hub.db`，再由唯一 worker 在后台抽取、JEV 裁决、写入记忆；dual 模式下，距上次成功归纳满一天且仍有新证据时，在写入空档自动 `digest()`（多设备时只有一台负责）。
 3. **读**：你提交提示词时，`memhub hook` 收到 `UserPromptSubmit`，按当前项目召回相关记忆注入上下文；Agent 也可以通过 MCP 工具（`memory_search` 等）主动查。都只读本机库。
 4. **同步**（`connect` 之后）：本机库的每次变更带着向量记进变更日志，Core 在后台把它推到同步目标，并拉回其它电脑的变更。

@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import shlex
 import shutil
 import sqlite3
 import subprocess
@@ -13,6 +15,7 @@ import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import httpx
 import pytest
@@ -22,6 +25,7 @@ from typer.testing import CliRunner
 from memhub import MemoryClient
 from memhub.cli import hub as cli_hub
 from memhub.cli import main as cli_main
+from memhub.coding.preproc import extract_files, has_any_tool_message
 from memhub.config import Settings
 from memhub.hub import (
     HOSTS,
@@ -43,7 +47,12 @@ from memhub.hub.server import (
     read_last_digest_at,
     write_last_digest_at,
 )
-from memhub.hub.sources import SOURCE_SPECS
+from memhub.hub.sources import (
+    SOURCE_SPECS,
+    _slug,
+    _workspace_of_slug,
+    locate_transcript,
+)
 from memhub.hub.config import format_time, publish_runtime, resolve_hub_config
 from memhub.types import Layer
 
@@ -2013,3 +2022,191 @@ def test_opencode_plugin_bridges_events_onto_hub_hook(tmp_path, monkeypatch):
         {"hook_event_name": "UserPromptSubmit", "session_id": "s1", "prompt": "问题"},
         {"hook_event_name": "Stop", "session_id": "s1"},
     ]
+
+
+def _cursor_transcript(root: Path, project: str, records: list[dict]) -> Path:
+    path = root / project / "agent-transcripts" / "c1" / "c1.jsonl"
+    _jsonl(path, records)
+    return path
+
+
+def _cursor_user(text: str) -> dict:
+    return {"role": "user", "message": {"content": [{"type": "text", "text": text}]}}
+
+
+def _cursor_assistant(*blocks: dict) -> dict:
+    return {"role": "assistant", "message": {"content": list(blocks)}}
+
+
+def test_cursor_turn_keeps_time_workspace_and_tool_paths_but_no_file_text(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "my_repo-x"
+    project.mkdir()
+    path = _cursor_transcript(
+        tmp_path / "projects",
+        _slug(str(project)),
+        [
+            _cursor_user(
+                "<timestamp>Wednesday, Oct 14, 2026, 1:16 PM (UTC+8)</timestamp>\n"
+                "<user_query>\n改一下 a.py\n</user_query>"
+            ),
+            _cursor_assistant(
+                {"type": "text", "text": "我先看看"},
+                {"type": "tool_use", "name": "Read", "input": {"path": "/w/a.py", "limit": 5}},
+                {"type": "tool_use", "name": "StrReplace", "input": {
+                    "path": "/w/a.py", "old_string": "OLD_TEXT", "new_string": "NEW_TEXT"}},
+                {"type": "tool_use", "name": "Write", "input": {"path": "/w/b.py", "contents": "BODY"}},
+                {"type": "tool_use", "name": "ApplyPatch", "input": "*** Begin Patch PATCH_TEXT"},
+            ),
+            _cursor_assistant({"type": "text", "text": "改好了"}),
+            {"type": "turn_ended", "status": "success"},
+        ],
+    )
+    messages, _ = SOURCE_SPECS["cursor"].read(path, 0)
+    turns, open_turn = build_turns(messages)
+    assert turns == [] and open_turn is not None
+    assert open_turn.user == "改一下 a.py"
+    assert open_turn.assistant == "改好了"
+    assert open_turn.workspace == str(project)
+    assert open_turn.at == 1791954960  # 2026-10-14 05:16 UTC
+    assert open_turn.branch is None
+    wire = json.dumps(open_turn.messages(), ensure_ascii=False)
+    for leaked in ("OLD_TEXT", "NEW_TEXT", "BODY", "PATCH_TEXT"):
+        assert leaked not in wire
+    # The trace is what makes the Core treat this as a coding session.
+    assert has_any_tool_message(open_turn.messages())
+    assert extract_files(open_turn.messages()) == ["/w/a.py", "/w/b.py"]
+
+
+def test_cursor_read_resumed_mid_file_keeps_workspace_and_uses_each_prompts_time(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "repo"
+    project.mkdir()
+    path = _cursor_transcript(
+        tmp_path / "projects",
+        _slug(str(project)),
+        [
+            _cursor_user(
+                "<timestamp>Wednesday, Oct 14, 2026, 1:16 PM (UTC+8)</timestamp>"
+                "<user_query>一</user_query>"
+            ),
+            _cursor_assistant({"type": "text", "text": "答一"}),
+            _cursor_user(
+                "<timestamp>Wednesday, Oct 14, 2026, 11:30 PM (UTC-5)</timestamp>"
+                "<user_query>二</user_query>"
+            ),
+            _cursor_assistant({"type": "text", "text": "答二"}),
+        ],
+    )
+    first_two = sum(len(line) for line in path.read_bytes().splitlines(True)[:2])
+    messages, _ = SOURCE_SPECS["cursor"].read(path, first_two)
+    _, open_turn = build_turns(messages)
+    assert open_turn.user == "二"
+    assert open_turn.workspace == str(project)
+    assert open_turn.at == 1792038600  # 2026-10-15 04:30 UTC
+
+
+def test_cursor_prompt_without_timestamp_falls_back_to_file_mtime(tmp_path: Path) -> None:
+    path = _cursor_transcript(
+        tmp_path,
+        "empty-window",
+        [_cursor_user("<user_query>问</user_query>"), _cursor_assistant({"type": "text", "text": "答"})],
+    )
+    os.utime(path, (1700000000, 1700000000))
+    messages, _ = SOURCE_SPECS["cursor"].read(path, 0)
+    assert [m.at for m in messages] == [1700000000, 1700000000]
+    assert {m.workspace for m in messages} == {None}
+
+
+def test_cursor_project_that_no_longer_exists_is_placed_from_tool_paths(tmp_path: Path) -> None:
+    gone = tmp_path / "gone" / "my.repo"
+    path = _cursor_transcript(
+        tmp_path / "projects",
+        _slug(str(gone)),
+        [
+            _cursor_user("<user_query>问</user_query>"),
+            _cursor_assistant(
+                {"type": "tool_use", "name": "Grep", "input": {"pattern": "/not/a/match"}},
+                {"type": "tool_use", "name": "Read", "input": {"path": f"{gone}/src/a.py"}},
+            ),
+            _cursor_assistant({"type": "text", "text": "答"}),
+        ],
+    )
+    messages, _ = SOURCE_SPECS["cursor"].read(path, 0)
+    assert build_turns(messages)[1].workspace == str(gone)
+
+
+def test_cursor_slug_matching_two_directories_is_left_undecided(tmp_path: Path) -> None:
+    (tmp_path / "a-b").mkdir()
+    (tmp_path / "a" / "b").mkdir(parents=True)
+    assert _workspace_of_slug(_slug(str(tmp_path / "a-b"))) is None
+    # A symlink to the same directory is one directory, not an ambiguity.
+    (tmp_path / "c").mkdir()
+    (tmp_path / "d-e").mkdir()
+    (tmp_path / "d").symlink_to(tmp_path / "c")
+    (tmp_path / "c" / "e").symlink_to(tmp_path / "d-e")
+    assert _workspace_of_slug(_slug(str(tmp_path / "d-e"))) in (
+        str(tmp_path / "d-e"), str(tmp_path / "d" / "e"),
+    )
+
+
+def test_cursor_hooks_install_beside_other_hooks_and_uninstall_cleanly(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    path = home / ".cursor" / "hooks.json"
+    path.parent.mkdir(parents=True)
+    other = {"command": "/bin/other --source cursor"}
+    path.write_text(json.dumps({"version": 1, "hooks": {"stop": [other], "afterFileEdit": [other]}}))
+
+    install_host("cursor", hub_dir=tmp_path / "hub", home=home)
+    install_host("cursor", hub_dir=tmp_path / "hub", home=home)  # idempotent
+
+    data = json.loads(path.read_text())
+    assert data["version"] == 1
+    assert data["hooks"]["afterFileEdit"] == [other]
+    assert data["hooks"]["stop"][0] == other and len(data["hooks"]["stop"]) == 2
+    assert shlex.split(data["hooks"]["stop"][1]["command"])[1:] == [
+        "-m", "memhub.cli", "hook", "cursor", "--hub-dir", str(tmp_path / "hub"),
+    ]
+    assert hosts_status(home=home)["cursor"]["hooks"] is True
+
+    assert uninstall_host("cursor", home=home)["hooks"] is True
+    assert json.loads(path.read_text())["hooks"]["stop"] == [other]
+    assert hosts_status(home=home)["cursor"]["hooks"] is False
+
+
+def test_hook_captures_cursor_stop_and_ignores_cursor_running_claude_hooks(
+    tmp_path: Path, monkeypatch
+) -> None:
+    hub = tmp_path / "hub"
+    spawned, recalled = [], []
+    monkeypatch.setattr(cli_hub, "_spawn_detached", lambda argv, _log: spawned.append(argv))
+    monkeypatch.setattr(cli_hub, "_recall", lambda payload, *_a: recalled.append(payload))
+    transcript = tmp_path / "t.jsonl"
+    cursor_base = {"cursor_version": "2.0", "transcript_path": str(transcript)}
+
+    def hook(source: str, **payload: Any) -> None:
+        result = runner.invoke(
+            cli_main.app, ["hook", source, "--hub-dir", str(hub)], input=json.dumps(payload)
+        )
+        assert result.exit_code == 0, result.output
+        assert result.output == ""  # stop's stdout would be read as a follow-up message
+
+    # Cursor also runs ~/.claude/settings.json; that entry would parse the wrong format.
+    hook("claude-code", hook_event_name="Stop", **cursor_base)
+    hook("claude-code", hook_event_name="UserPromptSubmit", prompt="q", **cursor_base)
+    assert spawned == [] and recalled == []
+
+    hook("cursor", hook_event_name="stop", status="completed", **cursor_base)
+    assert spawned[0][spawned[0].index("--source") + 1] == "cursor"
+    assert spawned[0][spawned[0].index("--file") + 1] == str(transcript)
+    assert "--complete" in spawned[0]
+
+
+def test_locate_cursor_transcript_by_conversation_id_when_path_is_null(tmp_path: Path) -> None:
+    path = _cursor_transcript(tmp_path, "proj", [])
+    roots = {"cursor": tmp_path}
+    assert locate_transcript(
+        "cursor", {"conversation_id": "c1", "transcript_path": None}, roots
+    ) == path

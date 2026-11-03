@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Cursor 接入补齐**：
+  - **自动采集**：`memhub install-host cursor` 会在 `~/.cursor/hooks.json` 的 `stop` 事件里挂上 `memhub hook cursor`，其它 hook 保持不动。Cursor 也会执行 `~/.claude/settings.json` 里的 Claude Code hook；带 `cursor_version` 的 payload 交给非 cursor 的 hook 时会被忽略，避免用 Claude 的格式去解析 Cursor 的 transcript。召回仍走 MCP 和 skill，因为 Cursor 的 `beforeSubmitPrompt` 不能注入上下文。
+  - **工具轨迹**：`tool_use` 块记为工具步骤，Cursor 的编码会话现在也会沉淀 `procedure`。`contents` / `old_string` / `new_string` 和 `ApplyPatch` 的补丁正文属于产出，不保留，只留下路径之类的参数。
+  - **项目与时间**：项目路径由 `~/.cursor/projects/<slug>` 反推（逐级匹配现存目录；一个 slug 对应两个目录时不猜）。目录已不存在时，改用工具参数里的路径推断。时间取每条提示的 `<timestamp>`，没有时沿用上一条，第一条之前用文件的 mtime。本机 223 个会话、3308 轮实测：时间 100% 有值，项目路径覆盖 99.3%（没有覆盖到的主要是 `empty-window`）。
+  - Hook payload 里的 `transcript_path` 为空时，按 `conversation_id` 找 transcript。
 - **本机 `versions.db` 不再存第二份向量**：已提交的版本计划在 journal 里只保留节点 id、正文和元数据，向量只存在 Chroma 里；导出日志时再从 Chroma 读取。这期间被删除的节点不再随日志传出。真实库副本实测，`versions.db` 从 27MB 降到 4.3MB，其中 99% 是计划里重复存放的十进制向量。同步格式不变，旧设备推来的条目照常导入。已有的旧计划不做自动迁移；它们在导出时同样改从 Chroma 取向量。
 - **CLI 提升为一级命令、`memhub/memhub` 重命名为 `memhub/hub`、默认 `storage_dir` 改为 `./.memhub_data`**：
   - 所有 Hub 命令直接作为 `memhub` 一级子命令（`memhub install-service`、`memhub install-host`、`memhub ui`、`memhub status`、`memhub recall`、`memhub scan`、`memhub connect`、`memhub disconnect`、`memhub sync`、`memhub serve` 等），无需再敲 `memhub hub ...`；独立多租户 REST 服务命令改为 `memhub serve-api`。
