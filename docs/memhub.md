@@ -135,10 +135,24 @@ memhub connect git git@github.com:<你的用户名>/my-vibecoding-memory.git
 3. **读**：你提交提示词时，`memhub hook` 收到 `UserPromptSubmit`（Cursor 是 `beforeSubmitPrompt`，OpenCode 由插件转发 `chat.message`），按当前项目召回相关记忆注入上下文；Agent 也可以通过 MCP 工具（`memory_search` 等）主动查。都只读本机库。Hermes 目前只接了 MCP 和 skill，不会自动注入。
 4. **同步**（`connect` 之后）：本机库的每次变更带着向量记进变更日志，Core 在后台把它推到同步目标，并拉回其它电脑的变更。
 
-`install-host` 给每个宿主写入的 skill 叫 `memhub-recall`，模板在仓库的 `memhub/skills/memhub-recall/SKILL.md`。
-要直接用 SDK（`MemoryClient`、REST、自建 MCP）的开发者，另有一份 `memhub/skills/memhub-sdk/SKILL.md`，需要手动安装。
+### 从提问到在 UI 看到新记忆：各环节与耗时
+
+在 Cursor、OpenCode、Claude Code 等宿主里发出一轮提问后，新记忆会在**本轮回答结束后的约 3 ～ 25 秒**写入本地库：
+
+| 环节 | 触发时机 | 做了什么 | 耗时 | UI 上能看到什么 |
+|---|---|---|---|---|
+| **① 提问召回** | 按下回车发送提示词时（`UserPromptSubmit` / `beforeSubmitPrompt` / `chat.message`） | **只读不写**。调用 `/v1/hub/recall` 按当前项目召回相关记忆，作为 `<relevant-memories>` 注入上下文。 | 0.5 ～ 1 秒 | 无新增（对话尚未结束，不落库） |
+| **② 模型生成中** | Agent 思考、调用工具、流式输出时 | 宿主往本地会话日志追加记录；未结束的轮次（`open_turn`）会被游标暂留，防止半截回答入库。 | 取决于回答长短 | 无新增 |
+| **③ 结束采集** | **本轮回答完全结束瞬间**（`Stop` / `stop` / `run.completed` / `session.idle`） | Hook 在后台派生 `memhub scan --file ... --complete`，增量读取刚结束的这一轮，提交到 `/v1/hub/writes`（`hub.db`）并推进 `cursors.db` 游标。 | 0.1 ～ 0.3 秒 | 刚进入 `hub.db` 队列（`pending`） |
+| **④ 后台抽取与裁决** | `hub.db` 队列由单 worker 串行消费 | 1. 算向量存 `L0_RAW` 原文（~1s）；<br>2. LLM 抽取事实/画像 + JEV 裁决版本演化（2～8s）；<br>3. 若含工具轨迹且判为工程会话，再抽取 `procedure` + JEV 裁决（8～15s）。 | 普通对话 **2 ～ 10 秒**<br>编码会话 **10 ～ 25 秒** | **已落库**（`/v1/hub/memories` 可查） |
+| **⑤ 浏览器 UI 展示** | 查看 `http://127.0.0.1:8765/ui` 时 | UI 页面不设后台定时轮询（避免浏览、筛选或编辑时页面跳动），点右上角 **「刷新」** 即拉取最新记忆。 | 点一次「刷新」 | 列表顶部出现新对话、事实与工程经验 |
+
+> 想确认后台整理是否跑完，可执行 `memhub status` 查看 `"writes"` 字段：若存在 `"running"` 或 `"pending"` 说明仍在第 ④ 步抽取中；全部变为 `"done"` 后，点击 UI 右上角「刷新」即可看到。
 
 ## 常用命令
+
+`install-host` 给每个宿主写入的 skill 叫 `memhub-recall`，模板在仓库的 `memhub/skills/memhub-recall/SKILL.md`。
+要直接用 SDK（`MemoryClient`、REST、自建 MCP）的开发者，另有一份 `memhub/skills/memhub-sdk/SKILL.md`，需要手动安装。
 
 | 想做什么 | 命令 |
 |---|---|
