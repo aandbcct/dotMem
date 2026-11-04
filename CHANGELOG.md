@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Hub MCP、Hub CLI 与 `memhub-recall` skill 改为 agent 友好**：宿主 MCP 补齐 `memory_list` / `memory_update` / `memory_delete`，覆盖「改掉 / 撤销 / 忘掉约定」；工具描述写明参数、返回结构，`memory_add` 明确 `pending` 是成功终态，`conversation_search` 说明 `session_id` 的来源前缀。Hub CLI 补齐 `memory-list` / `memory-update` / `memory-delete`，与 `recall` / `remember` / `status` 一起作为 MCP 挂掉时的等价备选。skill 明确「优先用宿主内置 MCP 工具」，给出 CLI 入口 `python3 -m memhub.cli <子命令>` 和可直接执行的完整命令，去掉了硬约束章节。已安装宿主需重跑 `memhub install-host`。
+
 ## [0.2.3] — 2026-11-03
 
 - **`memhub ui` 改版为极简浅白风格，并修复点击条目自动跳回顶部的 bug**：

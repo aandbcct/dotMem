@@ -23,6 +23,7 @@ import typer
 from memhub.hub import hosts as hub_hosts
 from memhub.hub import service as hub_service
 from memhub.hub import sync as hub_sync
+from memhub.hub.browse import current_rows
 from memhub.hub.client import HubClient
 from memhub.hub.config import (
     CursorStore,
@@ -54,6 +55,12 @@ def make_client(hub_dir: str | None) -> HubClient:
 
 def _echo(data: Any) -> None:
     typer.echo(json.dumps(data, ensure_ascii=False, indent=2))
+
+
+def _one_line(text: str, limit: int = 200) -> str:
+    """Keep one memory on one line so an agent can read its id without noise."""
+    flat = " ".join(str(text).split())
+    return flat[:limit] + ("…" if len(flat) > limit else "")
 
 
 def _targets(host: str) -> list[str]:
@@ -600,3 +607,58 @@ def hub_remember(
             return await client.write(content=content, request_id=f"hub-cli:{uuid.uuid4()}")
 
     _echo(asyncio.run(write()))
+
+
+@hub_app.command("memory-list")
+def hub_memory_list(
+    query: str = typer.Argument("", help="可选关键词，按记忆内容子串过滤"),
+    limit: int = typer.Option(50, "--limit"),
+    json_out: bool = typer.Option(False, "--json", help="输出完整 JSON 行"),
+    hub_dir: str | None = HubDir,
+) -> None:
+    """列出当前生效的记忆及 id，供 memory-update / memory-delete 使用。"""
+
+    async def remote() -> list[dict[str, Any]]:
+        async with make_client(hub_dir) as client:
+            return await client.list_memories()
+
+    rows = current_rows(asyncio.run(remote()), query=query, limit=limit)
+    if json_out:
+        _echo(rows)
+        return
+    typer.echo(
+        "\n".join(
+            f"{row['id']}\t{row['layer']}\t{_one_line(row['content'])}"
+            for row in rows
+        )
+        or "没有匹配的当前记忆。"
+    )
+
+
+@hub_app.command("memory-update")
+def hub_memory_update(
+    memory_id: str = typer.Argument(..., help="memory-list 返回的 id"),
+    content: str = typer.Argument(..., help="更正后的完整内容"),
+    hub_dir: str | None = HubDir,
+) -> None:
+    """更正一条记忆：追加新版本，旧版本保留为历史。"""
+
+    async def remote() -> dict[str, Any]:
+        async with make_client(hub_dir) as client:
+            return await client.update_memory(memory_id, content)
+
+    _echo(asyncio.run(remote()))
+
+
+@hub_app.command("memory-delete")
+def hub_memory_delete(
+    memory_id: str = typer.Argument(..., help="memory-list 返回的 id"),
+    hub_dir: str | None = HubDir,
+) -> None:
+    """删除（归档）一条当前记忆。"""
+
+    async def remote() -> dict[str, Any]:
+        async with make_client(hub_dir) as client:
+            return await client.delete_memory(memory_id)
+
+    _echo(asyncio.run(remote()))

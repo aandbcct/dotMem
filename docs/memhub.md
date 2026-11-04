@@ -110,7 +110,7 @@ memhub connect git git@github.com:<你的用户名>/my-vibecoding-memory.git
 
 `install-host agentica` 会自动为你配好三件事（无需手改配置文件）：
 
-1. **MCP 工具（`~/.agentica/mcp_config.json`）**：注册 `memhub` MCP 服务，Agent 可主动调用 `memory_search`、`memory_add`、`conversation_search`、`memory_status`。
+1. **MCP 工具（`~/.agentica/mcp_config.json`）**：注册 `memhub` MCP 服务，Agent 可主动调用 `memory_search`、`memory_add`、`memory_list`、`memory_update`、`memory_delete`、`conversation_search`、`memory_status`。
 2. **每轮提问前召回 + 每轮结束沉淀（`~/.agentica/config.yaml` → 一个消费者 `memhub`）**：命令是 `memhub hook agentica`，按事件分派：
    - `UserPromptSubmit`：你每次在 `agentica` 输入提示词时，几十毫秒内从本机库召回相关画像、事实与最多 3 条 `[procedure]` 工程排障经验，以 `<relevant-memories>` 注入上下文（与 Agentica 原生的 `<memory_recall>` / `<session_recall>` 并存）。事实、工程经验和原始对话只取当前目录（hook 的 `cwd`）这个项目的会话，别的项目的事实只在明显更相关时才进来；画像不分项目。原始对话标时间、从旧到新排列。
    - `run.completed` / `session.ended`：后台增量读取用户请求、最终回答以及 `tool_calls` 涉及的文件路径（工具输出不采集），连同 `cwd` 和 `git_branch` 交给本机 Core 沉淀，几秒后把新增的变更日志（含向量）推送到 `my-vibecoding-memory` 仓库。
@@ -210,7 +210,7 @@ memhub serve（唯一写者）
 - Core 只监听 `127.0.0.1:8765`，启动时自动生成 `runtime-token` 并发布 `runtime.json`，同机的 CLI、MCP 和 Hook 自动发现，不需要配置。
 - Bearer Token 只保存在权限为 `0600` 的 `~/.memhub/runtime-token`，不会复制到各宿主的配置里。
 - `install-host` 会安装 MCP、Skill，以及该工具可用的 capture / recall Hook。改写 YAML 配置（Agentica、Hermes）时保留原有注释、引号与缩进；`uninstall-host` 后文件恢复原样。
-- MemHub 自带的 MCP 服务（`python -m memhub.hub.mcp`，由 `install-host` 写入宿主配置）提供 `memory_search`、`memory_add`、`conversation_search`、`memory_status`，请求同样发给本机发现的 Core。需要 mcp 2.x（`pip install "memhub[mcp]"`）。
+- MemHub 自带的 MCP 服务（`python -m memhub.hub.mcp`，由 `install-host` 写入宿主配置）提供 `memory_search`、`memory_add`、`memory_list`、`memory_update`、`memory_delete`、`conversation_search`、`memory_status`，请求同样发给本机发现的 Core。所有工具已绑定个人 scope，不接收 `user_id`；`memory_add` 返回 `ok=true`（`status` 可能为 `pending`）即写入成功。MCP 不可用时可用等价的 Hub CLI：`recall`、`remember`、`memory-list`、`memory-update`、`memory-delete`、`status`。需要 mcp 2.x（`pip install "memhub[mcp]"`）。
 
 ### 写入流程
 

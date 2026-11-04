@@ -426,14 +426,26 @@ HOSTS: dict[str, HostSpec] = {
 }
 
 
-# The installed skill; ``{host}`` / ``{recall}`` / ``{remember}`` are filled in per host.
+# The installed skill; ``{host}`` and one placeholder per CLI command are filled in.
 SKILL_TEMPLATE = Path(__file__).resolve().parent.parent / "skills" / SKILL_NAME / "SKILL.md"
+CLI_COMMANDS = (
+    "recall",
+    "remember",
+    "memory-list",
+    "memory-update",
+    "memory-delete",
+    "status",
+)
 
 
-def render_skill(*, host: str, recall_argv: list[str], remember_argv: list[str]) -> str:
-    return SKILL_TEMPLATE.read_text(encoding="utf-8").format(
-        host=host, recall=shlex.join(recall_argv), remember=shlex.join(remember_argv)
+def render_skill(
+    *, host: str, cli_prefix: list[str], commands: dict[str, list[str]]
+) -> str:
+    fields: dict[str, str] = {"host": host, "cli": shlex.join(cli_prefix)}
+    fields.update(
+        {name.replace("-", "_"): shlex.join(argv) for name, argv in commands.items()}
     )
+    return SKILL_TEMPLATE.read_text(encoding="utf-8").format(**fields)
 
 
 def _paths(host: str, home: Path) -> tuple[HostSpec, Path]:
@@ -448,11 +460,15 @@ def install_host(
     spec, skill = _paths(host, home)
     launch = Launch(host, hub_root(hub_dir))
     skill.parent.mkdir(parents=True, exist_ok=True)
+    commands = {
+        name: launch.memhub(name, "--hub-dir", str(launch.hub_dir))
+        for name in CLI_COMMANDS
+    }
     skill.write_text(
         render_skill(
             host=host,
-            recall_argv=launch.memhub("recall", "--hub-dir", str(launch.hub_dir)),
-            remember_argv=launch.memhub("remember", "--hub-dir", str(launch.hub_dir)),
+            cli_prefix=launch.memhub(),
+            commands=commands,
         ),
         encoding="utf-8",
     )

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -122,6 +123,20 @@ class HubClient:
 
     async def status(self) -> dict[str, Any]:
         return await self._request("GET", "/v1/hub/status")
+
+    async def list_memories(self) -> list[dict[str, Any]]:
+        """All versions of the personal scope, newest first (browse rows)."""
+        return (await self._request("GET", "/v1/hub/memories"))["memories"]
+
+    async def update_memory(self, memory_id: str, content: str) -> dict[str, Any]:
+        """Replace one current memory with a corrected version; history is kept."""
+        path = f"/v1/hub/memories/{quote(memory_id, safe='')}"
+        return await self._request("PUT", path, json={"content": content})
+
+    async def delete_memory(self, memory_id: str) -> dict[str, Any]:
+        """Retire one current memory; the version stays in the history."""
+        path = f"/v1/hub/memories/{quote(memory_id, safe='')}"
+        return await self._request("DELETE", path)
 
     async def sync(self, *, compact: bool = False) -> dict[str, Any]:
         """Replicate with the sync target now and return the cycle's counts.

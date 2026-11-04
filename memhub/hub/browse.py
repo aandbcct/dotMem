@@ -96,8 +96,24 @@ def browse_rows(nodes: list[MemoryNode]) -> list[dict[str, Any]]:
     return rows
 
 
+def current_rows(
+    rows: list[dict[str, Any]], *, query: str = "", limit: int = 50
+) -> list[dict[str, Any]]:
+    """Editable current versions only; ``query`` is a content substring filter."""
+    current = [
+        row for row in rows if row.get("is_latest") and not row.get("deleted")
+    ]
+    needle = query.strip().casefold()
+    if needle:
+        current = [
+            row for row in current if needle in str(row.get("content", "")).casefold()
+        ]
+    return current[:limit]
+
+
 __all__ = [
     "browse_rows",
+    "current_rows",
     "node_workspace",
     "workspace_sessions",
     "workspaces_by_source",

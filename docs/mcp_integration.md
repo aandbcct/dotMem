@@ -42,6 +42,32 @@ Agent (Cursor / Claude / 自研)
 
 `memory_add` 接受 `workspace_id` / `branch`（procedure 的版本边界）；`memory_search` 接受 `procedure_limit`（默认 0）/ `procedure_min_score`，工程经验在返回的 `memories.procedures` 组里，与 `profile` / `proactive` / `normal` / `raw` / `schema` / `catalog` 并列。
 
+## 宿主 Hub MCP（`install-host`）
+
+上表是 SDK 级 MCP（`memhub-mcp`，需要显式传 `user_id`）。各 CLI 宿主通过 `memhub install-host`
+安装的是 `python -m memhub.hub.mcp`：它已绑定本机个人 scope，不接收 `user_id` / `app_id` / `agent_id`，
+请求统一发给本机的 Hub Core。
+
+| 用户意图 | 工具 |
+|---|---|
+| 查偏好、画像、事实、历史结论 | `memory_search(query)` |
+| 查历史对话原话 | `conversation_search(query)` |
+| 记住 / 别忘了 / 以后都按这个 | `memory_add(content)` |
+| 改掉 / 撤销 / 更新约定 | `memory_list(query)` 取 `id` → `memory_update(memory_id, content)` |
+| 忘掉 / 删掉一条记忆 | `memory_list(query)` 取 `id` → `memory_delete(memory_id)` |
+| 排查 Hub 自身故障 | `memory_status()` |
+
+`memory_add` 返回 `ok=true` 即写入已接收，`status=pending` 是正常终态（后台自动抽取）。
+找不到旧条目时直接 `memory_add` 写新约定即可。`conversation_search` 结果的 `session_id`
+形如 `codex:<id>`，冒号前是来源工具。
+
+优先用宿主内置的 `memhub` MCP 工具。MCP 未加载或未激活时改用 Hub CLI：入口是
+`python3 -m memhub.cli <子命令>`，安装后也可写 `memhub <子命令>`，须使用装有 memhub 的解释器
+（`install-host` 写进 skill 的命令已带绝对路径和 `--hub-dir`）。子命令：`recall`（查）、
+`remember`（写）、`memory-list`（列出并取 id）、`memory-update <id> <content>`（更正）、
+`memory-delete <id>`（删除）、`status`（状态），都走同一个本机 Core。
+`memhub add` / `search` / `update` / `delete` / `list` 是 SDK 命令，指向当前目录下另一个库，不是备选。
+
 ## 本地 MCP（已实现）
 
 ```bash
