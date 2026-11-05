@@ -18,11 +18,7 @@
 
 <p align="center">简体中文 | <a href="https://github.com/shibing624/memhub/blob/main/README_EN.md">English</a> | <a href="https://shibing624.github.io/memhub">在线文档</a></p>
 
-<p align="center">
-  <video src="https://github.com/user-attachments/assets/1fba5e03-219d-414e-8c96-8e63a11200fd" width="820" controls></video>
-  <br />
-  宣讲视频
-</p>
+https://github.com/user-attachments/assets/1fba5e03-219d-414e-8c96-8e63a11200fd
 
 ## 为什么选 memhub
 
