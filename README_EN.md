@@ -18,6 +18,12 @@
 
 <p align="center"><a href="https://github.com/shibing624/memhub/blob/main/README.md">简体中文</a> | English | <a href="https://shibing624.github.io/memhub">Documentation</a></p>
 
+<p align="center">
+  <video src="https://github.com/user-attachments/assets/1fba5e03-219d-414e-8c96-8e63a11200fd" width="820" controls></video>
+  <br />
+  Introduction
+</p>
+
 ## Why memhub
 
 The coding conventions you explained in Cursor are unknown to Codex. You've told your assistant three times that you no longer eat spicy food, and it still recommends a Sichuan restaurant. After dozens of turns it can quote what you said, and still cannot name the habit that shows up every time.
