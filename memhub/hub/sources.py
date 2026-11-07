@@ -13,7 +13,11 @@ blocks, harness markup tags); they never guess meaning from wording:
 - codex       ``~/.codex/sessions/**/rollout-*.jsonl``     (event_msg UserMessage/AgentMessage
   items — the real input, unlike response_item which also carries AGENTS.md)
 - cursor      ``~/.cursor/projects/*/agent-transcripts/**/*.jsonl``
+- dsh         ``~/.dsh/sessions/**/session.v4.jsonl.zstd`` (zstd JSONL events
+  ``user/message`` / ``assistant/message`` / ``tool/call``; cursor = decompressed offset)
 - hermes      ``~/.hermes/state.db`` table ``messages`` (cursor = message id)
+- kimi-cli    ``~/.kimi/sessions/<md5(work dir)>/<session>/context.jsonl`` (role user/assistant)
+- kimi-code   ``~/.kimi-code/sessions/*/<session>/agents/main/wire.jsonl`` (append_message / step events)
 - opencode    ``~/.local/share/opencode/opencode.db`` tables ``part``/``message``/``session`` (cursor = part rowid)
 - workbuddy   ``~/.workbuddy/projects/**/<session>.jsonl`` (type message/function_call)
 
@@ -28,6 +32,7 @@ the host records become the procedure's version boundary.
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
 import re
@@ -37,7 +42,9 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, BinaryIO, Protocol
+
+import zstandard
 
 from memhub.client import strip_memory_injection
 from memhub.hub.config import CursorStore
@@ -48,7 +55,10 @@ SOURCES = (
     "codebuddy",
     "codex",
     "cursor",
+    "dsh",
     "hermes",
+    "kimi-cli",
+    "kimi-code",
     "opencode",
     "workbuddy",
 )
@@ -408,46 +418,183 @@ def _record(line: bytes) -> dict | None:
     return record if isinstance(record, dict) else None
 
 
+def _read_stream(
+    fp: BinaryIO, size: int, start: int, parse: RecordParser, state: dict[str, Any]
+) -> tuple[list[Message], int]:
+    """Messages after byte ``start`` of a JSONL stream of ``size`` bytes.
+
+    Stops before a trailing line still being written.
+    """
+    if start > size:
+        start = 0  # the transcript was rewritten or truncated
+    messages: list[Message] = []
+    position = start
+    if start:
+        # Codex names the session in its first record; resumed reads need it too.
+        head = _record(fp.readline())
+        if head is not None:
+            parse(head, state)
+        fp.seek(start)
+    for line in fp:
+        if not line.endswith(b"\n"):
+            break
+        line_start, position = position, position + len(line)
+        record = _record(line)
+        state["steps"] = []
+        parsed = parse(record, state) if record is not None else None
+        if parsed is None:
+            continue
+        role, text, session_id, at = parsed
+        text = strip_memory_injection(text).strip()
+        steps = tuple(state["steps"])
+        if text or steps:
+            messages.append(Message(
+                role, text, session_id, at, line_start, position,
+                steps, state["workspace"], state["branch"],
+            ))
+    return messages, position
+
+
 def _read_jsonl(
     path: Path, start: int, parse: RecordParser, **seed: Any
 ) -> tuple[list[Message], int]:
-    """Messages after byte ``start``; stops before a trailing line still being written.
+    """Messages after byte ``start`` of a JSONL file.
 
     ``seed`` adds per-file context to the parser state (Cursor's project and time).
     """
-    if start > path.stat().st_size:
-        start = 0  # the transcript was rewritten or truncated
     state: dict[str, Any] = {
         "session_id": path.stem, "steps": [], "workspace": None, "branch": None,
         **seed,
     }
-    messages: list[Message] = []
-    position = start
     with path.open("rb") as fp:
-        if start:
-            # Codex names the session in its first record; resumed reads need it too.
-            head = _record(fp.readline())
-            if head is not None:
-                parse(head, state)
-            fp.seek(start)
-        for line in fp:
-            if not line.endswith(b"\n"):
-                break
-            line_start, position = position, position + len(line)
-            record = _record(line)
-            state["steps"] = []
-            parsed = parse(record, state) if record is not None else None
-            if parsed is None:
-                continue
-            role, text, session_id, at = parsed
-            text = strip_memory_injection(text).strip()
-            steps = tuple(state["steps"])
-            if text or steps:
-                messages.append(Message(
-                    role, text, session_id, at, line_start, position,
-                    steps, state["workspace"], state["branch"],
-                ))
-    return messages, position
+        return _read_stream(fp, path.stat().st_size, start, parse, state)
+
+
+def _unzstd(path: Path) -> bytes:
+    """The text of a zstd file, up to the frame the writer has not finished."""
+    chunks: list[bytes] = []
+    with path.open("rb") as fp:
+        reader = zstandard.ZstdDecompressor().stream_reader(fp, read_across_frames=True)
+        try:
+            while chunk := reader.read(1 << 20):
+                chunks.append(chunk)
+        except zstandard.ZstdError:
+            # A session still being written ends mid-frame; what decoded is complete.
+            pass
+    return b"".join(chunks)
+
+
+def _kimi_cli_workspace(path: Path) -> str | None:
+    """kimi-cli names a session directory ``md5(work dir)``; ``kimi.json`` lists them."""
+    index = path.parents[3] / "kimi.json"
+    if not index.is_file():
+        return None
+    for item in json.loads(index.read_text(encoding="utf-8"))["work_dirs"]:
+        if hashlib.md5(item["path"].encode()).hexdigest() == path.parents[1].name:
+            return item["path"]
+    return None
+
+
+def _parse_kimi_cli(record: dict, state: dict) -> tuple[str, str, str, int | None] | None:
+    """kimi-cli ``context.jsonl``: ``user`` / ``assistant`` records; ``tool`` output,
+    ``_checkpoint`` and ``_usage`` are not conversation."""
+    role = record.get("role")
+    if role not in ("user", "assistant"):
+        return None
+    for call in record.get("tool_calls") or []:
+        function = call["function"]
+        state["steps"].append(_tool_call(call["id"], function["name"], function["arguments"]))
+    return role, _blocks_text(record.get("content")), state["session_id"], state["at"]
+
+
+def _read_kimi_cli(path: Path, start: int) -> tuple[list[Message], int]:
+    # context.jsonl has no clock; the session's last write is the best time it records.
+    meta = path.with_name("metadata.json")
+    wire_mtime = (
+        json.loads(meta.read_text(encoding="utf-8")).get("wire_mtime")
+        if meta.is_file()
+        else None
+    )
+    at = int(wire_mtime if wire_mtime is not None else path.stat().st_mtime)
+    return _read_jsonl(
+        path,
+        start,
+        _parse_kimi_cli,
+        session_id=path.parent.name,
+        workspace=_kimi_cli_workspace(path),
+        at=at,
+    )
+
+
+def _parse_kimi_code(record: dict, state: dict) -> tuple[str, str, str, int | None] | None:
+    """kimi-code ``agents/main/wire.jsonl``: the user's message is a
+    ``context.append_message`` whose origin is the user (the rest are injected
+    reminders); the answer streams as ``text`` parts of a step and is complete at
+    ``step.end``; ``tool.call`` is a step. ``think`` parts and tool results are not kept."""
+    at = _ms_seconds(record.get("time"))
+    if record.get("type") == "context.append_message":
+        message = record["message"]
+        if message["role"] == "user" and (message.get("origin") or {}).get("kind") == "user":
+            return "user", _blocks_text(message["content"]), state["session_id"], at
+        return None
+    if record.get("type") != "context.append_loop_event":
+        return None
+    event = record["event"]
+    if event["type"] == "content.part" and event["part"]["type"] == "text":
+        state["text"] += event["part"]["text"]
+    elif event["type"] == "tool.call":
+        state["steps"].append(_tool_call(event["toolCallId"], event["name"], event["args"]))
+        return "assistant", "", state["session_id"], at
+    elif event["type"] == "step.end":
+        text, state["text"] = state["text"], ""
+        return "assistant", text, state["session_id"], at
+    return None
+
+
+def _read_kimi_code(path: Path, start: int) -> tuple[list[Message], int]:
+    session = path.parents[2]
+    state_file = session / "state.json"
+    workspace = (
+        json.loads(state_file.read_text(encoding="utf-8")).get("cwd")
+        if state_file.is_file()
+        else None
+    )
+    return _read_jsonl(
+        path, start, _parse_kimi_code, session_id=session.name, workspace=workspace, text=""
+    )
+
+
+def _parse_dsh(record: dict, state: dict) -> tuple[str, str, str, int | None] | None:
+    """DeepSeek Harness events: the session header names the project and whether it is
+    a subagent's; ``user/message`` from the user, ``assistant/message`` text blocks (the
+    ``reasoning`` blocks are not the answer) and ``tool/call`` steps."""
+    kind = record.get("type")
+    if kind == "session":
+        state["session_id"] = record["id"]
+        state["workspace"] = record.get("cwd")
+        state["subagent"] = record.get("origin") == "subagent"
+        return None
+    if state.get("subagent"):
+        return None
+    data = record.get("data") or {}
+    at = _ms_seconds(record.get("time"))
+    if kind == "tool/call":
+        state["steps"].append(_tool_call(data["callId"], data["name"], data["arguments"]))
+        return "assistant", "", state["session_id"], at
+    if kind == "user/message" and data["source"]["kind"] == "user":
+        return "user", _blocks_text(data["content"]), state["session_id"], at
+    if kind == "assistant/message":
+        return "assistant", _blocks_text(data["message"]["content"]), state["session_id"], at
+    return None
+
+
+def _read_dsh(path: Path, start: int) -> tuple[list[Message], int]:
+    """Cursor positions are offsets into the decompressed events."""
+    raw = _unzstd(path)
+    state: dict[str, Any] = {
+        "session_id": path.parent.name, "steps": [], "workspace": None, "branch": None,
+    }
+    return _read_stream(io.BytesIO(raw), len(raw), start, _parse_dsh, state)
 
 
 def _read_hermes(path: Path, start: int) -> tuple[list[Message], int]:
@@ -561,11 +708,31 @@ SOURCE_SPECS: dict[str, SourceSpec] = {
         _jsonl_files("*.jsonl", inside="agent-transcripts"),
         _read_cursor,
     ),
+    "dsh": SourceSpec(
+        "dsh",
+        ".dsh/sessions",
+        lambda root: sorted(root.rglob("session.v4.jsonl.zstd"), key=lambda p: p.stat().st_mtime_ns),
+        _read_dsh,
+    ),
     "hermes": SourceSpec(
         "hermes",
         ".hermes/state.db",
         lambda root: [root] if root.is_file() else [],
         _read_hermes,
+    ),
+    "kimi-cli": SourceSpec(
+        "kimi-cli",
+        ".kimi/sessions",
+        lambda root: sorted(root.glob("*/*/context.jsonl"), key=lambda p: p.stat().st_mtime_ns),
+        _read_kimi_cli,
+    ),
+    "kimi-code": SourceSpec(
+        "kimi-code",
+        ".kimi-code/sessions",
+        lambda root: sorted(
+            root.glob("*/session_*/agents/main/wire.jsonl"), key=lambda p: p.stat().st_mtime_ns
+        ),
+        _read_kimi_code,
     ),
     "opencode": SourceSpec(
         "opencode",
@@ -739,8 +906,8 @@ def locate_transcript(
     """The transcript a host hook payload refers to.
 
     Claude Code / CodeBuddy / Codex / Cursor / WorkBuddy hooks carry ``transcript_path``.
-    Agentica's ``run.completed`` and OpenCode's ``session.idle`` carry ``session_id``;
-    Cursor names the conversation ``conversation_id``.
+    Agentica's ``run.completed``, OpenCode's ``session.idle`` and Kimi's ``Stop`` carry
+    ``session_id``; Cursor names the conversation ``conversation_id``.
     """
     if payload.get("transcript_path"):
         return Path(payload["transcript_path"]).expanduser()
@@ -750,4 +917,8 @@ def locate_transcript(
     session_id = payload.get("session_id") or payload.get("conversation_id")
     if not session_id or not root.is_dir():
         return None
+    if source == "kimi-cli":
+        return next(root.glob(f"*/{session_id}/context.jsonl"), None)
+    if source == "kimi-code":
+        return next(root.glob(f"*/{session_id}/agents/main/wire.jsonl"), None)
     return next(root.rglob(f"{session_id}.jsonl"), None)

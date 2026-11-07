@@ -203,7 +203,7 @@ class HubWriteQueue:
         """The next ready job, else the time the earliest delayed one is due."""
         now = time.time()
         row = self._conn.execute(
-            "SELECT request_id,payload,raw_only FROM hub_writes "
+            "SELECT request_id,payload,raw_only,event_at FROM hub_writes "
             "WHERE status='pending' AND next_at<=? ORDER BY event_at, rowid LIMIT 1",
             (now,),
         ).fetchone()
@@ -219,6 +219,8 @@ class HubWriteQueue:
             )
         payload = json.loads(row["payload"])
         payload["raw_only"] = bool(row["raw_only"])
+        # A write that names no time happened when it arrived (MCP / `remember`).
+        payload["memory_at"] = payload.get("memory_at") or row["event_at"]
         return str(row["request_id"]), payload
 
     def _finish_ok(self, request_id: str, *, raw_only: bool, result: dict) -> None:

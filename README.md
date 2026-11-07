@@ -26,7 +26,7 @@ https://github.com/user-attachments/assets/1fba5e03-219d-414e-8c96-8e63a11200fd
 
 ### 1. 🔗 多个 Agent，一份记忆
 
-`memhub` 把本机上的多个 AI 工具连到同一份个人记忆：**Claude Code、Codex、Cursor、Agentica、Hermes、CodeBuddy、OpenCode、WorkBuddy** 读写同一个本地库，数据默认留在你的电脑上。
+`memhub` 把本机上的多个 AI 工具连到同一份个人记忆：**Claude Code、Codex、Cursor、Agentica、Hermes、CodeBuddy、OpenCode、WorkBuddy、Kimi（kimi-cli / kimi-code）、DeepSeek Harness、Trae** 读写同一个本地库，数据默认留在你的电脑上。
 
 ```bash
 pip install "memhub[all]"
@@ -38,7 +38,7 @@ memhub install-service
 memhub install-host claude-code
 memhub install-host codex
 memhub install-host cursor
-# 支持：claude-code | codex | cursor | agentica | hermes | codebuddy | opencode | workbuddy
+# 支持：claude-code | codex | cursor | agentica | hermes | codebuddy | opencode | workbuddy | kimi-cli | kimi-code | dsh | trae
 # 也可以一键接入全部：memhub install-host all
 
 # 3.（可选）把已有的历史会话导入为记忆
@@ -134,7 +134,7 @@ embed_base_url: https://api.openai.com/v1
 - [x] System 1 分层记忆 + 版本演化
 - [x] System 2：跨证据归纳长期规律与画像目录（L3）
 - [x] 专用决策模型把关写入
-- [x] 跨工具记忆中枢：8 个 AI 工具（Claude Code / Codex / Cursor / Agentica / Hermes / CodeBuddy / OpenCode / WorkBuddy）共享记忆、历史会话导入、后台整理
+- [x] 跨工具记忆中枢：11 个 AI 工具（Claude Code / Codex / Cursor / Agentica / Hermes / CodeBuddy / OpenCode / WorkBuddy / Kimi / DeepSeek Harness / Trae）共享记忆、历史会话导入、后台整理
 - [x] 多设备同步：每台本地检索、离线可用，经私有 Git 仓库 / 同步文件夹 / 服务器交换变更
 - [x] 工程排障经验自动沉淀与按项目召回
 - [x] LoCoMo / LongMemEval / PersonaMem-v2 同场评测领先

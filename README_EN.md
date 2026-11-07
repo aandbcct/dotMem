@@ -26,7 +26,7 @@ The coding conventions you explained in Cursor are unknown to Codex. You've told
 
 ### 1. 🔗 Several agents, one memory
 
-`memhub` connects the AI tools on your machine to one personal memory: **Claude Code, Codex, Cursor, Agentica, Hermes, CodeBuddy, OpenCode, and WorkBuddy** read and write the same local store. By default the data stays on your computer.
+`memhub` connects the AI tools on your machine to one personal memory: **Claude Code, Codex, Cursor, Agentica, Hermes, CodeBuddy, OpenCode, WorkBuddy, Kimi (kimi-cli / kimi-code), DeepSeek Harness, and Trae** read and write the same local store. By default the data stays on your computer.
 
 ```bash
 pip install "memhub[all]"
@@ -38,7 +38,7 @@ memhub install-service
 memhub install-host claude-code
 memhub install-host codex
 memhub install-host cursor
-# Supported: claude-code | codex | cursor | agentica | hermes | codebuddy | opencode | workbuddy
+# Supported: claude-code | codex | cursor | agentica | hermes | codebuddy | opencode | workbuddy | kimi-cli | kimi-code | dsh | trae
 # Or connect all at once: memhub install-host all
 
 # 3. (Optional) Import your past conversation history into memory
@@ -134,7 +134,7 @@ Building your own agent or application with `memhub`? Check out the developer gu
 - [x] System 1 layered memory and version evolution
 - [x] System 2: cross-evidence pattern induction and profile catalog (L3)
 - [x] Dedicated decision model guarding writes
-- [x] Memory Hub: 8 AI tools (Claude Code / Codex / Cursor / Agentica / Hermes / CodeBuddy / OpenCode / WorkBuddy) share memory, history import, background organizing
+- [x] Memory Hub: 11 AI tools (Claude Code / Codex / Cursor / Agentica / Hermes / CodeBuddy / OpenCode / WorkBuddy / Kimi / DeepSeek Harness / Trae) share memory, history import, background organizing
 - [x] Multi-device sync: local recall on every computer, works offline, exchanges changes via a private Git repo / synced folder / server
 - [x] Automatic engineering experience distillation and project-scoped recall
 - [x] Leads head-to-head on LoCoMo / LongMemEval / PersonaMem-v2

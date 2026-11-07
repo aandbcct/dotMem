@@ -31,6 +31,14 @@ SKILL_MARKER = "<!-- managed by memhub hub -->"
 AGENTICA_CONSUMER = "memhub"
 TOML_BEGIN = "# >>> memhub hub >>>"
 TOML_END = "# <<< memhub hub <<<"
+HOOKS_BEGIN = "# >>> memhub hub hooks >>>"
+HOOKS_END = "# <<< memhub hub hooks <<<"
+# Trae keeps its MCP servers beside the editor's user settings.
+TRAE_MCP = (
+    "Library/Application Support/Trae/User/mcp.json"
+    if sys.platform == "darwin"
+    else ".config/Trae/User/mcp.json"
+)
 # Our hook commands always run this package, which is how we find them again
 # (the prefix also matches hooks written as ``-m memhub.cli.main``).
 HOOK_SIGNATURE = "-m memhub.cli"
@@ -391,6 +399,129 @@ class CursorHooks:
 
 
 @dataclass(frozen=True)
+class TomlHooks:
+    """Kimi ``config.toml`` ``[[hooks]]``: a marked block at the end of the file, so
+    the rest of it (providers, other tools' hooks) stays byte-identical.
+
+    ``UserPromptSubmit`` recalls and ``Stop`` captures; ``Stop`` must exit 0, since
+    a blocking Stop hook makes Kimi run another turn. ``events`` is per product:
+    kimi-cli (1.49) ignores what a prompt hook prints, so recalling there is wasted
+    work and it only captures.
+    """
+
+    events: tuple[str, ...]
+
+    _block = re.compile(
+        rf"\n?{re.escape(HOOKS_BEGIN)}.*?{re.escape(HOOKS_END)}\n", re.DOTALL
+    )
+
+    def install(self, path: Path, launch: Launch) -> None:
+        text = self._block.sub("", path.read_text(encoding="utf-8")) if path.is_file() else ""
+        command = json.dumps(shlex.join(launch.hook()))
+        entries = "\n".join(
+            f'[[hooks]]\nevent = "{event}"\ncommand = {command}\ntimeout = 45\n'
+            for event in self.events
+        )
+        block = f"{HOOKS_BEGIN}\n{entries}{HOOKS_END}\n"
+        sep = "\n" if text and not text.endswith("\n") else ""
+        _write(path, f"{text}{sep}\n{block}" if text else block)
+
+    def uninstall(self, path: Path) -> bool:
+        if not self.installed(path):
+            return False
+        _write(path, self._block.sub("", path.read_text(encoding="utf-8")))
+        return True
+
+    def installed(self, path: Path) -> bool:
+        return path.is_file() and HOOKS_BEGIN in path.read_text(encoding="utf-8")
+
+
+def _patch_yaml() -> YAML:
+    """dsh patch files are a top-level list written ``- id: ...`` with no extra indent."""
+    rt = YAML()
+    rt.preserve_quotes = True
+    rt.width = 4096
+    rt.indent(mapping=2, sequence=2, offset=0)
+    # dsh writes ``key: null``; ruamel would turn that into an empty ``key:``.
+    rt.representer.add_representer(
+        type(None), lambda self, _data: self.represent_scalar("tag:yaml.org,2002:null", "null")
+    )
+    return rt
+
+
+class DshMcp:
+    """DeepSeek Harness (app and CLI): ``mcp-manager`` servers in each profile's
+    ``cordis.patch.yml`` (``~/.dsh/profiles/<name>/``).
+
+    A profile is created by dsh itself on first boot, with a ``package.json`` the
+    patch depends on, so only profiles that already exist are edited.
+    """
+
+    ENTRY_ID = "mcp-manager"
+    ENTRY_NAME = "@deepseek-ai/dsh-mcp-manager"
+
+    @staticmethod
+    def _patches(root: Path) -> list[Path]:
+        return sorted(root.glob("*/cordis.patch.yml")) if root.is_dir() else []
+
+    @staticmethod
+    def _load(path: Path) -> list:
+        return _patch_yaml().load(path.read_text(encoding="utf-8")) or []
+
+    @staticmethod
+    def _dump(path: Path, data: list) -> None:
+        buf = io.StringIO()
+        _patch_yaml().dump(data, buf)
+        _write(path, buf.getvalue())
+
+    def install(self, path: Path, launch: Launch) -> None:
+        mcp = launch.mcp()
+        server = {"transport": "stdio", "command": mcp["command"], "args": mcp["args"]}
+        for patch in self._patches(path):
+            data = self._load(patch)
+            entry = next((e for e in data if e.get("id") == self.ENTRY_ID), None)
+            if entry is None:
+                entry = {"id": self.ENTRY_ID, "name": self.ENTRY_NAME}
+                data.append(entry)
+            entry.setdefault("config", {}).setdefault("servers", {})[MCP_NAME] = server
+            self._dump(patch, data)
+
+    def uninstall(self, path: Path) -> bool:
+        changed = False
+        for patch in self._patches(path):
+            data = self._load(patch)
+            for entry in list(data):
+                servers = (entry.get("config") or {}).get("servers") or {}
+                if entry.get("id") != self.ENTRY_ID or MCP_NAME not in servers:
+                    continue
+                del servers[MCP_NAME]
+                if not servers:
+                    del entry["config"]["servers"]
+                if not entry["config"]:
+                    del entry["config"]
+                if set(entry) <= {"id", "name"}:
+                    data.remove(entry)
+                changed = True
+            self._dump(patch, data)
+        return changed
+
+    def installed(self, path: Path) -> bool:
+        patches = self._patches(path)
+        return bool(patches) and all(
+            MCP_NAME
+            in next(
+                (
+                    (e.get("config") or {}).get("servers") or {}
+                    for e in self._load(patch)
+                    if e.get("id") == self.ENTRY_ID
+                ),
+                {},
+            )
+            for patch in patches
+        )
+
+
+@dataclass(frozen=True)
 class HostSpec:
     # Relative to $HOME; the skill lives at <home_dir>/skills/<SKILL_NAME>/SKILL.md.
     home_dir: str
@@ -413,6 +544,20 @@ HOSTS: dict[str, HostSpec] = {
         ".codex", (TomlMcp(), ".codex/config.toml"), (ClaudeStyleHooks(), ".codex/hooks.json")
     ),
     "cursor": HostSpec(".cursor", (JsonMcp(), ".cursor/mcp.json"), (CursorHooks(), ".cursor/hooks.json")),
+    # DeepSeek Harness (app and CLI share ~/.dsh): MCP in every profile patch, skill
+    # in ~/.dsh/skills. The desktop bundle has no hooks plugin, so sessions are scanned.
+    "dsh": HostSpec(".dsh", (DshMcp(), ".dsh/profiles")),
+    # Kimi: ``mcp.json`` for servers, ``config.toml`` for hooks. kimi-cli is the
+    # Python CLI (~/.kimi), which injects nothing a prompt hook prints; kimi-code
+    # (~/.kimi-code) is its successor and does.
+    "kimi-cli": HostSpec(
+        ".kimi", (JsonMcp(), ".kimi/mcp.json"), (TomlHooks(("Stop",)), ".kimi/config.toml")
+    ),
+    "kimi-code": HostSpec(
+        ".kimi-code",
+        (JsonMcp(), ".kimi-code/mcp.json"),
+        (TomlHooks(("UserPromptSubmit", "Stop")), ".kimi-code/config.toml"),
+    ),
     # Hermes is scanned from its state.db; it gets MCP + skill, no hooks.
     "hermes": HostSpec(".hermes", (YamlMcp(), ".hermes/config.yaml")),
     "opencode": HostSpec(
@@ -420,6 +565,9 @@ HOSTS: dict[str, HostSpec] = {
         (OpenCodeMcp(), ".config/opencode/opencode.json"),
         (OpenCodePlugin(), ".config/opencode/plugins/memhub-hub.js"),
     ),
+    # Trae reads Claude-style hooks from ~/.trae/hooks.json; its payload carries the
+    # prompt and the final answer, so no transcript is read.
+    "trae": HostSpec(".trae", (JsonMcp(), TRAE_MCP), (ClaudeStyleHooks(), ".trae/hooks.json")),
     "workbuddy": HostSpec(
         ".workbuddy", (JsonMcp(), ".workbuddy/mcp.json"), (ClaudeStyleHooks(), ".workbuddy/settings.json")
     ),

@@ -4,7 +4,7 @@ memhub 可以接进你已经在用的 Agent 框架和 AI 工具。所有集成�
 
 | 你在用 | 推荐方式 | 效果 |
 |---|---|---|
-| Claude Code、Codex、Cursor、Hermes、Agentica、CodeBuddy、OpenCode、WorkBuddy 中的几个 | [MemHub](memhub.md) | 一条命令接入全部，跨工具共享记忆 |
+| Claude Code、Codex、Cursor、Hermes、Agentica、CodeBuddy、OpenCode、WorkBuddy、Kimi、DeepSeek Harness、Trae 中的几个 | [MemHub](memhub.md) | 一条命令接入全部，跨工具共享记忆 |
 | Agentica 框架开发 Agent | `MemHubWorkspace` | Agent 自动召回、自动保存长期记忆 |
 | Claude Code（不用 MemHub） | `memhub-hook` | 提问前自动带出相关记忆，会话结束自动保存 |
 | Hermes / OpenClaw | 记忆插件 | 被动注入记忆，后台异步写入 |

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **MemHub 新增支持 Kimi（kimi-cli / kimi-code）、DeepSeek Harness、Trae，共 11 种宿主**（`memhub install-host kimi-cli|kimi-code|dsh|trae|all`）。Kimi 在 `config.toml` 追加带标记的 `[[hooks]]` 块并写 `mcp.json`，其余内容原样保留；kimi-code 提问时注入（hook 标准输出会被直接加进上下文，所以回复纯文本），kimi-cli 1.49 不读提示词 hook 的输出，只采集。DeepSeek Harness 把 MCP 写进 `~/.dsh/profiles/*/cordis.patch.yml` 的 `mcp-manager` 条目，会话读取 zstd 压缩的 `session.v4.jsonl.zstd`（新增 `zstandard` 依赖）。Trae 用 `~/.trae/hooks.json`，hook 载荷自带提问和回答，不读会话文件。`memhub scan --source kimi-cli|kimi-code|dsh` 可导入历史会话。
+- **修复：MCP `memory_add` / `remember` 写入的记忆在召回时让提示词 hook 整体失败**：这类写入不带 `memory_at`，召回的原始对话缺这个字段，`UserPromptSubmit` hook 抛 `KeyError` 并被吞掉，该轮不注入任何记忆。现在写入按到达时间记时，hook 也容忍无时间的记录。
 - **README 顶部增加宣讲视频**：中英文 README 在标题下嵌入宣讲视频。
 - **Hub MCP、Hub CLI 与 `memhub-recall` skill 改为 agent 友好**：宿主 MCP 补齐 `memory_list` / `memory_update` / `memory_delete`，覆盖「改掉 / 撤销 / 忘掉约定」；工具描述写明参数、返回结构，`memory_add` 明确 `pending` 是成功终态，`conversation_search` 说明 `session_id` 的来源前缀。Hub CLI 补齐 `memory-list` / `memory-update` / `memory-delete`，与 `recall` / `remember` / `status` 一起作为 MCP 挂掉时的等价备选。skill 明确「优先用宿主内置 MCP 工具」，给出 CLI 入口 `python3 -m memhub.cli <子命令>` 和可直接执行的完整命令，去掉了硬约束章节。已安装宿主需重跑 `memhub install-host`。
 

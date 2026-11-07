@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
 import shlex
@@ -12,6 +13,7 @@ import sqlite3
 import subprocess
 import sys
 import time
+import tomllib
 from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
@@ -20,6 +22,7 @@ from typing import Any
 import httpx
 import pytest
 import yaml
+import zstandard
 from typer.testing import CliRunner
 
 from memhub import MemoryClient
@@ -39,6 +42,7 @@ from memhub.hub import (
     scan_sources,
     uninstall_host,
 )
+from memhub.hub.hosts import TRAE_MCP
 from memhub.hub.queue import HubWriteQueue
 from memhub.hub.server import (
     HUB_USER_ID,
@@ -100,6 +104,69 @@ def _jsonl(path: Path, records: list[dict], *, mode: str = "w") -> None:
     with path.open(mode, encoding="utf-8") as fh:
         for record in records:
             fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+def _zstd_jsonl(path: Path, records: list[dict]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    text = "".join(json.dumps(record, ensure_ascii=False) + "\n" for record in records)
+    path.write_bytes(zstandard.ZstdCompressor().compress(text.encode()))
+
+
+def _dsh_events(
+    session_id: str, cwd: str, *, origin: str | None = None, prompt: str = "我偏好用 pnpm"
+) -> list[dict]:
+    header = {"type": "session", "version": 4, "id": session_id, "createdAt": 1791004000000, "cwd": cwd}
+    if origin:
+        header["origin"] = origin
+    return [
+        header,
+        {"type": "turn/start", "seq": 1, "time": 1791004001000, "data": {"turn": 1}},
+        {
+            "type": "user/message",
+            "seq": 2,
+            "time": 1791004001000,
+            "data": {
+                "content": [{"type": "text", "text": prompt}],
+                "source": {"kind": "user"},
+                "role": "user",
+                "id": "u1",
+            },
+        },
+        {
+            "type": "assistant/message",
+            "seq": 3,
+            "time": 1791004002000,
+            "data": {
+                "turn": 1,
+                "step": 1,
+                "message": {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "reasoning", "text": "thinking about pnpm"},
+                        {"type": "text", "text": "先查一下包管理器"},
+                    ],
+                },
+            },
+        },
+        {
+            "type": "tool/call",
+            "seq": 4,
+            "time": 1791004003000,
+            "data": {"turn": 1, "step": 1, "callId": "c1", "name": "read", "arguments": "{\"path\": \"package.json\"}"},
+        },
+        {"type": "tool/result", "seq": 5, "time": 1791004004000, "data": {"callId": "c1", "output": "secret tool output"}},
+        {
+            "type": "assistant/message",
+            "seq": 6,
+            "time": 1791004005000,
+            "data": {
+                "turn": 1,
+                "step": 2,
+                "message": {"role": "assistant", "content": [{"type": "text", "text": "好的，记下 pnpm"}]},
+            },
+        },
+        {"type": "turn/end", "seq": 7, "time": 1791004006000, "data": {"turn": 1}},
+    ]
 
 
 def _hermes_db(path: Path, rows: list[tuple[str, str, str, float]]) -> None:
@@ -343,6 +410,67 @@ def _seed_transcripts(home: Path) -> dict[str, Path]:
             },
         ],
     )
+    _zstd_jsonl(
+        roots["dsh"] / "--Users-me-ds--" / "session-ds-1" / "session.v4.jsonl.zstd",
+        _dsh_events("session-ds-1", "/Users/me/ds"),
+    )
+    kimi_dir = hashlib.md5(b"/Users/me/kimi").hexdigest()
+    (roots["kimi-cli"].parent).mkdir(parents=True, exist_ok=True)
+    (roots["kimi-cli"].parent / "kimi.json").write_text(
+        json.dumps({"work_dirs": [{"path": "/Users/me/kimi", "kaos": "local"}]})
+    )
+    kimi_session = roots["kimi-cli"] / kimi_dir / "kimi-1"
+    _jsonl(
+        kimi_session / "context.jsonl",
+        [
+            {"role": "_checkpoint", "id": 0},
+            {"role": "user", "content": "我习惯用 just 管理任务"},
+            {"role": "_usage", "token_count": 5},
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "think", "think": "internal reasoning", "encrypted": None},
+                    {"type": "text", "text": "收到，用 just"},
+                ],
+                "tool_calls": [],
+            },
+            {"role": "tool", "content": [{"type": "text", "text": "tool output"}], "tool_call_id": "t"},
+        ],
+    )
+    (kimi_session / "metadata.json").write_text(json.dumps({"wire_mtime": 1791005000.5}))
+    kc_session = roots["kimi-code"] / "wd_me_1" / "session_kc-1"
+    (kc_session).mkdir(parents=True)
+    (kc_session / "state.json").write_text(json.dumps({"id": "session_kc-1", "cwd": "/Users/me/kc"}))
+
+    def loop(event: dict, ms: int) -> dict:
+        return {"type": "context.append_loop_event", "agentId": "main", "event": event, "time": ms}
+
+    def message(text: str, origin: str, ms: int) -> dict:
+        return {
+            "type": "context.append_message",
+            "agentId": "main",
+            "message": {"role": "user", "content": [{"type": "text", "text": text}],
+                        "toolCalls": [], "origin": {"kind": origin}},
+            "time": ms,
+        }
+
+    _jsonl(
+        kc_session / "agents" / "main" / "wire.jsonl",
+        [
+            {"type": "metadata", "protocol_version": "1.5", "created_at": 1791006000000},
+            message("我的部署平台是 fly.io", "user", 1791006001000),
+            message("<system-reminder>date</system-reminder>", "injection", 1791006001001),
+            loop({"type": "step.begin", "step": 1}, 1791006002000),
+            loop({"type": "content.part", "step": 1, "part": {"type": "think", "think": "hidden"}}, 1791006002001),
+            loop({"type": "tool.call", "step": 1, "toolCallId": "k1", "name": "Bash", "args": {"command": "ls"}}, 1791006002002),
+            loop({"type": "tool.result", "toolCallId": "k1", "result": {"output": "secret listing"}}, 1791006002003),
+            loop({"type": "step.end", "step": 1, "finishReason": "tool_use"}, 1791006002004),
+            loop({"type": "step.begin", "step": 2}, 1791006003000),
+            loop({"type": "content.part", "step": 2, "part": {"type": "text", "text": "记下了，"}}, 1791006003001),
+            loop({"type": "content.part", "step": 2, "part": {"type": "text", "text": "用 fly.io"}}, 1791006003002),
+            loop({"type": "step.end", "step": 2, "finishReason": "stop"}, 1791006003003),
+        ],
+    )
     return roots
 
 
@@ -366,6 +494,25 @@ def test_readers_keep_only_real_dialogue(tmp_path: Path) -> None:
     assert turns["opencode"][0].workspace == "/Users/me/oc"
     assert turns["workbuddy"][0].user == "默认用中文写技术方案"
     assert turns["workbuddy"][0].workspace == "/Users/me/wb"
+    # dsh: reasoning blocks and tool output are not kept; the tool call is a step.
+    dsh = turns["dsh"][0]
+    assert (dsh.user, dsh.assistant) == ("我偏好用 pnpm", "好的，记下 pnpm")
+    assert (dsh.session_id, dsh.workspace, dsh.at) == ("session-ds-1", "/Users/me/ds", 1791004001)
+    assert [s["tool_calls"][0]["function"]["name"] for s in dsh.steps] == ["read"]
+    assert "secret tool output" not in json.dumps(dsh.messages(), ensure_ascii=False)
+    # kimi-cli: the project comes from md5(work dir), the time from the session's last write.
+    kimi = turns["kimi-cli"][0]
+    assert (kimi.user, kimi.assistant) == ("我习惯用 just 管理任务", "收到，用 just")
+    assert (kimi.session_id, kimi.workspace, kimi.at) == ("kimi-1", "/Users/me/kimi", 1791005000)
+    assert "internal reasoning" not in json.dumps(kimi.messages(), ensure_ascii=False)
+    # kimi-code: streamed text parts join into the step's answer; injected reminders,
+    # reasoning and tool results are not conversation.
+    kc = turns["kimi-code"][0]
+    assert (kc.user, kc.assistant) == ("我的部署平台是 fly.io", "记下了，用 fly.io")
+    assert (kc.session_id, kc.workspace, kc.at) == ("session_kc-1", "/Users/me/kc", 1791006001)
+    assert [s["tool_calls"][0]["function"]["name"] for s in kc.steps] == ["Bash"]
+    dumped = json.dumps(kc.messages(), ensure_ascii=False)
+    assert "hidden" not in dumped and "secret listing" not in dumped and "date" not in dumped
 
 
 def test_build_turns_merges_users_and_drops_orphan_answer() -> None:
@@ -603,6 +750,31 @@ def test_install_uninstall_hosts_use_local_proxy(tmp_path: Path, monkeypatch) ->
     (home / ".codex" / "config.toml").write_text('model = "gpt-5"\n')
     (home / ".claude").mkdir()
     (home / ".claude" / "settings.json").write_text("{}")
+    patch = home / ".dsh" / "profiles" / "desktop" / "cordis.patch.yml"
+    patch.parent.mkdir(parents=True)
+    dsh_before = (
+        "# Your patch layer for this dsh profile.\n"
+        "- id: ui-chat\n"
+        '  name: "@deepseek-ai/dsh-client-ui-chat"\n'
+        "  config:\n"
+        "    transcriptView: standard\n"
+        "    purpose: null\n"
+    )
+    patch.write_text(dsh_before)
+    (home / ".kimi").mkdir()
+    kimi_before = (
+        'default_model = "k3"\n\n[[hooks]]\nevent = "Stop"\ncommand = "/bin/island"\ntimeout = 45\n'
+    )
+    (home / ".kimi" / "config.toml").write_text(kimi_before)
+    (home / ".trae").mkdir()
+    (home / ".trae" / "hooks.json").write_text(
+        json.dumps(
+            {
+                "hooks": {"Stop": [{"hooks": [{"command": "/bin/island", "type": "command"}]}]},
+                "version": 1,
+            }
+        )
+    )
 
     for host in HOSTS:
         install_host(host, hub_dir=hub, home=home)
@@ -629,6 +801,34 @@ def test_install_uninstall_hosts_use_local_proxy(tmp_path: Path, monkeypatch) ->
         assert "memhub" in json.loads((home / buddy / "mcp.json").read_text())["mcpServers"]
         buddy_hooks = json.loads((home / buddy / "settings.json").read_text())["hooks"]
         assert set(buddy_hooks) >= {"UserPromptSubmit", "Stop"}
+    # dsh: our server joins the profile's patch; the user's entry and comment stay.
+    dsh_patch = patch.read_text()
+    assert dsh_patch.startswith("# Your patch layer for this dsh profile.\n")
+    entries = {item["id"]: item for item in yaml.safe_load(dsh_patch)}
+    assert entries["ui-chat"]["config"] == {"transcriptView": "standard", "purpose": None}
+    assert dsh_patch.startswith(dsh_before)  # the user's own text is byte-identical
+    server = entries["mcp-manager"]["config"]["servers"]["memhub"]
+    assert server["transport"] == "stdio" and server["args"][:2] == ["-m", "memhub.hub.mcp"]
+    # kimi: one marked block at the end; the user's own hook and settings are untouched.
+    kimi_text = (home / ".kimi" / "config.toml").read_text()
+    assert kimi_text.startswith(kimi_before)
+    # kimi-cli ignores what a prompt hook prints, so it only captures (Stop).
+    kimi_hooks = tomllib.loads(kimi_text)["hooks"]
+    assert [(h["event"], "memhub.cli" in h["command"]) for h in kimi_hooks] == [
+        ("Stop", False),
+        ("Stop", True),
+    ]
+    assert json.loads((home / ".kimi" / "mcp.json").read_text())["mcpServers"]["memhub"]
+    # kimi-code recalls on the prompt as well.
+    kc_hooks = tomllib.loads((home / ".kimi-code" / "config.toml").read_text())["hooks"]
+    assert [h["event"] for h in kc_hooks] == ["UserPromptSubmit", "Stop"]
+    assert all(h["command"].endswith("hook kimi-code --hub-dir " + str(hub)) for h in kc_hooks)
+    assert "memhub" in json.loads((home / ".kimi-code" / "mcp.json").read_text())["mcpServers"]
+    # trae: Claude-style hooks beside the existing one; MCP in the editor's user dir.
+    trae_hooks = json.loads((home / ".trae" / "hooks.json").read_text())
+    assert trae_hooks["version"] == 1
+    assert [len(trae_hooks["hooks"][e]) for e in ("UserPromptSubmit", "Stop")] == [1, 2]
+    assert "memhub" in json.loads((home / TRAE_MCP).read_text())["mcpServers"]
     skill = (
         home
         / ".claude"
@@ -666,6 +866,8 @@ def test_install_uninstall_hosts_use_local_proxy(tmp_path: Path, monkeypatch) ->
         for item in hosts_status(home=home).values()
         for value in item.values()
     )
+    assert patch.read_text() == dsh_before
+    assert (home / ".kimi" / "config.toml").read_text().strip() == kimi_before.strip()
 
 
 def test_agentica_yaml_install_keeps_comments_and_uninstall_restores_bytes(
@@ -1019,6 +1221,62 @@ async def test_core_processes_oldest_event_time_first(tmp_path: Path) -> None:
         await asyncio.sleep(0.01)
     await queue.close()
     assert order == ["older", "old", "live"]
+
+
+async def test_write_that_names_no_time_is_dated_by_its_arrival(tmp_path: Path) -> None:
+    """MCP ``memory_add`` and ``remember`` send no ``memory_at``: the evidence is dated
+    when it arrived, so recall can order it and show when it was said."""
+    seen = []
+
+    async def record(payload):
+        seen.append(payload["memory_at"])
+        return {}
+
+    queue = HubWriteQueue(tmp_path / "hub.db", record)
+    before = int(time.time())
+    queue.submit(
+        {"content": "约定", "messages": None, "session_id": "", "memory_at": None,
+         "request_id": "no-time", "raw_only": False}
+    )
+    queue.start()
+    while queue.counts().get("done", 0) < 1:
+        await asyncio.sleep(0.01)
+    await queue.close()
+    assert before <= seen[0] <= int(time.time())
+
+
+def test_prompt_hook_survives_recalled_conversations_without_a_time(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Rows written before arrival times were recorded have no ``memory_at`` key at all;
+    a KeyError here silently dropped the whole injection."""
+
+    class FakeRemote:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_exc):
+            return None
+
+        async def recall(self, **kwargs):
+            empty = {k: [] for k in ("profile", "proactive", "normal", "raw", "schema", "catalog")}
+            return {"memories": empty, "conversations": [
+                {"session_id": "mcp:a", "content": "错误码前缀是 QX9"},
+                {"session_id": "codex:b", "content": "超时 7.3 秒", "memory_at": 1_793_600_000},
+            ]}
+
+    monkeypatch.setattr(cli_hub, "make_client", lambda _hub: FakeRemote())
+    out = runner.invoke(
+        cli_main.app, ["hook", "claude-code", "--hub-dir", str(tmp_path)],
+        input=json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": "错误码前缀?",
+                          "transcript_path": "/x.jsonl"}, ensure_ascii=False),
+    )
+    assert out.exit_code == 0, out.output
+    context = json.loads(out.output)["hookSpecificOutput"]["additionalContext"]
+    assert "QX9" in context and "7.3" in context
+    assert "[None]" not in context
+    assert "[2026-" in context  # the dated one keeps its time
+    assert not (tmp_path / "logs" / "hooks.log").exists()
 
 
 async def test_recall_skips_the_group_the_caller_disabled(
@@ -2252,6 +2510,113 @@ def test_cursor_prompt_hook_replies_additional_context_scoped_to_workspace_root(
     assert reply["additional_context"].startswith("<relevant-memories>")
     assert "uv run pytest" in reply["additional_context"]
     assert sent[0]["workspace"] == "/w/repo" and sent[0]["query"] == "测试命令?"
+
+
+def test_dsh_reader_skips_subagents_and_resumes_by_decompressed_offset(tmp_path: Path) -> None:
+    spec = SOURCE_SPECS["dsh"]
+    sub = tmp_path / "--w--" / "sub" / "session.v4.jsonl.zstd"
+    _zstd_jsonl(sub, _dsh_events("sub", "/w", origin="subagent", prompt="subagent task"))
+    assert spec.read(sub, 0)[0] == []
+
+    path = tmp_path / "--w--" / "session-1" / "session.v4.jsonl.zstd"
+    events = _dsh_events("session-1", "/w")
+    _zstd_jsonl(path, events[:4])
+    first, end = spec.read(path, 0)
+    assert [m.role for m in first] == ["user", "assistant"]
+    # The writer appends a frame: the cursor resumes after what was already read.
+    more = "".join(json.dumps(e, ensure_ascii=False) + "\n" for e in events[4:])
+    path.write_bytes(path.read_bytes() + zstandard.ZstdCompressor().compress(more.encode()))
+    rest, _ = spec.read(path, end)
+    assert [m.role for m in rest] == ["assistant", "assistant"]
+    assert rest[-1].text == "好的，记下 pnpm" and rest[-1].workspace == "/w"
+    # A frame still being written decodes up to its last complete event.
+    path.write_bytes(path.read_bytes()[:-5])
+    assert len(spec.read(path, 0)[0]) >= 2
+
+
+def test_trae_hook_recalls_then_captures_prompt_and_answer(tmp_path: Path, monkeypatch) -> None:
+    recalled: list[dict] = []
+    written: list[dict] = []
+
+    class FakeRemote:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_exc):
+            return None
+
+        async def recall(self, **kwargs):
+            recalled.append(kwargs)
+            empty = {k: [] for k in ("profile", "proactive", "normal", "raw", "schema", "catalog")}
+            return {"memories": empty, "conversations": [
+                {"session_id": "trae:a", "content": "接口超时是 7 秒", "memory_at": 1_793_600_000},
+            ]}
+
+        async def write(self, **kwargs):
+            written.append(kwargs)
+            return {"status": "pending"}
+
+    monkeypatch.setattr(cli_hub, "make_client", lambda _hub: FakeRemote())
+    base = {"session_id": "t-1", "cwd": "/w/app", "workspace_roots": ["/w/app"]}
+
+    def hook(source: str, **payload: Any):
+        return runner.invoke(
+            cli_main.app, ["hook", source, "--hub-dir", str(tmp_path)],
+            input=json.dumps({**base, **payload}, ensure_ascii=False),
+        )
+
+    asked = hook("trae", hook_event_name="UserPromptSubmit", prompt="接口超时多少?")
+    assert asked.exit_code == 0, asked.output
+    context = json.loads(asked.output)["hookSpecificOutput"]
+    assert context["hookEventName"] == "UserPromptSubmit"
+    assert "接口超时是 7 秒" in context["additionalContext"]
+    assert recalled[0]["workspace"] == "/w/app" and written == []
+
+    answered = hook("trae", hook_event_name="Stop", last_assistant_message="是 7 秒")
+    assert answered.exit_code == 0 and answered.output == ""
+    (turn,) = written
+    assert turn["messages"] == [
+        {"role": "user", "content": "接口超时多少?"},
+        {"role": "assistant", "content": "是 7 秒"},
+    ]
+    assert turn["session_id"] == "trae:t-1" and turn["workspace_id"] == "/w/app"
+    assert turn["request_id"].startswith("memhub:trae:t-1:")
+    # The prompt is spent: a second Stop writes nothing.
+    hook("trae", hook_event_name="Stop", last_assistant_message="是 7 秒")
+    assert len(written) == 1
+
+    # Trae also runs ~/.claude/settings.json; the Claude entry must not double-inject.
+    recalled.clear()
+    ignored = hook("claude-code", hook_event_name="UserPromptSubmit", prompt="接口超时多少?")
+    assert ignored.exit_code == 0 and ignored.output == "" and recalled == []
+
+
+def test_kimi_code_prompt_hook_replies_plain_text(tmp_path: Path, monkeypatch) -> None:
+    """kimi-code adds whatever the hook prints to the context and reads no JSON, so a
+    JSON reply would reach the model as raw JSON."""
+
+    class FakeRemote:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_exc):
+            return None
+
+        async def recall(self, **kwargs):
+            empty = {k: [] for k in ("profile", "proactive", "normal", "raw", "schema", "catalog")}
+            return {"memories": empty, "conversations": [
+                {"session_id": "mcp:a", "content": "错误码前缀是 QX9", "memory_at": 1_793_600_000},
+            ]}
+
+    monkeypatch.setattr(cli_hub, "make_client", lambda _hub: FakeRemote())
+    out = runner.invoke(
+        cli_main.app, ["hook", "kimi-code", "--hub-dir", str(tmp_path)],
+        input=json.dumps({"hook_event_name": "UserPromptSubmit", "session_id": "s", "cwd": "/w",
+                          "prompt": "错误码前缀?"}, ensure_ascii=False),
+    )
+    assert out.exit_code == 0, out.output
+    assert out.output.startswith("<relevant-memories>") and "QX9" in out.output
+    assert "hookSpecificOutput" not in out.output
 
 
 def test_remember_writes_through_the_core_without_a_user_id(tmp_path: Path, monkeypatch) -> None:

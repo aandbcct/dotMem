@@ -1,6 +1,6 @@
 ---
 name: memhub-recall
-description: 用户的全局个人记忆（memhub MemHub，跨 Agentica / Claude Code / CodeBuddy / Codex / Cursor / Hermes / OpenCode / WorkBuddy 共享）。当用户要求「记住 / 别忘了 / 以后都按这个 / 改掉 / 撤销 / 更新 / 忘掉 / 删掉」某条记忆或约定，或问「我之前问过什么 / 之前在别的 CLI 聊到哪了」，或提到 memhub 记忆时使用。
+description: 用户的全局个人记忆（memhub MemHub，跨 Agentica / Claude Code / CodeBuddy / Codex / Cursor / Hermes / OpenCode / WorkBuddy / Kimi / DeepSeek Harness / Trae 共享）。回答涉及用户的偏好、项目约定与规范、代号、命令、过往决策的问题时使用，尤其是当前目录和代码里查不到答案时；用户要求「记住 / 别忘了 / 以后都按这个 / 改掉 / 撤销 / 更新 / 忘掉 / 删掉」某条记忆或约定，或问「我之前问过什么 / 之前在别的 CLI 聊到哪了」，或提到 memhub 记忆时也使用。
 ---
 
 <!-- managed by memhub hub -->

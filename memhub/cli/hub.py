@@ -4,10 +4,12 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import subprocess
 import sys
+import time
 import uuid
 import webbrowser
 from collections import Counter
@@ -44,6 +46,13 @@ from memhub.retrieval.hybrid_engine import source_excerpt
 hub_app = typer.Typer(help="MemHub：每台设备一个本地 Core，跨 CLI 共享个人记忆，可跨设备同步")
 HubDir = typer.Option(None, "--hub-dir", help="Hub 根目录（默认 ~/.memhub）")
 LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
+# Hosts whose hook payload carries the turn itself (prompt on submit, answer on stop),
+# so there is no transcript file to scan.
+INLINE_SOURCES = ("trae",)
+# Hosts that add whatever a prompt hook prints to the context, and read no JSON
+# reply: the memories go out as plain text.
+PLAIN_CONTEXT_SOURCES = ("kimi-code",)
+HOOK_SOURCES = (*SOURCES, *INLINE_SOURCES)
 # Per recalled dialogue in the UserPromptSubmit injection.
 RAW_EXCERPT_CHARS = 1600
 
@@ -489,6 +498,69 @@ def _capture(source: str, payload: dict[str, Any], hub_dir: str | None) -> None:
     _spawn_detached(argv, hub_root(hub_dir) / "logs" / "capture.log")
 
 
+def _pending_prompt(hub_dir: str | None, source: str, session_id: str) -> Path:
+    return hub_root(hub_dir) / "pending" / f"{source}-{session_id}.json"
+
+
+def _stash_prompt(payload: dict[str, Any], hub_dir: str | None, source: str) -> None:
+    """Keep the prompt until the host's ``Stop`` brings the answer."""
+    prompt = payload.get("prompt", "").strip()
+    session_id = payload.get("session_id")
+    if not prompt or not session_id:
+        return
+    path = _pending_prompt(hub_dir, source, session_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    workspace = payload.get("cwd") or next(iter(payload.get("workspace_roots") or []), None)
+    path.write_text(
+        json.dumps(
+            {"prompt": prompt, "at": int(time.time()), "workspace": workspace},
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+
+def _capture_inline(source: str, payload: dict[str, Any], hub_dir: str | None) -> None:
+    """A host with no transcript file: the turn is the stashed prompt plus the answer
+    its ``Stop`` payload carries."""
+    session_id = payload.get("session_id")
+    path = _pending_prompt(hub_dir, source, session_id) if session_id else None
+    if path is None or not path.is_file():
+        return
+    pending = json.loads(path.read_text(encoding="utf-8"))
+    path.unlink()
+    answer = payload.get("last_assistant_message", "").strip()
+    messages = [{"role": "user", "content": pending["prompt"]}]
+    if answer:
+        messages.append({"role": "assistant", "content": answer})
+    digest = hashlib.sha256(f"{pending['prompt']}\n{answer}".encode()).hexdigest()[:16]
+
+    async def write() -> None:
+        async with make_client(hub_dir) as client:
+            await client.write(
+                messages=messages,
+                session_id=f"{source}:{session_id}",
+                memory_at=pending["at"],
+                request_id=f"memhub:{source}:{session_id}:{digest}",
+                workspace_id=pending["workspace"],
+            )
+
+    asyncio.run(write())
+
+
+def _when(item: dict[str, Any]) -> str:
+    """The ``[time] `` prefix of a recalled dialogue; none when it carries no time."""
+    return f"[{format_time(item['memory_at'])}] " if item.get("memory_at") else ""
+
+
+def _other_host(source: str, payload: dict[str, Any]) -> bool:
+    """Cursor and Trae also run the hooks in ~/.claude/settings.json. Each has its own
+    entry that reads its own payload, so every other source leaves theirs alone."""
+    if source != "cursor" and "cursor_version" in payload:
+        return True
+    return source not in ("cursor", "trae") and "workspace_roots" in payload
+
+
 def _recall(payload: dict[str, Any], limit: int, hub_dir: str | None, source: str) -> None:
     """Answer the host's prompt event with the memories relevant to this prompt."""
     prompt = payload.get("prompt", "").strip()
@@ -508,11 +580,13 @@ def _recall(payload: dict[str, Any], limit: int, hub_dir: str | None, source: st
     if result["conversations"]:
         # Oldest first with a time on each, so a later turn reads as the correction
         # of an earlier one instead of two equal claims.
-        turns = sorted(result["conversations"], key=lambda item: item["memory_at"] or 0)
+        # ``memory_at`` is omitted when a row has no time (written before arrival
+        # times were recorded), so it is optional here.
+        turns = sorted(result["conversations"], key=lambda item: item.get("memory_at") or 0)
         # A whole session can run to tens of thousands of characters; only the
         # passages that bear on the prompt go in.
         raw = "\n".join(
-            f"- [{format_time(item['memory_at'])}] "
+            f"- {_when(item)}"
             f"{source_excerpt(item['content'].strip(), prompt, [], RAW_EXCERPT_CHARS)}"
             for item in turns
         )
@@ -522,6 +596,9 @@ def _recall(payload: dict[str, Any], limit: int, hub_dir: str | None, source: st
     if context:
         # Tagged so strip_memory_injection drops it if a host echoes it back.
         context = f"<relevant-memories>\n{context}\n</relevant-memories>"
+        if source in PLAIN_CONTEXT_SOURCES:
+            typer.echo(context)
+            return
         typer.echo(
             json.dumps(
                 {"additional_context": context}
@@ -539,7 +616,7 @@ def _recall(payload: dict[str, Any], limit: int, hub_dir: str | None, source: st
 
 @hub_app.command("hook")
 def hub_hook(
-    source: str = typer.Argument(..., help=f"{' | '.join(SOURCES)}"),
+    source: str = typer.Argument(..., help=f"{' | '.join(HOOK_SOURCES)}"),
     limit: int = typer.Option(8, "--limit", help="UserPromptSubmit 注入的记忆条数"),
     hub_dir: str | None = HubDir,
 ) -> None:
@@ -548,12 +625,14 @@ def hub_hook(
     agentica 同一协议。"""
     with _hook_errors_logged(hub_dir, f"hook {source}"):
         payload = json.loads(sys.stdin.read() or "{}")
-        # Cursor also runs the hooks in ~/.claude/settings.json; its own entry in
-        # ~/.cursor/hooks.json is the one that reads its transcript format.
-        if source != "cursor" and "cursor_version" in payload:
+        if _other_host(source, payload):
             return
         if payload.get("hook_event_name") in ("UserPromptSubmit", "beforeSubmitPrompt"):
+            if source in INLINE_SOURCES:
+                _stash_prompt(payload, hub_dir, source)
             _recall(payload, limit, hub_dir, source)
+        elif source in INLINE_SOURCES:
+            _capture_inline(source, payload, hub_dir)
         else:
             _capture(source, payload, hub_dir)
 
