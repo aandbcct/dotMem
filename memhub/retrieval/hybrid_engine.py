@@ -582,7 +582,7 @@ async def search_hybrid(
         ]
 
     async def _graph_schema() -> list[dict]:
-        if graph is None or not include_derived:
+        if graph is None or not include_derived or not include_derived_fusion or settings.derived_context_limit <= 0:
             return []
         hits = await asyncio.to_thread(
             graph.query_by_embedding,

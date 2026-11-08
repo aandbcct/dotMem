@@ -83,6 +83,8 @@ class Reader:
                     + len(memories.proactive)
                     + len(memories.normal)
                     + len(memories.raw)
+                    + len(memories.schema)
+                    + len(memories.catalog)
                     + len(memories.procedures)
                 ),
                 elapsed_ms=elapsed_ms,
@@ -95,6 +97,8 @@ class Reader:
                 "normal": len(memories.normal),
                 "proactive": len(memories.proactive),
                 "raw": len(memories.raw),
+                "schema": len(memories.schema),
+                "catalog": len(memories.catalog),
                 "procedures": len(memories.procedures),
                 "include_derived": include_derived,
             },

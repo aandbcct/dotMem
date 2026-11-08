@@ -351,14 +351,11 @@ class SearchMemories:
             unique.append(item)
         if limit is not None and limit >= 0:
             unique = unique[:limit]
-        return [
-            *unique,
-            *(
-                s
-                for s in [*self.procedures, *self.schema, *self.catalog]
-                if s.memory_id not in seen
-            ),
-        ]
+        for s in [*self.procedures, *self.schema, *self.catalog]:
+            if s.memory_id not in seen:
+                seen.add(s.memory_id)
+                unique.append(s)
+        return unique
 
     def to_search_results(self, *, limit: int | None = None) -> list[dict[str, Any]]:
         """Current-state search hits for QA pipelines (see ``MemoryItem.to_search_result``)."""

@@ -289,3 +289,11 @@ def test_format_evolution_timeline():
     assert "Timeline:" in text
     assert "Old" in text
     assert "CURRENT" in text
+
+
+def test_format_memories_renders_catalog_and_deduplicates():
+    res = {"normal": [{"memory_id": "1", "content": "fact1", "category": "fact"}],
+           "catalog": [{"memory_id": "1", "content": "fact1", "category": "catalog"},
+                       {"memory_id": "2", "content": "cat2", "category": "catalog"}]}
+    text = format_memories(res, date_preamble=False)
+    assert "【画像目录 Catalog】" in text and "cat2" in text and text.count("fact1") == 1

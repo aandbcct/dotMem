@@ -15,6 +15,8 @@ _GROUP_TITLES = [
     ("proactive", "【主动 Proactive】"),
     ("normal", "【常规记忆 Normal】"),
     ("raw", "【原文 Raw】"),
+    ("schema", "【模式 Schema】"),
+    ("catalog", "【画像目录 Catalog】"),
     ("procedures", "【工程经验 Procedures】"),
 ]
 
@@ -107,12 +109,18 @@ def format_memories(
     """Join non-empty profile/proactive/normal groups into a single context string."""
     blocks: list[str] = []
     has_dates = False
+    seen_ids: set[str] = set()
     for key, title in _GROUP_TITLES:
         items = result.get(key) or []
         if not items:
             continue
         body_lines: list[str] = []
         for it in items:
+            mid = it.get("memory_id") or it.get("id")
+            if mid and mid in seen_ids:
+                continue
+            if mid:
+                seen_ids.add(str(mid))
             if it.get("memory_at") or it.get("gmt_created"):
                 has_dates = True
             body_lines.append(

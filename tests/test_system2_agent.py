@@ -138,9 +138,10 @@ async def test_schema_needs_two_raw_sources(tmp_storage, fake_embed):
     f.close()
 
 
-async def test_assistant_memories_are_not_evidence(tmp_storage, fake_embed):
+@pytest.mark.parametrize("owner", ["agent", "assistant"])
+async def test_assistant_memories_are_not_evidence(tmp_storage, fake_embed, owner):
     f = factory(tmp_storage, fake_embed)
-    f.vector.upsert(cluster_of("a", 0, owner="assistant"))
+    f.vector.upsert(cluster_of("a", 0, owner=owner))
     assert (await System2Agent(factory=f).run(app_id="app", user_id="u"))["clusters"] == 0
     f.close()
 

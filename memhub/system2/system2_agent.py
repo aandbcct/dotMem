@@ -239,7 +239,7 @@ class System2Agent:
         }
         await self.project_committed(scope)
         facts = self.current_facts(scope)
-        own = [f for f in facts if f.owner != "assistant"]
+        own = [f for f in facts if f.owner not in ("agent", "assistant")]
         fresh = [f for f in own if not f.s2_evidence_count]
         stats["candidate_facts"] = len(fresh)
         settings = self.factory.settings
