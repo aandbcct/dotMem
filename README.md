@@ -6,7 +6,7 @@
 
 <h1 align="center">memhub</h1>
 
-<p align="center"><b>多个 Agent 共用一份个人记忆；当场记下事实，事后看出规律。</b><br />Claude Code、Codex、Cursor、Agentica 等 8 种 AI 工具共享同一份本地记忆，支持跨设备同步与可视化管理。</p>
+<p align="center"><b>多个 Agent 共用一份个人记忆；当场记下事实，事后看出规律。</b><br />Claude Code、Codex、Cursor、Agentica 等 18 种 AI 工具共享同一份本地记忆，支持跨设备同步与可视化管理。</p>
 
 <p align="center">
   <a href="https://badge.fury.io/py/memhub"><img src="https://badge.fury.io/py/memhub.svg" alt="PyPI version" /></a>
@@ -26,7 +26,7 @@ https://github.com/user-attachments/assets/1fba5e03-219d-414e-8c96-8e63a11200fd
 
 ### 1. 🔗 多个 Agent，一份记忆
 
-`memhub` 把本机上的多个 AI 工具连到同一份个人记忆：**Claude Code、Codex、Cursor、Agentica、Hermes、CodeBuddy、OpenCode、WorkBuddy、Kimi（kimi-cli / kimi-code）、DeepSeek Harness、Trae** 读写同一个本地库，数据默认留在你的电脑上。
+`memhub` 把本机上的多个 AI 工具连到同一份个人记忆：**Claude Code、Codex、Cursor、Agentica、Hermes、CodeBuddy、OpenCode、WorkBuddy、Kimi（kimi-cli / kimi-code）、DeepSeek Harness、Trae、ZCode、Qoder、GitHub Copilot、AWS Kiro、Cline、Pi、OpenClaw** 读写同一个本地库，数据默认留在你的电脑上。
 
 ```bash
 pip install "memhub[all]"
@@ -38,7 +38,7 @@ memhub install-service
 memhub install-host claude-code
 memhub install-host codex
 memhub install-host cursor
-# 支持：claude-code | codex | cursor | agentica | hermes | codebuddy | opencode | workbuddy | kimi-cli | kimi-code | dsh | trae
+# 支持：claude-code | codex | cursor | agentica | hermes | codebuddy | opencode | workbuddy | kimi-cli | kimi-code | dsh | trae | zcode | qoder | copilot | kiro | cline | pi | openclaw
 # 也可以一键接入全部：memhub install-host all
 
 # 3.（可选）把已有的历史会话导入为记忆
@@ -123,7 +123,7 @@ embed_base_url: https://api.openai.com/v1
 
 ## 功能特性
 
-- **多工具共享与多端同步** — 8 种 AI 工具共用本地记忆，支持通过私有 Git 仓库、网盘文件夹或自建服务器跨设备同步
+- **多工具共享与多端同步** — 18 种 AI 工具共用本地记忆，支持通过私有 Git 仓库、网盘文件夹或自建服务器跨设备同步
 - **浏览器可视化管理** — `memhub ui` 按项目和类型浏览、语义搜索、在线编辑（自动重算向量并同步）与删除记忆
 - **版本演化** — 「住上海 → 搬北京」自动更新版本，旧版本留作历史，回答默认用最新的
 - **分层存放** — 原始对话（L0）、事实与工程经验（L1）、个人画像（L2）、跨证据规律（L3）分层管理，按需召回
@@ -134,12 +134,12 @@ embed_base_url: https://api.openai.com/v1
 - [x] System 1 分层记忆 + 版本演化
 - [x] System 2：跨证据归纳长期规律与画像目录（L3）
 - [x] 专用决策模型把关写入
-- [x] 跨工具记忆中枢：11 个 AI 工具（Claude Code / Codex / Cursor / Agentica / Hermes / CodeBuddy / OpenCode / WorkBuddy / Kimi / DeepSeek Harness / Trae）共享记忆、历史会话导入、后台整理
+- [x] 跨工具记忆中枢：18 个 AI 工具（Claude Code / Codex / Cursor / Agentica / Hermes / CodeBuddy / OpenCode / WorkBuddy / Kimi / DeepSeek Harness / Trae / ZCode / Qoder / Copilot / Kiro / Cline / Pi / OpenClaw）共享记忆、历史会话导入、后台整理
 - [x] 多设备同步：每台本地检索、离线可用，经私有 Git 仓库 / 同步文件夹 / 服务器交换变更
 - [x] 工程排障经验自动沉淀与按项目召回
 - [x] LoCoMo / LongMemEval / PersonaMem-v2 同场评测领先
 - [x] 记忆可视化管理：`memhub ui` 按项目查看、搜索、编辑、删除记忆
-- [x] 接入更多工具：DeepSeek Harness、Trae 等，已达 11 种，[实测对照](https://github.com/shibing624/memhub/blob/main/docs/host-eval.md)
+- [x] 接入更多工具：DeepSeek Harness、Trae、ZCode、Qoder、Copilot、Kiro、Cline、Pi、OpenClaw 等，已达 18 种，[实测对照](https://github.com/shibing624/memhub/blob/main/docs/host-eval.md)
 - [ ] 云端 HTTP MCP：远程 Agent 直接连接托管记忆
 - [ ] 多跳推理类问题的检索增强（LoCoMo multi-hop 仍有提升空间）
 - [ ] 补充更多公开评测（CodeMemoryBench 等，待数据公开）
@@ -173,7 +173,7 @@ embed_base_url: https://api.openai.com/v1
 
 | 文档 | 内容 |
 |---|---|
-| [跨工具记忆中枢（Hub）](https://github.com/shibing624/memhub/blob/main/docs/memhub.md) | 8 个宿主工具接入、历史会话导入、`memhub ui` 可视化管理 |
+| [跨工具记忆中枢（Hub）](https://github.com/shibing624/memhub/blob/main/docs/memhub.md) | 18 个宿主工具接入、历史会话导入、`memhub ui` 可视化管理 |
 | [多设备同步](https://github.com/shibing624/memhub/blob/main/docs/memhub-server.md) | 私有 `git` 仓库 / 网盘 `dir` / `ssh` / `http` 同步，每台本地检索 |
 | [安装与配置](https://github.com/shibing624/memhub/blob/main/docs/getting-started/installation.md) | 安装方式、配置文件、环境变量与优先级 |
 | [SDK 快速开始](https://github.com/shibing624/memhub/blob/main/docs/getting-started/quickstart.md) | Python 同步 / 异步客户端、Coding 记忆、多轮写入 |

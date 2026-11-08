@@ -135,7 +135,8 @@ class Part(Protocol):
 
 
 class JsonMcp:
-    """``{"mcpServers": {...}}`` — Agentica, Claude Code, CodeBuddy, Cursor, WorkBuddy."""
+    """``{"mcpServers": {...}}`` — Agentica, Claude Code, Cline, CodeBuddy, Copilot,
+    Cursor, Kimi, Kiro, Pi, Qoder, Trae, WorkBuddy."""
 
     def install(self, path: Path, launch: Launch) -> None:
         data = _load_json(path)
@@ -152,6 +153,32 @@ class JsonMcp:
 
     def installed(self, path: Path) -> bool:
         return MCP_NAME in _load_json(path).get("mcpServers", {})
+
+
+class ZCodeMcp:
+    """ZCode ``~/.zcode/cli/config.json`` ``mcp.servers``: ``{"type": "stdio", "command": ..., "args": [...]}``."""
+
+    def install(self, path: Path, launch: Launch) -> None:
+        data = _load_json(path)
+        mcp = launch.mcp()
+        data.setdefault("mcp", {}).setdefault("servers", {})[MCP_NAME] = {
+            "type": "stdio",
+            "command": mcp["command"],
+            "args": mcp["args"],
+        }
+        _dump_json(path, data)
+
+    def uninstall(self, path: Path) -> bool:
+        data = _load_json(path)
+        servers = (data.get("mcp") or {}).get("servers") or {}
+        if MCP_NAME not in servers:
+            return False
+        del servers[MCP_NAME]
+        _dump_json(path, data)
+        return True
+
+    def installed(self, path: Path) -> bool:
+        return MCP_NAME in ((_load_json(path).get("mcp") or {}).get("servers") or {})
 
 
 class OpenCodeMcp:
@@ -269,7 +296,8 @@ class AgenticaHooks:
 
 
 class ClaudeStyleHooks:
-    """Claude Code ``settings.json`` / Codex ``hooks.json``: recall on prompt, capture on Stop."""
+    """Claude Code ``settings.json`` / Codex ``hooks.json`` / Qoder ``settings.json``:
+    recall on prompt, capture on Stop."""
 
     @staticmethod
     def _ours(entry: dict) -> bool:
@@ -301,6 +329,93 @@ class ClaudeStyleHooks:
     def installed(self, path: Path) -> bool:
         hooks = _load_json(path).get("hooks", {})
         return any(self._ours(e) for entries in hooks.values() for e in entries)
+
+
+class ZCodeHooks:
+    """ZCode ``~/.zcode/cli/config.json`` ``hooks.events``: same entry shape as Claude Code,
+    under ``hooks: {"enabled": True, "events": {...}}``."""
+
+    def install(self, path: Path, launch: Launch) -> None:
+        data = _load_json(path)
+        hooks = data.setdefault("hooks", {})
+        hooks["enabled"] = True
+        events = hooks.setdefault("events", {})
+        command = shlex.join(launch.hook())
+        for event in ("UserPromptSubmit", "Stop"):
+            entries = [e for e in events.get(event, []) if not ClaudeStyleHooks._ours(e)]
+            entries.append({"hooks": [{"type": "command", "command": command}]})
+            events[event] = entries
+        _dump_json(path, data)
+
+    def uninstall(self, path: Path) -> bool:
+        data = _load_json(path)
+        events = (data.get("hooks") or {}).get("events") or {}
+        changed = False
+        for event, entries in list(events.items()):
+            kept = [e for e in entries if not ClaudeStyleHooks._ours(e)]
+            if len(kept) != len(entries):
+                events[event] = kept
+                changed = True
+        if changed:
+            _dump_json(path, data)
+        return changed
+
+    def installed(self, path: Path) -> bool:
+        events = (_load_json(path).get("hooks") or {}).get("events") or {}
+        return any(ClaudeStyleHooks._ours(e) for entries in events.values() for e in entries)
+
+
+class CopilotHooks:
+    """GitHub Copilot ``~/.copilot/hooks/memhub.json``: one file owned by memhub,
+    with ``UserPromptSubmit`` and ``Stop`` command entries."""
+
+    def install(self, path: Path, launch: Launch) -> None:
+        command = shlex.join(launch.hook())
+        entry = {"type": "command", "command": command, "timeoutSeconds": 30}
+        _dump_json(
+            path,
+            {
+                "version": 1,
+                "hooks": {"UserPromptSubmit": [entry], "Stop": [entry]},
+            },
+        )
+
+    def uninstall(self, path: Path) -> bool:
+        if not self.installed(path):
+            return False
+        path.unlink()
+        return True
+
+    def installed(self, path: Path) -> bool:
+        return path.is_file() and HOOK_SIGNATURE in path.read_text(encoding="utf-8")
+
+
+class KiroHooks:
+    """Kiro ``~/.kiro/hooks/memhub.json``: v1 standalone hook file with
+    ``UserPromptSubmit`` and ``Stop`` triggers."""
+
+    def install(self, path: Path, launch: Launch) -> None:
+        command = shlex.join(launch.hook())
+        action = {"type": "command", "command": command}
+        _dump_json(
+            path,
+            {
+                "version": "v1",
+                "hooks": [
+                    {"name": "memhub-recall", "trigger": "UserPromptSubmit", "action": action},
+                    {"name": "memhub-capture", "trigger": "Stop", "action": action},
+                ],
+            },
+        )
+
+    def uninstall(self, path: Path) -> bool:
+        if not self.installed(path):
+            return False
+        path.unlink()
+        return True
+
+    def installed(self, path: Path) -> bool:
+        return path.is_file() and HOOK_SIGNATURE in path.read_text(encoding="utf-8")
 
 
 class OpenCodePlugin:
@@ -525,7 +640,8 @@ class DshMcp:
 class HostSpec:
     # Relative to $HOME; the skill lives at <home_dir>/skills/<SKILL_NAME>/SKILL.md.
     home_dir: str
-    mcp: tuple[Part, str]
+    # None for a host that speaks no MCP (OpenClaw).
+    mcp: tuple[Part, str] | None = None
     hooks: tuple[Part, str] | None = None
 
 
@@ -536,12 +652,22 @@ HOSTS: dict[str, HostSpec] = {
     "claude-code": HostSpec(
         ".claude", (JsonMcp(), ".claude.json"), (ClaudeStyleHooks(), ".claude/settings.json")
     ),
+    # Cline: global MCP in ~/.cline/data/settings/cline_mcp_settings.json, skills in ~/.cline/skills;
+    # sessions are scanned from ~/.cline/data/sessions and legacy VS Code tasks.
+    "cline": HostSpec(
+        ".cline", (JsonMcp(), ".cline/data/settings/cline_mcp_settings.json")
+    ),
     "codebuddy": HostSpec(
         ".codebuddy", (JsonMcp(), ".codebuddy/mcp.json"), (ClaudeStyleHooks(), ".codebuddy/settings.json")
     ),
     # Codex runs hooks only with `[features] hooks = true` and after the user trusts them.
     "codex": HostSpec(
         ".codex", (TomlMcp(), ".codex/config.toml"), (ClaudeStyleHooks(), ".codex/hooks.json")
+    ),
+    "copilot": HostSpec(
+        ".copilot",
+        (JsonMcp(), ".copilot/mcp-config.json"),
+        (CopilotHooks(), ".copilot/hooks/memhub.json"),
     ),
     "cursor": HostSpec(".cursor", (JsonMcp(), ".cursor/mcp.json"), (CursorHooks(), ".cursor/hooks.json")),
     # DeepSeek Harness (app and CLI share ~/.dsh): MCP in every profile patch, skill
@@ -558,18 +684,38 @@ HOSTS: dict[str, HostSpec] = {
         (JsonMcp(), ".kimi-code/mcp.json"),
         (TomlHooks(("UserPromptSubmit", "Stop")), ".kimi-code/config.toml"),
     ),
+    "kiro": HostSpec(
+        ".kiro",
+        (JsonMcp(), ".kiro/settings/mcp.json"),
+        (KiroHooks(), ".kiro/hooks/memhub.json"),
+    ),
     # Hermes is scanned from its state.db; it gets MCP + skill, no hooks.
     "hermes": HostSpec(".hermes", (YamlMcp(), ".hermes/config.yaml")),
+    # OpenClaw: zero-JS light integration — skill in ~/.openclaw/skills (uses CLI table)
+    # and sessions scanned from ~/.openclaw/agents/*/sessions/*.jsonl.
+    "openclaw": HostSpec(".openclaw"),
     "opencode": HostSpec(
         ".config/opencode",
         (OpenCodeMcp(), ".config/opencode/opencode.json"),
         (OpenCodePlugin(), ".config/opencode/plugins/memhub-hub.js"),
+    ),
+    # Pi: zero-JS light integration — MCP in ~/.pi/agent/mcp.json, skill in
+    # ~/.pi/agent/skills, sessions scanned from ~/.pi/agent/sessions.
+    "pi": HostSpec(".pi/agent", (JsonMcp(), ".pi/agent/mcp.json")),
+    # Qoder (CLI and IDE share ~/.qoder): Claude-style settings.json for mcpServers + hooks.
+    "qoder": HostSpec(
+        ".qoder", (JsonMcp(), ".qoder/settings.json"), (ClaudeStyleHooks(), ".qoder/settings.json")
     ),
     # Trae reads Claude-style hooks from ~/.trae/hooks.json; its payload carries the
     # prompt and the final answer, so no transcript is read.
     "trae": HostSpec(".trae", (JsonMcp(), TRAE_MCP), (ClaudeStyleHooks(), ".trae/hooks.json")),
     "workbuddy": HostSpec(
         ".workbuddy", (JsonMcp(), ".workbuddy/mcp.json"), (ClaudeStyleHooks(), ".workbuddy/settings.json")
+    ),
+    "zcode": HostSpec(
+        ".zcode",
+        (ZCodeMcp(), ".zcode/cli/config.json"),
+        (ZCodeHooks(), ".zcode/cli/config.json"),
     ),
 }
 
@@ -621,9 +767,10 @@ def install_host(
         encoding="utf-8",
     )
     written = [str(skill)]
-    for part, rel in [spec.mcp, *([spec.hooks] if spec.hooks else [])]:
+    for part, rel in (p for p in (spec.mcp, spec.hooks) if p):
         part.install(home / rel, launch)
-        written.append(str(home / rel))
+        if str(home / rel) not in written:
+            written.append(str(home / rel))
     return {"host": host, "files": written}
 
 
@@ -633,11 +780,10 @@ def uninstall_host(host: str, *, home: Path | None = None) -> dict[str, Any]:
     skill_removed = skill.is_file() and SKILL_MARKER in skill.read_text(encoding="utf-8")
     if skill_removed:
         shutil.rmtree(skill.parent)
-    mcp_part, mcp_rel = spec.mcp
     return {
         "host": host,
         "skill": skill_removed,
-        "mcp": mcp_part.uninstall(home / mcp_rel),
+        "mcp": spec.mcp[0].uninstall(home / spec.mcp[1]) if spec.mcp else False,
         "hooks": spec.hooks[0].uninstall(home / spec.hooks[1]) if spec.hooks else False,
     }
 
@@ -647,10 +793,9 @@ def hosts_status(*, home: Path | None = None) -> dict[str, dict[str, bool | None
     out: dict[str, dict[str, bool | None]] = {}
     for host, spec in HOSTS.items():
         _, skill = _paths(host, home)
-        mcp_part, mcp_rel = spec.mcp
         out[host] = {
             "skill": skill.is_file() and SKILL_MARKER in skill.read_text(encoding="utf-8"),
-            "mcp": mcp_part.installed(home / mcp_rel),
+            "mcp": spec.mcp[0].installed(home / spec.mcp[1]) if spec.mcp else None,
             "hooks": spec.hooks[0].installed(home / spec.hooks[1]) if spec.hooks else None,
         }
     return out

@@ -8,7 +8,7 @@
 
 **多个 Agent 共用一份个人记忆；当场记下事实，事后看出规律。**
 
-- 🔗 **跨工具记忆中枢（Hub）**：[MemHub](https://github.com/shibing624/memhub/blob/main/docs/memhub.md) 让 Claude Code、Codex、Cursor、Agentica、Hermes、CodeBuddy、OpenCode、WorkBuddy、Kimi、DeepSeek Harness、Trae 11 种工具读写同一份本地记忆，支持 `memhub ui` 可视化管理与跨设备同步（[多设备同步](https://github.com/shibing624/memhub/blob/main/docs/memhub-server.md)）。
+- 🔗 **跨工具记忆中枢（Hub）**：[MemHub](https://github.com/shibing624/memhub/blob/main/docs/memhub.md) 让 Claude Code、Codex、Cursor、Agentica、Hermes、CodeBuddy、OpenCode、WorkBuddy、Kimi、DeepSeek Harness、Trae、ZCode、Qoder、Copilot、Kiro、Cline、Pi、OpenClaw 18 种工具读写同一份本地记忆，支持 `memhub ui` 可视化管理与跨设备同步（[多设备同步](https://github.com/shibing624/memhub/blob/main/docs/memhub-server.md)）。
 - 🏆 **同场评测领先**：同模型、同题集，LoCoMo **74.7**（hy-memory 66.6、mem0 65.6）、LongMemEval **91.7**、PersonaMem-v2 **50.0**，写入耗时约为 hy-memory 的五分之一，详见 [评测说明](https://github.com/shibing624/memhub/blob/main/docs/benchmarks.md)。
 - 🧠 **快慢双系统**：System 1 在对话时实时记住你的事实、偏好和状态变化（旧说法自动保留在历史链）；System 2 在后台跨多次对话归纳你的长期习惯与行事风格。
 - 🛠️ **工程排障自动沉淀**：编码会话自动把「问题 → 根因与方案 → 涉及文件」提炼为可复用的工程经验，下次遇到类似问题直接带出。
@@ -31,7 +31,7 @@ pip install "memhub[all]"
 # 1. 启动后台常驻服务（开机自启）
 memhub install-service
 
-# 2. 按需接入你正在用的 AI 工具（或用 memhub install-host all 一键接入全部 8 种）
+# 2. 按需接入你正在用的 AI 工具（或用 memhub install-host all 一键接入全部 18 种）
 memhub install-host claude-code
 memhub install-host codex
 

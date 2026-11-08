@@ -5,7 +5,7 @@
 **MemHub 让你的 AI 工具共享一份个人记忆。** 记忆是你的长期资产，不被任何单一工具锁定，每次开口都从懂你开始。
 
 ```text
- Claude Code  Codex  Cursor  Hermes  Agentica  CodeBuddy  OpenCode  WorkBuddy  Kimi  DeepSeek Harness  Trae
+ Claude Code  Codex  Cursor  Hermes  Agentica  CodeBuddy  OpenCode  WorkBuddy  Kimi  DeepSeek Harness  Trae  ZCode  Qoder  Copilot  Kiro  Cline  Pi  OpenClaw
       \         \      |       |        |          |         /         /
        ───────────────────────────  MemHub  ───────────────────────────
                                       │
@@ -20,7 +20,7 @@
 - **历史不浪费**：已有的会话记录一键导入，第一天就"懂你"。
 - **数据归你**：默认只存在你的电脑上；多台电脑可以经你自己的网盘文件夹、git 仓库或服务器同步。
 
-当前支持：**Claude Code、Codex、Cursor、Hermes、Agentica、CodeBuddy、OpenCode、WorkBuddy、Kimi（kimi-cli / kimi-code）、DeepSeek Harness、Trae**。更多工具正在接入，见 [Roadmap](https://github.com/shibing624/memhub#roadmap)。
+当前支持：**Claude Code、Codex、Cursor、Hermes、Agentica、CodeBuddy、OpenCode、WorkBuddy、Kimi（kimi-cli / kimi-code）、DeepSeek Harness、Trae、ZCode、Qoder、GitHub Copilot、AWS Kiro、Cline、Pi、OpenClaw**。更多工具正在接入，见 [Roadmap](https://github.com/shibing624/memhub#roadmap)。
 
 ## 三步开始
 
@@ -34,7 +34,7 @@ memhub install-service
 memhub install-host claude-code
 memhub install-host codex
 memhub install-host cursor
-# 支持：claude-code | codex | cursor | agentica | hermes | codebuddy | opencode | workbuddy | kimi-cli | kimi-code | dsh | trae
+# 支持：claude-code | codex | cursor | agentica | hermes | codebuddy | opencode | workbuddy | kimi-cli | kimi-code | dsh | trae | zcode | qoder | copilot | kiro | cline | pi | openclaw
 # 也可以一键接入全部：memhub install-host all
 
 # 3.（可选）导入过去的对话历史
@@ -121,7 +121,7 @@ memhub connect git git@github.com:<你的用户名>/my-vibecoding-memory.git
 
 ```text
 ┌──────────────────── 每台电脑 ─────────────────────┐
-│ Claude Code / Codex / Cursor / Agentica 等 8 种工具 │
+│ Claude Code / Codex / Cursor / Agentica 等 18 种工具 │
 │   ├── 会话结束 Hook ───────┐                       │
 │   ├── 你输入提示词 (hook) ──┼─▶ 127.0.0.1:8765     │
 │   └── Agent 主动查 (MCP) ──┘   memhub serve       │──▶ 同步目标（可选）
@@ -130,9 +130,9 @@ memhub connect git git@github.com:<你的用户名>/my-vibecoding-memory.git
 └───────────────────────────────────────────────────┘
 ```
 
-1. **写**：一轮对话结束，宿主触发采集 Hook（Claude Code / Codex / CodeBuddy / WorkBuddy `Stop`、Cursor `stop`（`~/.cursor/hooks.json`）、Agentica `run.completed` / `session.ended`、OpenCode `session.idle`、Kimi `Stop`（`config.toml` 的 `[[hooks]]`）、Trae `Stop`（`~/.trae/hooks.json`））。它按本机 `cursors.db` 的游标读出会话日志里新增的轮次，交给本机 Core 后立刻返回，不等 LLM。Trae 的 hook 载荷自带提问和回答，不读会话文件；DeepSeek Harness 没有 hook，会话（zstd 压缩的 `session.v4.jsonl.zstd`）靠 `memhub scan` 导入。
+1. **写**：一轮对话结束，宿主触发采集 Hook（Claude Code / Codex / CodeBuddy / WorkBuddy / Qoder / ZCode `Stop`、Cursor `stop`（`~/.cursor/hooks.json`）、Agentica `run.completed` / `session.ended`、OpenCode `session.idle`、Kimi `Stop`（`config.toml` 的 `[[hooks]]`）、Trae `Stop`（`~/.trae/hooks.json`）、Copilot / Kiro `Stop`（`hooks/memhub.json`））。它按本机 `cursors.db` 的游标读出会话日志里新增的轮次，交给本机 Core 后立刻返回，不等 LLM。Trae 的 hook 载荷自带提问和回答，不读会话文件；DeepSeek Harness、Hermes、Cline、Pi、OpenClaw 采用零 JS 轻接入（不挂 hook），会话靠 `memhub scan` 导入。
 2. **整理**：Core 先把 Evidence 写进持久队列 `hub.db`，再由唯一 worker 在后台抽取、JEV 裁决、写入记忆；dual 模式下，距上次成功归纳满一天且仍有新证据时，在写入空档自动 `digest()`（多设备时只有一台负责）。
-3. **读**：你提交提示词时，`memhub hook` 收到 `UserPromptSubmit`（Cursor 是 `beforeSubmitPrompt`，OpenCode 由插件转发 `chat.message`），按当前项目召回相关记忆注入上下文；Agent 也可以通过 MCP 工具（`memory_search` 等）主动查。都只读本机库。kimi-code 与 Trae 同样提问时注入（kimi-code 直接读 hook 的标准输出，所以返回纯文本）；kimi-cli 1.49 不读提示词 hook 的输出，只采集、靠 MCP 和 skill 召回。Hermes 和 DeepSeek Harness 目前只接了 MCP 和 skill，不会自动注入。
+3. **读**：你提交提示词时，`memhub hook` 收到 `UserPromptSubmit`（Cursor 是 `beforeSubmitPrompt`，OpenCode 由插件转发 `chat.message`），按当前项目召回相关记忆注入上下文；Agent 也可以通过 MCP 工具（`memory_search` 等）主动查。都只读本机库。kimi-code、Kiro、Trae、ZCode、Qoder、Copilot 同样提问时注入（kimi-code 与 Kiro 直接读 hook 的标准输出，所以返回纯文本；Copilot 返回顶层 `additionalContext`）；kimi-cli 1.49 不读提示词 hook 的输出，只采集、靠 MCP 和 skill 召回。Hermes、DeepSeek Harness、Cline、Pi 接了 MCP 和 skill，OpenClaw 接了 skill（通过 CLI 表调用 Core），不自动注入。
 4. **同步**（`connect` 之后）：本机库的每次变更带着向量记进变更日志，Core 在后台把它推到同步目标，并拉回其它电脑的变更。
 
 ### 从提问到在 UI 看到新记忆：各环节与耗时

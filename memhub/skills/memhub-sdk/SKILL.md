@@ -9,7 +9,7 @@ description: >
 # memhub 记忆技能
 
 `memhub` 提供两层能力：
-1. **跨工具个人记忆中枢（Hub）**：让本机 8 种 AI 工具（`claude-code`、`codex`、`cursor`、`agentica`、`hermes`、`codebuddy`、`opencode`、`workbuddy`）共享同一份本地记忆，支持 `memhub ui` 可视化管理与跨设备同步（`git` / `dir` / `ssh` / `http`）。
+1. **跨工具个人记忆中枢（Hub）**：让本机 18 种 AI 工具（`claude-code`、`codex`、`cursor`、`agentica`、`hermes`、`codebuddy`、`opencode`、`workbuddy`、`kimi-cli` / `kimi-code`、`dsh`、`trae`、`zcode`、`qoder`、`copilot`、`kiro`、`cline`、`pi`、`openclaw`）共享同一份本地记忆，支持 `memhub ui` 可视化管理与跨设备同步（`git` / `dir` / `ssh` / `http`）。
 2. **双系统分层记忆 SDK（`MemoryClient` / `SyncMemoryClient`）**：把对话与工具轨迹沉淀为四层长期记忆（`L0_RAW` / `L1_FACT` / `L2_PROFILE` / `L3_DERIVED`），检索时按 `profile` / `proactive` / `normal` / `procedures` / `schema` / `catalog` / `raw` 分组返回。它管**跨会话记忆**，不能替代 Agent 自己的当前窗口（WorkingMemory）。
 
 ## 1. 跨工具个人记忆中枢（Hub CLI）
@@ -24,7 +24,7 @@ memhub install-service
 memhub install-host claude-code
 memhub install-host codex
 memhub install-host cursor
-# 支持：claude-code | codex | cursor | agentica | hermes | codebuddy | opencode | workbuddy | all
+# 支持：claude-code | codex | cursor | agentica | hermes | codebuddy | opencode | workbuddy | kimi-cli | kimi-code | dsh | trae | zcode | qoder | copilot | kiro | cline | pi | openclaw | all
 
 # （可选）导入已有历史会话
 memhub scan --source claude-code   # 或 --source all

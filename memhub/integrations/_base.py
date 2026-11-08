@@ -403,9 +403,14 @@ class MemoryBackend:
         app_id: Optional[str] = None,
         agent_id: str = "",
         limit: int = 100,
+        include_history: bool = False,
     ) -> list:
         return await self.client.list(
-            app_id=app_id, user_id=user_id, agent_id=agent_id, limit=limit
+            app_id=app_id,
+            user_id=user_id,
+            agent_id=agent_id,
+            limit=limit,
+            include_history=include_history,
         )
 
     async def update(self, memory_id: str, content: str) -> Any:
@@ -838,6 +843,24 @@ class _SyncMemoryProvider:
                 },
             },
             {
+                "name": "memory_update",
+                "description": (
+                    "Update an existing memory with new content; the old version "
+                    "is kept as history. Get memory_id from memory_list."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "memory_id": {"type": "string", "description": "Memory ID"},
+                        "content": {
+                            "type": "string",
+                            "description": "Updated memory content",
+                        },
+                    },
+                    "required": ["memory_id", "content"],
+                },
+            },
+            {
                 "name": "memory_delete",
                 "description": "Archive a current memory by id. The old id stays readable.",
                 "parameters": {
@@ -921,6 +944,13 @@ class _SyncMemoryProvider:
                         session_id=self._session_id,
                     )
                 )
+                return {"status": "success", "memory_id": res.memory_id}
+            if name == "memory_update":
+                mid = args.get("memory_id", "")
+                content = args.get("content", "")
+                if not mid or not content:
+                    return {"error": "memory_id and content are required"}
+                res = self._runner.run(self._backend.update(mid, content))
                 return {"status": "success", "memory_id": res.memory_id}
             if name == "memory_delete":
                 mid = args.get("memory_id", "")

@@ -6,7 +6,7 @@
 
 <h1 align="center">memhub</h1>
 
-<p align="center"><b>One memory across your agents. Facts now, patterns over time.</b><br />Claude Code, Codex, Cursor, Agentica and 4 other AI tools share one local memory with cross-device sync and a visual browser.</p>
+<p align="center"><b>One memory across your agents. Facts now, patterns over time.</b><br />Claude Code, Codex, Cursor, Agentica and 14 other AI tools share one local memory with cross-device sync and a visual browser.</p>
 
 <p align="center">
   <a href="https://badge.fury.io/py/memhub"><img src="https://badge.fury.io/py/memhub.svg" alt="PyPI version" /></a>
@@ -26,7 +26,7 @@ The coding conventions you explained in Cursor are unknown to Codex. You've told
 
 ### 1. 🔗 Several agents, one memory
 
-`memhub` connects the AI tools on your machine to one personal memory: **Claude Code, Codex, Cursor, Agentica, Hermes, CodeBuddy, OpenCode, WorkBuddy, Kimi (kimi-cli / kimi-code), DeepSeek Harness, and Trae** read and write the same local store. By default the data stays on your computer.
+`memhub` connects the AI tools on your machine to one personal memory: **Claude Code, Codex, Cursor, Agentica, Hermes, CodeBuddy, OpenCode, WorkBuddy, Kimi (kimi-cli / kimi-code), DeepSeek Harness, Trae, ZCode, Qoder, GitHub Copilot, AWS Kiro, Cline, Pi, and OpenClaw** read and write the same local store. By default the data stays on your computer.
 
 ```bash
 pip install "memhub[all]"
@@ -38,7 +38,7 @@ memhub install-service
 memhub install-host claude-code
 memhub install-host codex
 memhub install-host cursor
-# Supported: claude-code | codex | cursor | agentica | hermes | codebuddy | opencode | workbuddy | kimi-cli | kimi-code | dsh | trae
+# Supported: claude-code | codex | cursor | agentica | hermes | codebuddy | opencode | workbuddy | kimi-cli | kimi-code | dsh | trae | zcode | qoder | copilot | kiro | cline | pi | openclaw
 # Or connect all at once: memhub install-host all
 
 # 3. (Optional) Import your past conversation history into memory
@@ -123,7 +123,7 @@ Building your own agent or application with `memhub`? Check out the developer gu
 
 ## Features
 
-- **Cross-tool sharing & multi-device sync** — 8 AI tools share one local memory, synced across machines via a private Git repo, cloud folder, or server
+- **Cross-tool sharing & multi-device sync** — 18 AI tools share one local memory, synced across machines via a private Git repo, cloud folder, or server
 - **Visual memory browser** — `memhub ui` to filter by project and type, run semantic search, edit (re-embeds and syncs automatically), and delete memories
 - **Versioned updates** — "lives in Shanghai → moving to Beijing" updates the current version while keeping history
 - **Layered memory** — raw conversations (L0), facts & engineering procedures (L1), user profile (L2), and cross-evidence patterns (L3)
@@ -134,12 +134,12 @@ Building your own agent or application with `memhub`? Check out the developer gu
 - [x] System 1 layered memory and version evolution
 - [x] System 2: cross-evidence pattern induction and profile catalog (L3)
 - [x] Dedicated decision model guarding writes
-- [x] Memory Hub: 11 AI tools (Claude Code / Codex / Cursor / Agentica / Hermes / CodeBuddy / OpenCode / WorkBuddy / Kimi / DeepSeek Harness / Trae) share memory, history import, background organizing
+- [x] Memory Hub: 18 AI tools (Claude Code / Codex / Cursor / Agentica / Hermes / CodeBuddy / OpenCode / WorkBuddy / Kimi / DeepSeek Harness / Trae / ZCode / Qoder / Copilot / Kiro / Cline / Pi / OpenClaw) share memory, history import, background organizing
 - [x] Multi-device sync: local recall on every computer, works offline, exchanges changes via a private Git repo / synced folder / server
 - [x] Automatic engineering experience distillation and project-scoped recall
 - [x] Leads head-to-head on LoCoMo / LongMemEval / PersonaMem-v2
 - [x] Visual memory management: `memhub ui` to browse by project, search, edit and delete memories
-- [x] More host tools: DeepSeek Harness, Trae and others — 11 in total, with a [measured native vs. memhub check](https://github.com/shibing624/memhub/blob/main/docs/host-eval.md) (documented in Chinese)
+- [x] More host tools: DeepSeek Harness, Trae, ZCode, Qoder, Copilot, Kiro, Cline, Pi, OpenClaw and others — 18 in total, with a [measured native vs. memhub check](https://github.com/shibing624/memhub/blob/main/docs/host-eval.md) (documented in Chinese)
 - [ ] Cloud HTTP MCP: remote agents connect to hosted memory directly
 - [ ] Better retrieval for multi-hop questions (LoCoMo multi-hop still has headroom)
 - [ ] More public benchmarks (CodeMemoryBench and others, once their data is released)
@@ -173,7 +173,7 @@ Full documentation: **[https://shibing624.github.io/memhub](https://shibing624.g
 
 | Doc | Contents |
 |---|---|
-| [Memory Hub](https://github.com/shibing624/memhub/blob/main/docs/memhub.md) | 8 host integrations, history import, `memhub ui` visual browser |
+| [Memory Hub](https://github.com/shibing624/memhub/blob/main/docs/memhub.md) | 18 host integrations, history import, `memhub ui` visual browser |
 | [Multi-device sync](https://github.com/shibing624/memhub/blob/main/docs/memhub-server.md) | private `git` repo / synced `dir` / `ssh` / `http` replication, local recall |
 | [Installation & configuration](https://github.com/shibing624/memhub/blob/main/docs/getting-started/installation.md) | extras, config file, environment variables and precedence |
 | [SDK Quickstart](https://github.com/shibing624/memhub/blob/main/docs/getting-started/quickstart.md) | sync / async Python clients, coding memory, multi-turn writes |

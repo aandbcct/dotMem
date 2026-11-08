@@ -9,17 +9,24 @@ blocks, harness markup tags); they never guess meaning from wording:
 
 - agentica    ``~/.agentica/projects/**/<session>.jsonl``  (type user/assistant)
 - claude-code ``~/.claude/projects/**/<session>.jsonl``    (message.content text blocks)
+- cline       ``~/.cline/data/sessions/<session>/<session>.messages.json`` (messages array; cursor = message index)
 - codebuddy   ``~/.codebuddy/projects/**/<session>.jsonl`` (type message/function_call)
 - codex       ``~/.codex/sessions/**/rollout-*.jsonl``     (event_msg UserMessage/AgentMessage
   items — the real input, unlike response_item which also carries AGENTS.md)
+- copilot     ``~/.copilot/session-state/<session>/events.jsonl`` (session.start / user.message / assistant.message / tool.execution_start)
 - cursor      ``~/.cursor/projects/*/agent-transcripts/**/*.jsonl``
 - dsh         ``~/.dsh/sessions/**/session.v4.jsonl.zstd`` (zstd JSONL events
   ``user/message`` / ``assistant/message`` / ``tool/call``; cursor = decompressed offset)
 - hermes      ``~/.hermes/state.db`` table ``messages`` (cursor = message id)
 - kimi-cli    ``~/.kimi/sessions/<md5(work dir)>/<session>/context.jsonl`` (role user/assistant)
 - kimi-code   ``~/.kimi-code/sessions/*/<session>/agents/main/wire.jsonl`` (append_message / step events)
+- kiro        ``~/.kiro/sessions/**/sess_*/messages.jsonl`` (payload.type user/assistant/tool_call)
+- openclaw    ``~/.openclaw/agents/<agent>/sessions/<session>.jsonl`` (pi session format v3)
 - opencode    ``~/.local/share/opencode/opencode.db`` tables ``part``/``message``/``session`` (cursor = part rowid)
+- pi          ``~/.pi/agent/sessions/--<cwd>--/<time>_<session>.jsonl`` (session format v3)
+- qoder       ``~/.qoder/projects/**/<session>.jsonl`` (Claude-style JSONL)
 - workbuddy   ``~/.workbuddy/projects/**/<session>.jsonl`` (type message/function_call)
+- zcode       ``~/.zcode/cli/db/db.sqlite`` tables ``part``/``message``/``session`` (cursor = part rowid)
 
 A turn is the user's message plus the assistant's *last* text before the next
 user message — the answer, not the tool-call narration in between. Where a host
@@ -52,15 +59,22 @@ from memhub.hub.config import CursorStore
 SOURCES = (
     "agentica",
     "claude-code",
+    "cline",
     "codebuddy",
     "codex",
+    "copilot",
     "cursor",
     "dsh",
     "hermes",
     "kimi-cli",
     "kimi-code",
+    "kiro",
+    "openclaw",
     "opencode",
+    "pi",
+    "qoder",
     "workbuddy",
+    "zcode",
 )
 
 _TEXT_BLOCK_TYPES = {"text", "input_text", "output_text", "Text"}
@@ -526,6 +540,208 @@ def _read_kimi_cli(path: Path, start: int) -> tuple[list[Message], int]:
     )
 
 
+# pi's ``write`` carries the file in ``content``, ``edit`` the text in ``oldText`` /
+# ``newText``: output, not memory material.
+_PI_WRITE_KEYS = ("content", "oldText", "newText")
+
+
+def _parse_pi(record: dict, state: dict) -> tuple[str, str, str, int | None] | None:
+    """pi / OpenClaw session (pi session format v3). The header names the session and
+    the project; ``message`` entries are ``user`` / ``assistant`` (``text`` blocks are
+    the answer, ``toolCall`` blocks are steps, ``thinking`` is not kept); ``toolResult``
+    and ``bashExecution`` are how the answer was reached, and ``custom_message`` is an
+    extension's injected context, none of them conversation."""
+    kind = record.get("type")
+    if kind == "session":
+        state["session_id"] = record["id"]
+        state["workspace"] = record.get("cwd")
+        return None
+    if kind != "message":
+        return None
+    message = record["message"]
+    role = message["role"]
+    if role not in ("user", "assistant"):
+        return None
+    at = _ms_seconds(message.get("timestamp"))
+    content = message.get("content")
+    if role == "user":
+        return role, _blocks_text(content), state["session_id"], at
+    for block in content if isinstance(content, list) else []:
+        if isinstance(block, dict) and block.get("type") == "toolCall":
+            raw_args = block.get("arguments") or {}
+            args = (
+                {k: v for k, v in raw_args.items() if k not in _PI_WRITE_KEYS}
+                if isinstance(raw_args, dict)
+                else {}
+            )
+            state["steps"].append(
+                _tool_call(str(block.get("id") or ""), str(block.get("name") or ""), args)
+            )
+    return role, _blocks_text(content), state["session_id"], at
+
+
+def _read_pi(path: Path, start: int) -> tuple[list[Message], int]:
+    return _read_jsonl(path, start, _parse_pi)
+
+
+_COPILOT_WRITE_KEYS = ("file_text", "old_str", "new_str", "patch", "content")
+
+
+def _parse_copilot(record: dict, state: dict) -> tuple[str, str, str, int | None] | None:
+    """GitHub Copilot ``events.jsonl``: ``session.start`` names the session and workspace;
+    ``user.message`` (skipping ``source == "system"`` hook injections), ``assistant.message``
+    and ``tool.execution_start`` steps."""
+    if record.get("ephemeral"):
+        return None
+    kind = record.get("type")
+    data = record.get("data") or {}
+    at = _iso_seconds(record.get("timestamp"))
+    if kind == "session.start":
+        state["session_id"] = data.get("sessionId") or state["session_id"]
+        ctx = data.get("context") or {}
+        state["workspace"] = ctx.get("cwd") or data.get("cwd") or state["workspace"]
+        state["branch"] = ctx.get("branch") or state["branch"]
+        return None
+    if kind == "user.message":
+        if data.get("source") == "system":
+            return None
+        return "user", str(data.get("content") or ""), state["session_id"], at
+    if kind == "tool.execution_start":
+        raw_args = data.get("arguments") or {}
+        args = (
+            {k: v for k, v in raw_args.items() if k not in _COPILOT_WRITE_KEYS}
+            if isinstance(raw_args, dict)
+            else {}
+        )
+        state["steps"].append(
+            _tool_call(str(data.get("toolCallId") or ""), str(data.get("toolName") or ""), args)
+        )
+        return "assistant", "", state["session_id"], at
+    if kind == "assistant.message":
+        for req in data.get("toolRequests") or []:
+            if not isinstance(req, dict):
+                continue
+            raw_args = req.get("arguments") or {}
+            args = (
+                {k: v for k, v in raw_args.items() if k not in _COPILOT_WRITE_KEYS}
+                if isinstance(raw_args, dict)
+                else {}
+            )
+            state["steps"].append(
+                _tool_call(str(req.get("toolCallId") or ""), str(req.get("name") or ""), args)
+            )
+        return "assistant", str(data.get("content") or ""), state["session_id"], at
+    return None
+
+
+def _read_copilot(path: Path, start: int) -> tuple[list[Message], int]:
+    return _read_jsonl(path, start, _parse_copilot, session_id=path.parent.name)
+
+
+_KIRO_WRITE_KEYS = ("text", "content", "oldStr", "newStr", "old_string", "new_string")
+
+
+def _parse_kiro(record: dict, state: dict) -> tuple[str, str, str, int | None] | None:
+    """Kiro ``messages.jsonl``: structured ``payload.type`` (``user`` / ``assistant`` /
+    ``tool_call``), skipping synthetic workflow prompts."""
+    payload = record.get("payload")
+    if not isinstance(payload, dict):
+        return None
+    meta = (record.get("_meta") or {}).get("kiro") or {}
+    if meta.get("syntheticUserMessageReason"):
+        return None
+    kind = payload.get("type")
+    at = _iso_seconds(record.get("timestamp")) or state["at"]
+    if kind in ("user", "assistant"):
+        return kind, _blocks_text(payload.get("content")), state["session_id"], at
+    if kind == "tool_call":
+        raw_args = payload.get("args") if "args" in payload else payload.get("arguments")
+        if isinstance(raw_args, str):
+            try:
+                raw_args = json.loads(raw_args)
+            except json.JSONDecodeError:
+                raw_args = {}
+        args = (
+            {k: v for k, v in raw_args.items() if k not in _KIRO_WRITE_KEYS}
+            if isinstance(raw_args, dict)
+            else {}
+        )
+        state["steps"].append(
+            _tool_call(str(payload.get("id") or ""), str(payload.get("name") or ""), args)
+        )
+        return "assistant", "", state["session_id"], at
+    return None
+
+
+def _read_kiro(path: Path, start: int) -> tuple[list[Message], int]:
+    meta_file = path.with_name("session.json")
+    meta = json.loads(meta_file.read_text(encoding="utf-8")) if meta_file.is_file() else {}
+    session_id = meta.get("id") or path.parent.name
+    workspaces = meta.get("workspacePaths") or []
+    workspace = workspaces[0] if workspaces else None
+    at = _iso_seconds(meta.get("createdAt")) or int(path.stat().st_mtime)
+    return _read_jsonl(
+        path, start, _parse_kiro, session_id=session_id, workspace=workspace, at=at
+    )
+
+
+_CLINE_WRITE_KEYS = ("content", "diff", "old_str", "new_str", "old_string", "new_string")
+
+
+def _read_cline(path: Path, start: int) -> tuple[list[Message], int]:
+    """Cline SDK ``<id>.messages.json``: JSON object whose ``messages`` array is rewritten
+    as turns complete; cursor is the index into ``messages``."""
+    data = json.loads(path.read_text(encoding="utf-8") or "{}")
+    if data.get("agent") in ("subagent", "teammate"):
+        return [], start
+    session_id = data.get("sessionId") or path.parent.name
+    manifest_file = path.with_name(f"{session_id}.json")
+    manifest = (
+        json.loads(manifest_file.read_text(encoding="utf-8"))
+        if manifest_file.is_file()
+        else {}
+    )
+    workspace = manifest.get("cwd") or manifest.get("workspace_root")
+    base_at = _iso_seconds(manifest.get("started_at") or data.get("updated_at")) or int(
+        path.stat().st_mtime
+    )
+    items = data.get("messages") or []
+    if start > len(items):
+        start = 0
+    messages: list[Message] = []
+    for idx in range(start, len(items)):
+        msg = items[idx]
+        role = msg.get("role")
+        meta = msg.get("metadata") or {}
+        if role not in ("user", "assistant") or meta.get("displayOnly") or meta.get("displayRole") == "system":
+            continue
+        at = _ms_seconds(msg.get("ts")) or base_at
+        content = msg.get("content")
+        steps = []
+        if role == "assistant" and isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "tool_use":
+                    raw_inp = block.get("input") or {}
+                    inp = (
+                        {k: v for k, v in raw_inp.items() if k not in _CLINE_WRITE_KEYS}
+                        if isinstance(raw_inp, dict)
+                        else {}
+                    )
+                    steps.append(
+                        _tool_call(
+                            str(block.get("id") or block.get("call_id") or ""),
+                            str(block.get("name") or ""),
+                            inp,
+                        )
+                    )
+        text = strip_memory_injection(_blocks_text(content)).strip()
+        if text or steps:
+            messages.append(
+                Message(role, text, session_id, at, idx, idx + 1, tuple(steps), workspace)
+            )
+    return messages, len(items)
+
+
 def _parse_kimi_code(record: dict, state: dict) -> tuple[str, str, str, int | None] | None:
     """kimi-code ``agents/main/wire.jsonl``: the user's message is a
     ``context.append_message`` whose origin is the user (the rest are injected
@@ -690,6 +906,15 @@ SOURCE_SPECS: dict[str, SourceSpec] = {
         _jsonl_files("*.jsonl"),
         lambda p, s: _read_jsonl(p, s, _parse_claude),
     ),
+    "cline": SourceSpec(
+        "cline",
+        ".cline/data/sessions",
+        lambda root: sorted(
+            (p for p in root.glob("*/*.messages.json") if "__" not in p.name),
+            key=lambda p: p.stat().st_mtime_ns,
+        ),
+        _read_cline,
+    ),
     "codebuddy": SourceSpec(
         "codebuddy",
         ".codebuddy/projects",
@@ -701,6 +926,12 @@ SOURCE_SPECS: dict[str, SourceSpec] = {
         ".codex/sessions",
         _jsonl_files("rollout-*.jsonl"),
         lambda p, s: _read_jsonl(p, s, _parse_codex),
+    ),
+    "copilot": SourceSpec(
+        "copilot",
+        ".copilot/session-state",
+        lambda root: sorted(root.glob("*/events.jsonl"), key=lambda p: p.stat().st_mtime_ns),
+        _read_copilot,
     ),
     "cursor": SourceSpec(
         "cursor",
@@ -734,17 +965,51 @@ SOURCE_SPECS: dict[str, SourceSpec] = {
         ),
         _read_kimi_code,
     ),
+    "kiro": SourceSpec(
+        "kiro",
+        ".kiro/sessions",
+        lambda root: sorted(
+            root.rglob("sess_*/messages.jsonl"), key=lambda p: p.stat().st_mtime_ns
+        ),
+        _read_kiro,
+    ),
+    "openclaw": SourceSpec(
+        "openclaw",
+        ".openclaw/agents",
+        lambda root: sorted(
+            root.glob("*/sessions/*.jsonl"), key=lambda p: p.stat().st_mtime_ns
+        ),
+        _read_pi,
+    ),
     "opencode": SourceSpec(
         "opencode",
         ".local/share/opencode/opencode.db",
         lambda root: [root] if root.is_file() else [],
         _read_opencode,
     ),
+    "pi": SourceSpec(
+        "pi",
+        ".pi/agent/sessions",
+        lambda root: sorted(root.glob("*/*.jsonl"), key=lambda p: p.stat().st_mtime_ns),
+        _read_pi,
+    ),
+    "qoder": SourceSpec(
+        "qoder",
+        ".qoder/projects",
+        _jsonl_files("*.jsonl"),
+        lambda p, s: _read_jsonl(p, s, _parse_claude),
+    ),
     "workbuddy": SourceSpec(
         "workbuddy",
         ".workbuddy/projects",
         _jsonl_files("*.jsonl"),
         lambda p, s: _read_jsonl(p, s, _parse_codebuddy),
+    ),
+    "zcode": SourceSpec(
+        "zcode",
+        ".zcode/cli/db/db.sqlite",
+        lambda root: [root] if root.is_file() else [],
+        _read_opencode,
     ),
 }
 
@@ -909,16 +1174,30 @@ def locate_transcript(
     Agentica's ``run.completed``, OpenCode's ``session.idle`` and Kimi's ``Stop`` carry
     ``session_id``; Cursor names the conversation ``conversation_id``.
     """
-    if payload.get("transcript_path"):
-        return Path(payload["transcript_path"]).expanduser()
+    if payload.get("transcript_path") or payload.get("transcriptPath"):
+        return Path(payload.get("transcript_path") or payload["transcriptPath"]).expanduser()
     root = (roots or default_source_roots())[source]
-    if source in ("hermes", "opencode"):
+    if source in ("hermes", "opencode", "zcode"):
         return root if root.is_file() else None
-    session_id = payload.get("session_id") or payload.get("conversation_id")
+    session_id = (
+        payload.get("session_id")
+        or payload.get("sessionId")
+        or payload.get("conversation_id")
+    )
     if not session_id or not root.is_dir():
         return None
+    if source == "cline":
+        return next(root.glob(f"{session_id}/{session_id}.messages.json"), None)
+    if source == "copilot":
+        return next(root.glob(f"{session_id}/events.jsonl"), None)
     if source == "kimi-cli":
         return next(root.glob(f"*/{session_id}/context.jsonl"), None)
     if source == "kimi-code":
         return next(root.glob(f"*/{session_id}/agents/main/wire.jsonl"), None)
+    if source == "kiro":
+        return next(root.rglob(f"{session_id}/messages.jsonl"), None)
+    if source == "openclaw":
+        return next(root.glob(f"*/sessions/{session_id}*.jsonl"), None)
+    if source == "pi":
+        return next(root.rglob(f"*_{session_id}.jsonl"), None)
     return next(root.rglob(f"{session_id}.jsonl"), None)

@@ -51,7 +51,7 @@ LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
 INLINE_SOURCES = ("trae",)
 # Hosts that add whatever a prompt hook prints to the context, and read no JSON
 # reply: the memories go out as plain text.
-PLAIN_CONTEXT_SOURCES = ("kimi-code",)
+PLAIN_CONTEXT_SOURCES = ("kimi-code", "kiro")
 HOOK_SOURCES = (*SOURCES, *INLINE_SOURCES)
 # Per recalled dialogue in the UserPromptSubmit injection.
 RAW_EXCERPT_CHARS = 1600
@@ -603,6 +603,8 @@ def _recall(payload: dict[str, Any], limit: int, hub_dir: str | None, source: st
             json.dumps(
                 {"additional_context": context}
                 if source == "cursor"
+                else {"additionalContext": context}
+                if source == "copilot"
                 else {
                     "hookSpecificOutput": {
                         "hookEventName": "UserPromptSubmit",
@@ -612,6 +614,14 @@ def _recall(payload: dict[str, Any], limit: int, hub_dir: str | None, source: st
                 ensure_ascii=False,
             )
         )
+
+
+def _is_prompt_event(payload: dict[str, Any]) -> bool:
+    event = payload.get("hook_event_name") or payload.get("hookEventName")
+    if event in ("UserPromptSubmit", "beforeSubmitPrompt", "userPromptSubmitted"):
+        return True
+    # Copilot's native userPromptSubmitted stdin carries prompt + sessionId without an event field.
+    return event is None and "prompt" in payload
 
 
 @hub_app.command("hook")
@@ -627,7 +637,7 @@ def hub_hook(
         payload = json.loads(sys.stdin.read() or "{}")
         if _other_host(source, payload):
             return
-        if payload.get("hook_event_name") in ("UserPromptSubmit", "beforeSubmitPrompt"):
+        if _is_prompt_event(payload):
             if source in INLINE_SOURCES:
                 _stash_prompt(payload, hub_dir, source)
             _recall(payload, limit, hub_dir, source)

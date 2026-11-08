@@ -263,6 +263,8 @@ def test_conversation_search_tool_is_registered_and_limited():
     provider = _provider_with_backend(Backend())
     names = {schema["name"] for schema in provider.get_tool_schemas()}
     assert "conversation_search" in names
+    assert "memory_update" in names
+    assert "memory_list" in names
     provider.prefetch("第一轮")
     out = provider._dispatch_tool("conversation_search", {"query": "咖啡"})
     assert out["status"] == "success"

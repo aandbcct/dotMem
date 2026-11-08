@@ -438,6 +438,282 @@ def _seed_transcripts(home: Path) -> dict[str, Path]:
         ],
     )
     (kimi_session / "metadata.json").write_text(json.dumps({"wire_mtime": 1791005000.5}))
+    pi_header = {
+        "type": "session",
+        "version": 3,
+        "id": "pi-1",
+        "timestamp": "2026-11-08T10:00:00.000Z",
+        "cwd": "/Users/me/pi",
+    }
+
+    def pi_message(role: str, content: list[dict] | str, ms: int, **extra: Any) -> dict:
+        return {
+            "type": "message",
+            "id": "e1",
+            "parentId": None,
+            "timestamp": "2026-11-08T10:00:01.000Z",
+            "message": {"role": role, "content": content, "timestamp": ms, **extra},
+        }
+
+    pi_records = [
+        pi_header,
+        {"type": "model_change", "id": "m1", "parentId": None, "provider": "venus", "modelId": "x"},
+        pi_message("user", [{"type": "text", "text": "我的包管理器是 uv"}], 1794144606000),
+        pi_message(
+            "assistant",
+            [
+                {"type": "thinking", "thinking": "pi hidden reasoning"},
+                {
+                    "type": "toolCall",
+                    "id": "t1",
+                    "name": "write",
+                    "arguments": {"path": "/Users/me/pi/a.py", "content": "SECRET FILE BODY"},
+                },
+                {
+                    "type": "toolCall",
+                    "id": "t2",
+                    "name": "edit",
+                    "arguments": {
+                        "path": "/Users/me/pi/a.py",
+                        "oldText": "OLD BODY",
+                        "newText": "NEW BODY",
+                    },
+                },
+            ],
+            1794144607000,
+        ),
+        pi_message(
+            "toolResult",
+            [{"type": "text", "text": "pi secret tool output"}],
+            1794144608000,
+            toolCallId="t1",
+            toolName="write",
+            isError=False,
+        ),
+        {
+            "type": "message",
+            "id": "b1",
+            "parentId": None,
+            "timestamp": "2026-11-08T10:00:02.000Z",
+            "message": {
+                "role": "bashExecution",
+                "command": "ls",
+                "output": "pi bash output",
+                "exitCode": 0,
+            },
+        },
+        {"type": "custom_message", "id": "c1", "customType": "ext", "content": "injected extension context"},
+        pi_message("assistant", [{"type": "text", "text": "记下了，用 uv"}], 1794144609000),
+    ]
+    _jsonl(roots["pi"] / "--Users-me-pi--" / "2026-11-08T10-00-00-000Z_pi-1.jsonl", pi_records)
+    _jsonl(
+        roots["openclaw"] / "main" / "sessions" / "oc-1.jsonl",
+        [{**pi_header, "id": "oc-1", "cwd": "/Users/me/oc"}, *pi_records[1:]],
+    )
+    _jsonl(
+        roots["qoder"] / "-Users-me-qo" / "qo-1.jsonl",
+        [
+            {
+                "type": "user",
+                "sessionId": "qo-1",
+                "cwd": "/Users/me/qo",
+                "gitBranch": "main",
+                "timestamp": "2026-11-08T11:00:00Z",
+                "message": {"content": [{"type": "text", "text": "单元测试用 pytest -q"}]},
+            },
+            {
+                "type": "assistant",
+                "sessionId": "qo-1",
+                "cwd": "/Users/me/qo",
+                "gitBranch": "main",
+                "timestamp": "2026-11-08T11:00:02Z",
+                "message": {
+                    "content": [
+                        {"type": "thinking", "thinking": "qoder hidden thought"},
+                        {
+                            "type": "tool_use",
+                            "id": "qt-1",
+                            "name": "Read",
+                            "input": {"file_path": "/Users/me/qo/pyproject.toml"},
+                        },
+                        {"type": "text", "text": "收到，用 pytest -q"},
+                    ]
+                },
+            },
+        ],
+    )
+    _opencode_db(
+        roots["zcode"],
+        [("zc-1", "/Users/me/zc", None)],
+        [
+            ("zm-u1", "zc-1", 1791007000000, {"role": "user"}),
+            ("zm-a1", "zc-1", 1791007001000, {"role": "assistant"}),
+        ],
+        [
+            (
+                "zp-1",
+                "zm-u1",
+                "zc-1",
+                1791007000000,
+                {"type": "text", "text": "构建用 cargo check"},
+            ),
+            (
+                "zp-t1",
+                "zm-a1",
+                "zc-1",
+                1791007000500,
+                {
+                    "type": "tool",
+                    "callID": "call-zc-1",
+                    "tool": "Write",
+                    "state": {
+                        "status": "completed",
+                        "input": {"file_path": "/Users/me/zc/src/lib.rs", "content": "ZC SECRET"},
+                    },
+                },
+            ),
+            (
+                "zp-2",
+                "zm-a1",
+                "zc-1",
+                1791007001000,
+                {"type": "text", "text": "记下 cargo check"},
+            ),
+        ],
+    )
+    _jsonl(
+        roots["copilot"] / "cp-1" / "events.jsonl",
+        [
+            {
+                "type": "session.start",
+                "timestamp": "2026-11-08T12:00:00Z",
+                "data": {
+                    "sessionId": "cp-1",
+                    "context": {"cwd": "/Users/me/cp", "branch": "feat/cp"},
+                },
+            },
+            {
+                "type": "user.message",
+                "timestamp": "2026-11-08T12:00:01Z",
+                "data": {"content": "system injection", "source": "system"},
+            },
+            {
+                "type": "user.message",
+                "timestamp": "2026-11-08T12:00:02Z",
+                "data": {"content": "数据库迁移用 alembic"},
+            },
+            {
+                "type": "tool.execution_start",
+                "timestamp": "2026-11-08T12:00:03Z",
+                "data": {
+                    "toolCallId": "cp-t1",
+                    "toolName": "create",
+                    "arguments": {"path": "/Users/me/cp/alembic.ini", "file_text": "CP SECRET"},
+                },
+            },
+            {
+                "type": "assistant.message",
+                "timestamp": "2026-11-08T12:00:04Z",
+                "ephemeral": True,
+                "data": {"content": "streaming delta ignored"},
+            },
+            {
+                "type": "assistant.message",
+                "timestamp": "2026-11-08T12:00:05Z",
+                "data": {"content": "好的，用 alembic"},
+            },
+        ],
+    )
+    kiro_dir = roots["kiro"] / "ws-hash" / "sess_kiro-1"
+    kiro_dir.mkdir(parents=True, exist_ok=True)
+    (kiro_dir / "session.json").write_text(
+        json.dumps(
+            {
+                "id": "sess_kiro-1",
+                "workspacePaths": ["/Users/me/kiro"],
+                "createdAt": "2026-11-08T13:00:00Z",
+            }
+        )
+    )
+    _jsonl(
+        kiro_dir / "messages.jsonl",
+        [
+            {
+                "timestamp": "2026-11-08T13:00:01Z",
+                "_meta": {"kiro": {"syntheticUserMessageReason": "agent-initiated-prompt"}},
+                "payload": {"type": "user", "content": "workflow notice ignored"},
+            },
+            {
+                "timestamp": "2026-11-08T13:00:02Z",
+                "payload": {"type": "user", "content": "AWS 区域默认用 us-west-2"},
+            },
+            {
+                "timestamp": "2026-11-08T13:00:03Z",
+                "payload": {
+                    "type": "tool_call",
+                    "id": "kr-t1",
+                    "name": "fs_write",
+                    "args": {"path": "/Users/me/kiro/infra.tf", "text": "KIRO SECRET"},
+                },
+            },
+            {
+                "timestamp": "2026-11-08T13:00:04Z",
+                "payload": {"type": "assistant", "content": "记下了，us-west-2"},
+            },
+        ],
+    )
+    cline_dir = roots["cline"] / "cl-1"
+    cline_dir.mkdir(parents=True, exist_ok=True)
+    (cline_dir / "cl-1.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "session_id": "cl-1",
+                "cwd": "/Users/me/cline",
+                "started_at": "2026-11-08T14:00:00Z",
+            }
+        )
+    )
+    (cline_dir / "cl-1.messages.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "agent": "lead",
+                "sessionId": "cl-1",
+                "updated_at": "2026-11-08T14:00:05Z",
+                "messages": [
+                    {
+                        "role": "user",
+                        "ts": 1794146401000,
+                        "metadata": {"displayRole": "system"},
+                        "content": "injected hook context",
+                    },
+                    {
+                        "role": "user",
+                        "ts": 1794146402000,
+                        "content": "前端状态管理用 zustand",
+                    },
+                    {
+                        "role": "assistant",
+                        "ts": 1794146403000,
+                        "content": [
+                            {"type": "thinking", "thinking": "cline hidden reasoning"},
+                            {
+                                "type": "tool_use",
+                                "id": "cl-t1",
+                                "name": "write_to_file",
+                                "input": {
+                                    "path": "/Users/me/cline/store.ts",
+                                    "content": "CLINE SECRET",
+                                },
+                            },
+                            {"type": "text", "text": "好的，用 zustand"},
+                        ],
+                    },
+                ],
+            }
+        )
+    )
     kc_session = roots["kimi-code"] / "wd_me_1" / "session_kc-1"
     (kc_session).mkdir(parents=True)
     (kc_session / "state.json").write_text(json.dumps({"id": "session_kc-1", "cwd": "/Users/me/kc"}))
@@ -513,6 +789,60 @@ def test_readers_keep_only_real_dialogue(tmp_path: Path) -> None:
     assert [s["tool_calls"][0]["function"]["name"] for s in kc.steps] == ["Bash"]
     dumped = json.dumps(kc.messages(), ensure_ascii=False)
     assert "hidden" not in dumped and "secret listing" not in dumped and "date" not in dumped
+    for source, session, workspace in (
+        ("pi", "pi-1", "/Users/me/pi"),
+        ("openclaw", "oc-1", "/Users/me/oc"),
+    ):
+        pi_turn = turns[source][0]
+        assert (pi_turn.user, pi_turn.assistant) == ("我的包管理器是 uv", "记下了，用 uv")
+        assert (pi_turn.session_id, pi_turn.workspace, pi_turn.at) == (
+            session,
+            workspace,
+            1794144606,
+        )
+        assert [s["tool_calls"][0]["function"]["name"] for s in pi_turn.steps] == ["write", "edit"]
+        dumped_pi = json.dumps(pi_turn.messages(), ensure_ascii=False)
+        for leaked in (
+            "pi hidden reasoning",
+            "SECRET FILE BODY",
+            "OLD BODY",
+            "NEW BODY",
+            "pi secret tool output",
+            "pi bash output",
+            "injected extension context",
+        ):
+            assert leaked not in dumped_pi, leaked
+        assert "/Users/me/pi/a.py" in dumped_pi
+    qo = turns["qoder"][0]
+    assert (qo.user, qo.assistant) == ("单元测试用 pytest -q", "收到，用 pytest -q")
+    assert (qo.session_id, qo.workspace, qo.branch) == ("qo-1", "/Users/me/qo", "main")
+    assert [s["tool_calls"][0]["function"]["name"] for s in qo.steps] == ["Read"]
+    assert "qoder hidden thought" not in json.dumps(qo.messages(), ensure_ascii=False)
+    zc = turns["zcode"][0]
+    assert (zc.user, zc.assistant) == ("构建用 cargo check", "记下 cargo check")
+    assert (zc.session_id, zc.workspace, zc.at) == ("zc-1", "/Users/me/zc", 1791007000)
+    dumped_zc = json.dumps(zc.messages(), ensure_ascii=False)
+    assert "/Users/me/zc/src/lib.rs" in dumped_zc and "ZC SECRET" not in dumped_zc
+    cp = turns["copilot"][0]
+    assert (cp.user, cp.assistant) == ("数据库迁移用 alembic", "好的，用 alembic")
+    assert (cp.session_id, cp.workspace, cp.branch) == ("cp-1", "/Users/me/cp", "feat/cp")
+    dumped_cp = json.dumps(cp.messages(), ensure_ascii=False)
+    assert "/Users/me/cp/alembic.ini" in dumped_cp
+    assert "CP SECRET" not in dumped_cp and "system injection" not in dumped_cp
+    assert "streaming delta ignored" not in dumped_cp
+    kr = turns["kiro"][0]
+    assert (kr.user, kr.assistant) == ("AWS 区域默认用 us-west-2", "记下了，us-west-2")
+    assert (kr.session_id, kr.workspace) == ("sess_kiro-1", "/Users/me/kiro")
+    dumped_kr = json.dumps(kr.messages(), ensure_ascii=False)
+    assert "/Users/me/kiro/infra.tf" in dumped_kr
+    assert "KIRO SECRET" not in dumped_kr and "workflow notice ignored" not in dumped_kr
+    cl = turns["cline"][0]
+    assert (cl.user, cl.assistant) == ("前端状态管理用 zustand", "好的，用 zustand")
+    assert (cl.session_id, cl.workspace, cl.at) == ("cl-1", "/Users/me/cline", 1794146402)
+    dumped_cl = json.dumps(cl.messages(), ensure_ascii=False)
+    assert "/Users/me/cline/store.ts" in dumped_cl
+    assert "CLINE SECRET" not in dumped_cl and "cline hidden reasoning" not in dumped_cl
+    assert "injected hook context" not in dumped_cl
 
 
 def test_build_turns_merges_users_and_drops_orphan_answer() -> None:
@@ -780,9 +1110,26 @@ def test_install_uninstall_hosts_use_local_proxy(tmp_path: Path, monkeypatch) ->
         install_host(host, hub_dir=hub, home=home)
     status = hosts_status(home=home)
     assert all(
-        item["skill"] and item["mcp"] and item["hooks"] in (True, None)
+        item["skill"] and item["mcp"] in (True, None) and item["hooks"] in (True, None)
         for item in status.values()
     )
+    assert status["openclaw"] == {"skill": True, "mcp": None, "hooks": None}
+    assert status["pi"] == {"skill": True, "mcp": True, "hooks": None}
+    assert status["cline"] == {"skill": True, "mcp": True, "hooks": None}
+    for host in ("copilot", "kiro", "qoder", "zcode"):
+        assert status[host] == {"skill": True, "mcp": True, "hooks": True}
+    zcode_cfg = json.loads((home / ".zcode" / "cli" / "config.json").read_text())
+    assert zcode_cfg["mcp"]["servers"]["memhub"]["type"] == "stdio"
+    assert zcode_cfg["hooks"]["enabled"] is True
+    assert set(zcode_cfg["hooks"]["events"]) >= {"UserPromptSubmit", "Stop"}
+    qoder_cfg = json.loads((home / ".qoder" / "settings.json").read_text())
+    assert "memhub" in qoder_cfg["mcpServers"]
+    assert set(qoder_cfg["hooks"]) >= {"UserPromptSubmit", "Stop"}
+    copilot_hooks = json.loads((home / ".copilot" / "hooks" / "memhub.json").read_text())
+    assert copilot_hooks["version"] == 1 and set(copilot_hooks["hooks"]) == {"UserPromptSubmit", "Stop"}
+    kiro_hooks = json.loads((home / ".kiro" / "hooks" / "memhub.json").read_text())
+    assert kiro_hooks["version"] == "v1"
+    assert [h["trigger"] for h in kiro_hooks["hooks"]] == ["UserPromptSubmit", "Stop"]
     mcp = json.loads(
         (home / ".agentica" / "mcp_config.json").read_text()
     )["mcpServers"]["memhub"]
@@ -2617,6 +2964,57 @@ def test_kimi_code_prompt_hook_replies_plain_text(tmp_path: Path, monkeypatch) -
     assert out.exit_code == 0, out.output
     assert out.output.startswith("<relevant-memories>") and "QX9" in out.output
     assert "hookSpecificOutput" not in out.output
+
+    # Kiro also reads plain stdout from UserPromptSubmit.
+    kiro_out = runner.invoke(
+        cli_main.app, ["hook", "kiro", "--hub-dir", str(tmp_path)],
+        input=json.dumps({"hook_event_name": "UserPromptSubmit", "session_id": "s", "cwd": "/w",
+                          "prompt": "错误码前缀?"}, ensure_ascii=False),
+    )
+    assert kiro_out.exit_code == 0, kiro_out.output
+    assert kiro_out.output.startswith("<relevant-memories>") and "QX9" in kiro_out.output
+
+    # Copilot command hooks only read top-level additionalContext, and may omit hook_event_name.
+    cp_out = runner.invoke(
+        cli_main.app, ["hook", "copilot", "--hub-dir", str(tmp_path)],
+        input=json.dumps({"sessionId": "s", "cwd": "/w", "prompt": "错误码前缀?"}, ensure_ascii=False),
+    )
+    assert cp_out.exit_code == 0, cp_out.output
+    cp_reply = json.loads(cp_out.output)
+    assert list(cp_reply) == ["additionalContext"]
+    assert cp_reply["additionalContext"].startswith("<relevant-memories>")
+
+    # ZCode sends camelCase hookEventName / sessionId and reads hookSpecificOutput.
+    zc_out = runner.invoke(
+        cli_main.app, ["hook", "zcode", "--hub-dir", str(tmp_path)],
+        input=json.dumps({"hookEventName": "UserPromptSubmit", "sessionId": "s", "cwd": "/w",
+                          "prompt": "错误码前缀?"}, ensure_ascii=False),
+    )
+    assert zc_out.exit_code == 0, zc_out.output
+    assert "QX9" in json.loads(zc_out.output)["hookSpecificOutput"]["additionalContext"]
+
+
+def test_locate_transcript_for_new_hosts(tmp_path: Path) -> None:
+    roots = _seed_transcripts(tmp_path)
+    assert locate_transcript("zcode", {"sessionId": "zc-1"}, roots) == roots["zcode"]
+    assert locate_transcript("qoder", {"session_id": "qo-1"}, roots) == (
+        roots["qoder"] / "-Users-me-qo" / "qo-1.jsonl"
+    )
+    assert locate_transcript("copilot", {"sessionId": "cp-1"}, roots) == (
+        roots["copilot"] / "cp-1" / "events.jsonl"
+    )
+    assert locate_transcript("kiro", {"session_id": "sess_kiro-1"}, roots) == (
+        roots["kiro"] / "ws-hash" / "sess_kiro-1" / "messages.jsonl"
+    )
+    assert locate_transcript("cline", {"session_id": "cl-1"}, roots) == (
+        roots["cline"] / "cl-1" / "cl-1.messages.json"
+    )
+    assert locate_transcript("pi", {"session_id": "pi-1"}, roots) == (
+        roots["pi"] / "--Users-me-pi--" / "2026-11-08T10-00-00-000Z_pi-1.jsonl"
+    )
+    assert locate_transcript("openclaw", {"session_id": "oc-1"}, roots) == (
+        roots["openclaw"] / "main" / "sessions" / "oc-1.jsonl"
+    )
 
 
 def test_remember_writes_through_the_core_without_a_user_id(tmp_path: Path, monkeypatch) -> None:
