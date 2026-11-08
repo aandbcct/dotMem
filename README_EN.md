@@ -139,7 +139,7 @@ Building your own agent or application with `memhub`? Check out the developer gu
 - [x] Automatic engineering experience distillation and project-scoped recall
 - [x] Leads head-to-head on LoCoMo / LongMemEval / PersonaMem-v2
 - [x] Visual memory management: `memhub ui` to browse by project, search, edit and delete memories
-- [ ] More host tools: Gemini CLI, Windsurf, Trae and others — 10+ in total
+- [x] More host tools: DeepSeek Harness, Trae and others — 11 in total, with a [measured native vs. memhub check](https://github.com/shibing624/memhub/blob/main/docs/host-eval.md) (documented in Chinese)
 - [ ] Cloud HTTP MCP: remote agents connect to hosted memory directly
 - [ ] Better retrieval for multi-hop questions (LoCoMo multi-hop still has headroom)
 - [ ] More public benchmarks (CodeMemoryBench and others, once their data is released)

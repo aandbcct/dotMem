@@ -139,7 +139,7 @@ embed_base_url: https://api.openai.com/v1
 - [x] 工程排障经验自动沉淀与按项目召回
 - [x] LoCoMo / LongMemEval / PersonaMem-v2 同场评测领先
 - [x] 记忆可视化管理：`memhub ui` 按项目查看、搜索、编辑、删除记忆
-- [ ] 接入更多工具：Gemini CLI、Windsurf、Trae 等，目标 10+ 种
+- [x] 接入更多工具：DeepSeek Harness、Trae 等，已达 11 种，[实测对照](https://github.com/shibing624/memhub/blob/main/docs/host-eval.md)
 - [ ] 云端 HTTP MCP：远程 Agent 直接连接托管记忆
 - [ ] 多跳推理类问题的检索增强（LoCoMo multi-hop 仍有提升空间）
 - [ ] 补充更多公开评测（CodeMemoryBench 等，待数据公开）
