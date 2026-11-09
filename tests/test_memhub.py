@@ -3040,3 +3040,466 @@ def test_remember_writes_through_the_core_without_a_user_id(tmp_path: Path, monk
     assert sent[0]["request_id"].startswith("hub-cli:")
     assert "user_id" not in sent[0]
     assert json.loads(out.output)["status"] == "pending"
+
+
+def test_git_worktree_submodule_subdir_and_remote_slug_normalization(
+    tmp_path: Path,
+) -> None:
+    from memhub.hub.browse import (
+        canonical_workspace,
+        git_remote_slug,
+        parse_origin_slug,
+        workspace_sessions,
+    )
+    from memhub.types import MemoryNode
+
+    assert parse_origin_slug("git@github.com:shibing624/memhub.git") == "shibing624/memhub"
+    assert parse_origin_slug("https://github.com/shibing624/memhub.git/") == "shibing624/memhub"
+    assert parse_origin_slug("https://dev.azure.com/org/proj/_git/repo") == "proj/repo"
+    assert parse_origin_slug("/local/path/repo.git") is None
+    assert parse_origin_slug("file:///tmp/repo.git") is None
+
+    # Main repo with origin remote
+    main_repo = tmp_path / "machine_a" / "memhub"
+    (main_repo / ".git" / "worktrees" / "wt-feat").mkdir(parents=True)
+    (main_repo / ".git" / "modules" / "vendor" / "sub").mkdir(parents=True)
+    (main_repo / ".git" / "config").write_text(
+        '[remote "origin"]\n\turl = git@github.com:shibing624/memhub.git\n',
+        encoding="utf-8",
+    )
+    subdir = main_repo / "memhub" / "hub"
+    subdir.mkdir(parents=True)
+
+    # Linked worktree
+    wt = tmp_path / "machine_a" / "memhub-wt-feat"
+    wt_sub = wt / "src"
+    wt_sub.mkdir(parents=True)
+    (wt / ".git").write_text(
+        f"gitdir: {main_repo / '.git' / 'worktrees' / 'wt-feat'}\n",
+        encoding="utf-8",
+    )
+
+    # Submodule
+    submod = main_repo / "vendor" / "sub"
+    submod.mkdir(parents=True)
+    (submod / ".git").write_text(
+        f"gitdir: {main_repo / '.git' / 'modules' / 'vendor' / 'sub'}\n",
+        encoding="utf-8",
+    )
+
+    assert canonical_workspace(str(subdir)) == str(main_repo)
+    assert canonical_workspace(str(wt)) == str(main_repo)
+    assert canonical_workspace(str(wt_sub)) == str(main_repo)
+    assert canonical_workspace(str(submod)) == str(main_repo)
+    assert git_remote_slug(wt_sub) == "shibing624/memhub"
+
+    # Second machine checkout in a differently named folder with HTTPS remote
+    other_clone = tmp_path / "machine_b" / "my-fork-dir"
+    (other_clone / ".git").mkdir(parents=True)
+    (other_clone / ".git" / "config").write_text(
+        '[remote "origin"]\n\turl = https://github.com/shibing624/memhub.git\n',
+        encoding="utf-8",
+    )
+
+    nodes = [
+        MemoryNode(
+            node_id="n1",
+            app_id="default",
+            user_id="default",
+            content="worktree session",
+            layer=Layer.L0_RAW,
+            session_id="cursor:s-wt",
+            custom={"workspace_id": str(wt_sub)},
+        ),
+        MemoryNode(
+            node_id="n2",
+            app_id="default",
+            user_id="default",
+            content="synced from another machine path that does not exist here",
+            layer=Layer.L0_RAW,
+            session_id="claude-code:s-remote-missing",
+            custom={"workspace_id": "/nonexistent/alice/work/memhub"},
+        ),
+        MemoryNode(
+            node_id="n3",
+            app_id="default",
+            user_id="default",
+            content="unrelated project",
+            layer=Layer.L0_RAW,
+            session_id="codex:s-other",
+            custom={"workspace_id": "/nonexistent/alice/work/other-repo"},
+        ),
+    ]
+    # Querying from a subdirectory of main_repo matches both the worktree session
+    # and the synced session from another machine's `/nonexistent/alice/work/memhub`.
+    assert set(workspace_sessions(nodes, str(subdir))) == {
+        "cursor:s-wt",
+        "claude-code:s-remote-missing",
+    }
+    # Querying from other_clone matches via shared origin slug `shibing624/memhub`.
+    assert "cursor:s-wt" in workspace_sessions(nodes, str(other_clone))
+
+
+async def test_progressive_disclosure_l0_source_id_lookup_and_cli(
+    tmp_path: Path, fake_embed, fake_llm, fake_jev, monkeypatch
+) -> None:
+    hub = tmp_path / "hub"
+    core = _memory_client(hub, fake_embed, fake_llm, fake_jev)
+    async with _attached_core(hub, core) as (_app, remote):
+        r1 = await remote.write(
+            messages=[
+                {"role": "user", "content": "第一轮：数据库连接池设成 20"},
+                {"role": "assistant", "content": "已设为 20"},
+            ],
+            session_id="codex:sess-pd",
+            memory_at=1_793_000_100,
+            request_id="pd-1",
+            wait=True,
+            workspace_id="/w/app",
+        )
+        r2 = await remote.write(
+            messages=[
+                {"role": "user", "content": "第二轮：把超时改为 15 秒"},
+                {"role": "assistant", "content": "已改为 15 秒"},
+            ],
+            session_id="codex:sess-pd",
+            memory_at=1_793_000_200,
+            request_id="pd-2",
+            wait=True,
+            workspace_id="/w/app",
+        )
+        l0_id = r2["result"]["memory_id"]
+        short_id = l0_id[:8]
+
+        expanded = await remote.get_conversation(short_id, context_turns=1)
+        assert expanded["source_id"] == short_id
+        assert expanded["memory_id"] == l0_id
+        assert len(expanded["conversations"]) == 2
+        assert [c["is_anchor"] for c in expanded["conversations"]] == [False, True]
+        assert "第一轮" in expanded["conversations"][0]["content"]
+        assert "第二轮" in expanded["conversations"][1]["content"]
+
+    class FakeSourceRemote:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_exc):
+            return None
+
+        async def get_conversation(self, sid: str, *, context_turns: int = 1):
+            assert sid == short_id and context_turns == 1
+            return expanded
+
+    monkeypatch.setattr(cli_hub, "make_client", lambda _h: FakeSourceRemote())
+    cli_out = await asyncio.to_thread(
+        runner.invoke,
+        cli_main.app,
+        ["recall", "--source-id", short_id, "--hub-dir", str(hub)],
+    )
+    assert cli_out.exit_code == 0, cli_out.output
+    assert "[当前来源]" in cli_out.output
+    assert "第二轮：把超时改为 15 秒" in cli_out.output
+    assert r1["result"]["memory_id"][:8] in cli_out.output
+
+
+def test_detect_installed_hosts_and_auto_install(tmp_path: Path, monkeypatch) -> None:
+    from memhub.hub.hosts import detect_installed_hosts
+
+    home = tmp_path / "home"
+    hub = tmp_path / "hub"
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(parents=True)
+    (home / ".cursor").mkdir(parents=True)
+    codex_bin = bin_dir / "codex"
+    codex_bin.write_text("#!/bin/sh\n", encoding="utf-8")
+    codex_bin.chmod(0o755)
+
+    detected = detect_installed_hosts(home=home, path_env=str(bin_dir))
+    assert detected == ["codex", "cursor"]
+
+    monkeypatch.setattr(
+        cli_hub.hub_hosts,
+        "detect_installed_hosts",
+        lambda **_kw: ["cursor"],
+    )
+    monkeypatch.setattr(
+        cli_hub.hub_hosts,
+        "install_host",
+        lambda host, hub_dir=None: cli_hub.hub_hosts.HOSTS[host] and {"host": host},
+    )
+    out = runner.invoke(cli_main.app, ["install-host", "--hub-dir", str(hub)])
+    assert out.exit_code == 0, out.output
+    assert json.loads(out.output) == [{"host": "cursor"}]
+
+
+async def test_private_tags_secret_redaction_and_base64_image_elision(
+    tmp_path: Path, fake_embed, fake_llm, fake_jev
+) -> None:
+    from memhub.hub.redact import sanitize_text, strip_image_payloads
+
+    b64 = "iVBORw0KGgoAAAANSUhEUgAAAAUA" * 20
+    raw_text = (
+        "公开配置说明\n"
+        "<private>这段银行卡号 622202123456789 绝不能入库</private>\n"
+        f"截图：![shot](data:image/png;base64,{b64})\n"
+        "OPENAI_API_KEY=sk-proj-1234567890abcdefghijklmnop\n"
+        "ANTHROPIC_API_KEY=sk-ant-api03-1234567890abcdefghijklmnop\n"
+        "GITHUB_TOKEN=ghp_1234567890abcdefghijklmnopqrstuvwxyz\n"
+        "DATABASE_URL=postgres://admin:superSecretPass123@db.internal:5432/prod\n"
+        "AWS_KEY=AKIAIOSFODNN7EXAMPLE"
+    )
+
+    # Default: <private> and base64 handling always run; secrets are preserved, because
+    # a personal assistant must be able to remember a key it was told to remember.
+    plain = sanitize_text(raw_text)
+    assert "绝不能入库" not in plain
+    assert b64 not in plain
+    assert f"data:image/png;base64,<elided {len(b64)} chars>" in plain
+    assert "sk-proj-1234567890abcdefghijklmnop" in plain
+    assert "AKIAIOSFODNN7EXAMPLE" in plain
+
+    # Opt-in redaction (MEMHUB_REDACT_SECRETS=true) is the only path that masks them.
+    cleaned = sanitize_text(raw_text, redact=True)
+    assert "绝不能入库" not in cleaned
+    assert b64 not in cleaned
+    assert f"data:image/png;base64,<elided {len(b64)} chars>" in cleaned
+    assert "sk-proj-" not in cleaned and "<redacted type='openai_key'/>" in cleaned
+    assert "sk-ant-" not in cleaned and "<redacted type='anthropic_key'/>" in cleaned
+    assert "ghp_" not in cleaned and "<redacted type='github_pat'/>" in cleaned
+    assert "superSecretPass123" not in cleaned
+    assert "postgres://admin:<redacted type='url_credentials'/>@db.internal:5432/prod" in cleaned
+    assert "AKIAIOSFODNN7EXAMPLE" not in cleaned and "<redacted type='aws_access_key'/>" in cleaned
+
+    # Multimodal content block dicts
+    blocks = [
+        {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": b64}},
+        {"type": "image", "file": {"base64": b64, "type": "image/jpeg"}},
+        {"type": "image_url", "image_url": {"url": f"data:image/webp;base64,{b64}"}},
+    ]
+    stripped = strip_image_payloads(blocks)
+    assert b64 not in json.dumps(stripped)
+    assert stripped[0]["source"]["elided"] == "image data withheld"
+    assert stripped[1]["file"]["elided"] == "image data withheld"
+    assert stripped[2]["image_url"]["elided"] == "image data withheld"
+
+    # End-to-end through Hub Core write: pure <private> message is skipped without error
+    hub = tmp_path / "hub"
+    core = _memory_client(hub, fake_embed, fake_llm, fake_jev)
+    async with _attached_core(hub, core) as (_app, remote):
+        skipped = await remote.write(
+            content="<private>only secret</private>",
+            request_id="priv-only",
+            wait=True,
+        )
+        assert skipped["status"] == "done"
+        assert skipped["result"] == {"skipped": "private"}
+        # Only the tagged span is dropped: the assistant's answer is kept.
+        kept_turn = await remote.write(
+            messages=[
+                {"role": "user", "content": "<private>整段私密提问</private>"},
+                {"role": "assistant", "content": "好的，我记住了"},
+            ],
+            session_id="codex:priv",
+            request_id="priv-turn",
+            wait=True,
+        )
+        assert kept_turn["result"]["memory_id"]
+        rows = [
+            node
+            for node in await core.list(
+                user_id=HUB_USER_ID, limit=50, include_history=True
+            )
+            if node.session_id == "codex:priv"
+        ]
+        assert rows, "the answer outside <private> is kept"
+        assert not any("整段私密提问" in node.content for node in rows)
+        assert any("我记住了" in node.content for node in rows)
+    await core.aclose()
+
+
+async def test_remembered_api_key_is_actually_stored(
+    tmp_path: Path, fake_embed, fake_llm, fake_jev
+) -> None:
+    """The product case: the user says "remember my key", so it must reach the store.
+
+    Automatic secret redaction is off by default, and no ``<private>`` tag is
+    involved; turning ``redact_secrets`` on is what masks it.
+    """
+    key = "sk-proj-abcdefghijklmnopqrstuvwxyz123456"
+    for enabled, expect_key in ((False, True), (True, False)):
+        hub = tmp_path / f"hub-{enabled}"
+        core = _memory_client(hub, fake_embed, fake_llm, fake_jev)
+        core.settings.redact_secrets = enabled
+        async with _attached_core(hub, core) as (_app, remote):
+            await remote.write(
+                content=f"我的全局 OpenAI key 是 {key}，以后都用它",
+                request_id=f"key-{enabled}",
+                wait=True,
+            )
+            stored = "\n".join(
+                node.content
+                for node in await core.list(
+                    user_id=HUB_USER_ID, limit=50, include_history=True
+                )
+            )
+            if expect_key:
+                assert key in stored, "a key the user asked to remember must be kept"
+            else:
+                assert key not in stored
+                assert "<redacted type='openai_key'/>" in stored
+        await core.aclose()
+
+
+def test_privacy_and_redaction_edge_cases() -> None:
+    """The shapes a naive implementation gets wrong: prose after an image payload,
+    an unclosed <private>, and words that look like a hex id."""
+    from memhub.hub.mcp import _looks_like_l0_id
+    from memhub.hub.redact import elide_data_image_urls, sanitize_messages, sanitize_text
+
+    b64 = "iVBORw0KGgoAAAANSUhEUgAAAAUA" * 20
+    # The base64 body must stop at its own delimiter; a `\s` in the class ran past
+    # the newline and deleted the English paragraph that followed the screenshot.
+    text = (
+        f"Here is the screenshot: data:image/png;base64,{b64}\n"
+        "The deployment uses canary rollouts with automatic rollback.\n"
+        "See ops docs."
+    )
+    elided = elide_data_image_urls(text)
+    assert "canary rollouts with automatic rollback" in elided
+    assert "See ops docs." in elided
+    assert b64 not in elided
+
+    # An unclosed <private> keeps nothing after it: the user opened a private region.
+    assert sanitize_text("a <private>secret tail") == "a"
+    assert sanitize_text("a <private>tail</private> b") == "a  b"
+    assert sanitize_text("a <PRIVATE>tail</PRIVATE> b") == "a  b"
+
+    # Only the tagged span goes; the assistant's answer survives.
+    kept = sanitize_messages(
+        [
+            {"role": "user", "content": "<private>x</private>"},
+            {"role": "assistant", "content": "ok"},
+        ]
+    )
+    assert kept == [{"role": "assistant", "content": "ok"}]
+    # A partially private turn keeps the rest.
+    assert sanitize_messages([{"role": "user", "content": "<private>x</private>保留"}]) == [
+        {"role": "user", "content": "保留"}
+    ]
+    # Nothing left at all -> empty, so the Core reports the write as skipped.
+    assert sanitize_messages([{"role": "user", "content": "<private>x</private>"}]) == []
+
+    # Ids: 8+ hex chars with a letter and a digit. `decade` is a word, `1234567890`
+    # is a number, and either would have been answered with a 404 instead of a search.
+    assert _looks_like_l0_id("37c85fe9") == "37c85fe9"
+    assert _looks_like_l0_id("L0 37c85fe9") == "37c85fe9"
+    assert _looks_like_l0_id("decade") == ""
+    assert _looks_like_l0_id("1234567890") == ""
+    assert _looks_like_l0_id("authentication bug") == ""
+
+
+async def test_doctor_command_and_hook_health_warning_on_failed_writes(
+    tmp_path: Path, fake_embed, fake_llm, fake_jev, monkeypatch
+) -> None:
+    hub = tmp_path / "hub"
+    core = _memory_client(hub, fake_embed, fake_llm, fake_jev)
+
+    class FailingClient:
+        settings = core.settings
+        factory = core.factory
+
+        async def add(self, **_kwargs):
+            raise RuntimeError("401 invalid_api_key")
+
+        async def search(self, **kwargs):
+            return await core.search(**kwargs)
+
+        async def search_conversation(self, **kwargs):
+            return await core.search_conversation(**kwargs)
+
+    app = create_hub_app(
+        api_key="secret",
+        hub_dir=hub,
+        client=FailingClient(),  # type: ignore[arg-type]
+        settings=core.settings,
+        queue_retry_seconds=0.01,
+    )
+    async with app.router.lifespan_context(app):
+        app.state.queue._max_attempts = 1
+        transport = httpx.ASGITransport(app=app)
+        async with HubClient(
+            base_url="http://hub", api_key="secret", transport=transport
+        ) as remote:
+            job = await remote.write(
+                content="测试写入失败告警", request_id="fail-1", wait=True
+            )
+            assert job["status"] == "failed"
+
+            recall_res = await remote.recall(query="随便问问")
+            assert recall_res.get("warnings")
+            assert "1 条记忆写入失败" in recall_res["warnings"][0]
+            assert "401 invalid_api_key" in recall_res["warnings"][0]
+            status_res = await remote.status()
+            assert status_res["writes"]["failed"] == 1
+            assert "401 invalid_api_key" in status_res["writes"]["last_error"]
+            assert status_res["warnings"]
+
+        class FakeWarnRemote:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_exc):
+                return None
+
+            async def recall(self, **_kw):
+                return recall_res
+
+            async def status(self):
+                return status_res
+
+        monkeypatch.setattr(cli_hub, "make_client", lambda _h: FakeWarnRemote())
+        # Both the hook and doctor are sync commands; run them off the loop they
+        # would otherwise have to call asyncio.run() from.
+        hook_out = await asyncio.to_thread(
+            runner.invoke,
+            cli_main.app,
+            ["hook", "claude-code", "--hub-dir", str(hub)],
+            input=json.dumps(
+                {"hook_event_name": "UserPromptSubmit", "prompt": "随便问问"},
+                ensure_ascii=False,
+            ),
+        )
+        assert hook_out.exit_code == 0, hook_out.output
+        injected = json.loads(hook_out.output)["hookSpecificOutput"]["additionalContext"]
+        assert "⚠️ MemHub 后台有 1 条记忆写入失败" in injected
+        assert "memhub doctor" in injected
+
+        # `doctor` probes the daemon over its socket; this Core lives inside the test
+        # process, so hand it the live status the way the socket probe would.
+        monkeypatch.setattr(cli_hub, "daemon_status", lambda _root: status_res)
+        home = tmp_path / "home"
+        (home / ".cursor").mkdir(parents=True)
+        (home / ".claude").mkdir(parents=True)
+        empty_path = tmp_path / "empty-bin"
+        empty_path.mkdir()
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setenv("PATH", str(empty_path))
+        monkeypatch.setenv("MEMHUB_JEV_API_KEY", "k")
+        monkeypatch.setenv("MEMHUB_LLM_API_KEY", "k")
+        monkeypatch.setenv("MEMHUB_EMBED_API_KEY", "k")
+        doc_out = await asyncio.to_thread(
+            runner.invoke, cli_main.app, ["doctor", "--json", "--hub-dir", str(hub)]
+        )
+        assert doc_out.exit_code == 0, doc_out.output
+        report = json.loads(doc_out.output)
+        by_name = {c["name"]: c for c in report["checks"]}
+        assert report["ok"] is True
+        assert by_name["Config & keys"]["status"] == "ok"
+        assert by_name["Core daemon"]["status"] == "ok"
+        assert by_name["Write queue"]["status"] == "warn"
+        assert "1 failed write(s)" in by_name["Write queue"]["detail"]
+        # Two hosts exist but were never wired: doctor points at the install command.
+        assert by_name["Detected hosts"]["status"] == "warn"
+        assert "memhub install-host" in by_name["Detected hosts"]["detail"]
+    await core.aclose()
+

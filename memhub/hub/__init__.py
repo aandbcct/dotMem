@@ -21,7 +21,14 @@ from memhub.hub.config import (
     load_sync_config,
     save_sync_config,
 )
-from memhub.hub.hosts import HOSTS, hosts_status, install_host, uninstall_host
+from memhub.hub.hosts import (
+    HOSTS,
+    detect_installed_hosts,
+    hosts_status,
+    install_host,
+    is_host_detected,
+    uninstall_host,
+)
 from memhub.hub.sources import (
     SOURCES,
     build_turns,
@@ -40,10 +47,12 @@ __all__ = [
     "SyncConfig",
     "build_turns",
     "default_source_roots",
+    "detect_installed_hosts",
     "hosts_status",
     "hub_root",
     "hub_store_dir",
     "install_host",
+    "is_host_detected",
     "load_sync_config",
     "locate_transcript",
     "save_sync_config",

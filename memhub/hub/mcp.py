@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import uuid
 from collections.abc import AsyncIterator, Awaitable
 from contextlib import asynccontextmanager
@@ -39,6 +40,42 @@ async def _call(awaitable: Awaitable[Any]) -> Any:
         }
 
 
+_L0_ID_RE = re.compile(
+    r"^(?:L0\s+)?([0-9a-f]{8,36}(?:-[0-9a-f-]+)*)$", re.IGNORECASE
+)
+
+
+def _looks_like_l0_id(query: str) -> str:
+    """The L0 id inside ``query``, or ``""``.
+
+    Needs 8+ hex chars, at least one letter and at least one digit. With a bare hex
+    class, an English word such as ``decade`` matched and the tool answered a
+    search with a 404; without the digit rule, a purely numeric query like
+    ``1234567890`` would too.
+    """
+    match = _L0_ID_RE.match(query.strip())
+    if match is None:
+        return ""
+    value = match.group(1)
+    has_letter = any(ch in "abcdefABCDEF" for ch in value)
+    has_digit = any(ch.isdigit() for ch in value)
+    return value if has_letter and has_digit else ""
+
+
+def _source_ref(item: dict[str, Any]) -> str:
+    """The 8-char L0 ref for a hit: ``source_node_id``, else its ``source_ids`` head.
+
+    Facts get ``custom.source_node_id`` from the reconciler, but a procedure keeps
+    only ``custom.source_ids``, so keying on ``source_node_id`` alone left every
+    engineering memory without a ref to open.
+    """
+    candidates = [item.get("source_node_id"), *(item.get("source_ids") or [])]
+    for candidate in candidates:
+        if candidate:
+            return str(candidate)[:8]
+    return ""
+
+
 def _search_rows(memories: dict[str, Any]) -> list[dict[str, Any]]:
     """Flatten grouped recall results into one agent-readable list with ids."""
     rows = [
@@ -49,6 +86,7 @@ def _search_rows(memories: dict[str, Any]) -> list[dict[str, Any]]:
             "layer": item.get("layer", ""),
             "score": item.get("score", 0.0),
             "group": group,
+            **({"source_id": ref} if (ref := _source_ref(item)) else {}),
         }
         for group in _MEMORY_GROUPS
         for item in (memories.get(group) or [])
@@ -196,18 +234,35 @@ def build_hub_mcp(
 
     @mcp.tool(
         description=(
-            "检索历史对话原文，用于核对「我之前说过/问过什么」的原话、时间和来源。"
+            "检索历史对话原文，或按 L0 来源 ID 展开完整原话与同会话前后上下文（渐进式披露）。"
+            "1) 传 query 检索「我之前说过/问过什么」的原话、时间和来源；"
+            "2) 传 source_id（如 <relevant-memories> 里的 `(来源: L0 37c85fe9)` 或 memory_search 返回的 source_id）"
+            "拉取该条记忆对应的完整 L0 原始对话及前后 context_turns 轮对话。"
             "返回 conversations 列表；session_id 形如 codex:<id>，冒号前是来源工具。"
             + _SCOPE_NOTE
         )
     )
-    async def conversation_search(query: str, limit: int = 10) -> dict:
+    async def conversation_search(
+        query: str = "",
+        limit: int = 10,
+        source_id: str = "",
+        context_turns: int = 1,
+    ) -> dict:
+        target_id = source_id.strip()
+        if not target_id:
+            target_id = _looks_like_l0_id(query)
         async with core() as hub:
-            result = await _call(hub.recall(query=query, limit=0, raw_limit=limit))
+            if target_id:
+                result = await _call(
+                    hub.get_conversation(target_id, context_turns=context_turns)
+                )
+            else:
+                result = await _call(hub.recall(query=query, limit=0, raw_limit=limit))
         if not isinstance(result, dict) or result.get("ok") is False:
             return result
         return {
             "ok": True,
+            **({"source_id": result["source_id"]} if "source_id" in result else {}),
             "conversations": result["conversations"],
             "hint": "这里只有历史对话原文，不是可编辑的记忆条目。",
         }

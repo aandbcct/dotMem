@@ -80,11 +80,31 @@ class StubCore:
                         "category": "fact",
                         "score": 0.62,
                         "layer": "L1_FACT",
+                        "source_node_id": "37c85fe9-1111-2222-3333-444455556666",
                     }
                 ],
             },
             "conversations": [
                 {"session_id": "codex:abc", "content": "我之前问过什么"}
+            ],
+        }
+
+    async def get_conversation(
+        self, source_id: str, *, context_turns: int = 1
+    ) -> dict:
+        self.calls.append(("get_conversation", source_id, context_turns))
+        return {
+            "source_id": source_id[:8],
+            "memory_id": f"{source_id}-full",
+            "session_id": "codex:abc",
+            "conversations": [
+                {
+                    "memory_id": f"{source_id}-full",
+                    "source_id": source_id[:8],
+                    "session_id": "codex:abc",
+                    "content": "[user]: 我搬到北京了\n[assistant]: 好的",
+                    "is_anchor": True,
+                }
             ],
         }
 
@@ -189,6 +209,15 @@ async def test_conversation_search_and_status() -> None:
         await server.call_tool("conversation_search", {"query": "之前问过什么"})
     )
     assert found["conversations"][0]["session_id"] == "codex:abc"
+    by_source = _payload(
+        await server.call_tool(
+            "conversation_search",
+            {"source_id": "37c85fe9", "context_turns": 2},
+        )
+    )
+    assert by_source["source_id"] == "37c85fe9"
+    assert by_source["conversations"][0]["is_anchor"] is True
+    assert ("get_conversation", "37c85fe9", 2) in core.calls
     status = _payload(await server.call_tool("memory_status", {}))
     assert status["instance_id"] == "stub"
 

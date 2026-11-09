@@ -53,7 +53,7 @@ from memhub.writer.memory_writer import MemoryWriter
 logger = logging.getLogger("memhub.client")
 
 _INJECTION_BLOCK_RE = re.compile(
-    r"<(relevant-memories|user-profile|memory-tools-guide|topic-catalog)"
+    r"<(relevant-memories|user-profile|memory-tools-guide|topic-catalog|private)"
     r"\b[^>]*>.*?</\1\s*>",
     re.DOTALL | re.IGNORECASE,
 )

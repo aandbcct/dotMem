@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- **项目标识归一化（Git Worktree / 子模块 / 子目录 / 跨机器 Remote 对齐）**：
+  - `memhub.hub.browse` 新增 `canonical_workspace`、`resolve_workspace_root`、`git_remote_slug` 与 `parse_origin_slug`：无需派生 `git` 子进程即可直接解析 `.git` 目录或文件（支持 linked `git worktree`、`git submodule`、bare worktree），将任意子目录或 worktree 路径自动归并到主仓库根目录。
+  - 跨机器同步召回时，`workspace_sessions` 同时按主仓库路径、`.git/config` 的 `origin` 远端 `org/repo` slug，以及远端机器不存在于本机的同名 Git 仓库目录名做匹配，解决多 worktree 并发开发或两台电脑克隆路径不同导致按项目召回割裂的问题。
+- **渐进式披露（Progressive Disclosure）与 L0 来源 ID 溯源闭环**：
+  - Core 新增 `GET /v1/hub/conversations/{source_id}?context_turns=1`（`HubClient.get_conversation`），支持用 `<relevant-memories>` 中的 8 位 L0 短 ID（如 `37c85fe9`）或完整 ID 直接拉取对应的 `L0_RAW` 完整原始对话及同一会话前后 `context_turns` 轮上下文。
+  - Hub MCP `memory_search` 返回结果新增 `source_id`（8 位 L0 短 ID），`conversation_search` 新增 `source_id` 与 `context_turns` 参数（也支持直接把短 ID 传给 `query`）；CLI `memhub recall` 新增 `--source-id` / `-i` 与 `--context-turns` 选项，并同步更新 `memhub-recall` skill 模板。
+- **`memhub install-host` 默认自动探测本机已安装的 AI 工具（破坏性变更）**：
+  - `memhub.hub.hosts` 新增 `detect_installed_hosts` 与 `is_host_detected`（按各工具配置目录或 `PATH` 可执行文件探测）。
+  - `memhub install-host` 不带参数时默认从 `all` 改为 `auto`，只接入本机已安装的宿主工具，不再在未安装工具的机器上创建十几个空配置目录。想恢复旧行为请显式执行 `memhub install-host all`。
+- **`<private>` 隐私标签剥离与多模态 Base64 图片载荷清洗**：
+  - 新增 `memhub.hub.redact`：支持 `<private>...</private>` 隐私块剥离（只去掉标签内的内容，同一轮里标签外的提问与 assistant 的回答照常入库；未闭合的 `<private>` 丢弃其后全部内容）。`<private>` 是用户主动声明的排除范围，与「让 Agent 记住某个 key」不冲突。
+  - 自动清洗对话与工具参数中的内联 `data:image/...;base64,...` 大图及 Anthropic / Claude Read / MCP / OpenAI 多模态图片块（替换为 `<elided ...>`），防止浏览器截图等大块 Base64 撑爆 SQLite 与同步日志。
+  - **自动 Secret 脱敏默认关闭**（`redact_secrets: false`，对应 `MEMHUB_REDACT_SECRETS`）：这是个人助理场景，用户说「记住我的 key 是 X」就该记住。设为 `true` 后，内置 20+ 种高置信度凭证正则（URL 密码、AWS Access/Secret Key、GitHub PAT、OpenAI `sk-`、Anthropic `sk-ant-`、Slack/Discord Token & Webhook、JWT、PEM 私钥、Google/GitLab/HF/npm/PyPI/Groq/xAI/Perplexity Key 等）会在落盘与同步前统一替换为 `<redacted type='...'/>`，适合担心工具片段里的密钥被长期保存的用户。此前实现无开关、恒定开启，导致「记住 key」只能存下一个占位符。
+- **新增 `memhub doctor` 诊断命令与后台故障显式告警注入**：
+  - 新增 `memhub doctor`（支持 `--json`）：只读检查 `~/.memhub/config.yaml` 三把密钥、本机 Core 存活状态、`hub.db` 写入队列健康度、跨设备同步状态以及本机已探测宿主的接入完整性，并给出修复命令。
+  - 当后台存在重试耗尽的 `failed` 写入任务或跨设备同步报错时，`/v1/hub/recall` 与 `memhub hook` 会在 `<relevant-memories>` 末尾自动追加醒目告警，让 Agent 在首句回复提醒用户运行 `memhub doctor` 或 `memhub retry`，避免后台静默失败。
 - **新增接入 ZCode、Qoder、GitHub Copilot、AWS Kiro、Cline，以及 Pi、OpenClaw 零 JS 轻接入（共 18 种工具 / 19 个入口），并补齐 `memhub.integrations` 的 `memory_update` 与 `include_history`**：
   - **ZCode（`zcode`）**：在 `~/.zcode/cli/config.json` 写入 `mcp.servers.memhub` 与 `hooks.events`（`UserPromptSubmit` / `Stop`），只读解析 `~/.zcode/cli/db/db.sqlite`（与 OpenCode 同构的 `session` / `message` / `part` 表）。
   - **Qoder（`qoder`）**：在 `~/.qoder/settings.json` 写入 `mcpServers.memhub` 与 `hooks`（`UserPromptSubmit` / `Stop`），增量解析 `~/.qoder/projects/**/*.jsonl`。

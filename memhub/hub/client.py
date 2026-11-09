@@ -121,6 +121,15 @@ class HubClient:
             },
         )
 
+    async def get_conversation(
+        self, source_id: str, *, context_turns: int = 1
+    ) -> dict[str, Any]:
+        """Fetch an L0_RAW dialogue by full ID or 8-char prefix, plus neighboring turns."""
+        path = f"/v1/hub/conversations/{quote(source_id.strip(), safe='')}"
+        return await self._request(
+            "GET", path, params={"context_turns": context_turns}
+        )
+
     async def status(self) -> dict[str, Any]:
         return await self._request("GET", "/v1/hub/status")
 

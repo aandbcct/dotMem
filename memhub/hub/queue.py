@@ -192,6 +192,29 @@ class HubWriteQueue:
         ).fetchone()[0]
         return out
 
+    def last_failed_error(self) -> str | None:
+        row = self._conn.execute(
+            "SELECT error FROM hub_writes WHERE status='failed' AND error IS NOT NULL "
+            "ORDER BY updated_at DESC, rowid DESC LIMIT 1"
+        ).fetchone()
+        return str(row["error"]) if row and row["error"] else None
+
+    def failure_summary(self) -> tuple[int, str | None]:
+        """(failed count, last error) from the ``(status, event_at)`` index.
+
+        The hot recall path asks this on every prompt, so it must not aggregate the
+        whole table the way ``counts()`` does: both queries are index range scans over
+        the (usually empty) ``failed`` rows.
+        """
+        row = self._conn.execute(
+            "SELECT COUNT(*), (SELECT error FROM hub_writes WHERE status='failed' "
+            "AND error IS NOT NULL ORDER BY updated_at DESC, rowid DESC LIMIT 1) "
+            "FROM hub_writes WHERE status='failed'"
+        ).fetchone()
+        count = int(row[0]) if row else 0
+        error = str(row[1]) if row and row[1] else None
+        return count, error
+
     async def wait(self, request_id: str) -> dict[str, Any]:
         while True:
             job = self.get(request_id)

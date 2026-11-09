@@ -27,7 +27,7 @@ from memhub.client import MemoryClient
 from memhub.coding.types import PROCEDURE_KIND
 from memhub.config import Settings
 from memhub.errors import IdempotencyConflictError
-from memhub.hub.browse import browse_rows, workspace_sessions
+from memhub.hub.browse import browse_rows, canonical_workspace, workspace_sessions
 from memhub.hub.config import (
     SyncConfig,
     format_time,
@@ -39,6 +39,7 @@ from memhub.hub.config import (
     unpublish_runtime,
 )
 from memhub.hub.queue import HubWriteQueue
+from memhub.hub.redact import sanitize_messages, sanitize_text
 from memhub.hub.sync import HubSyncer, SyncBackend, project_received
 from memhub.sdk_models import SearchMemories
 from memhub.types import Layer, MemoryStatus
@@ -375,6 +376,20 @@ def create_hub_app(
                 detail="content and messages cannot both be empty",
             )
         payload = body.model_dump(exclude={"wait"})
+        redact = app.state.client.settings.redact_secrets
+        payload["content"] = sanitize_text(payload["content"], redact=redact)
+        payload["messages"] = sanitize_messages(payload["messages"], redact=redact)
+        if payload.get("workspace_id"):
+            payload["workspace_id"] = canonical_workspace(payload["workspace_id"]) or None
+        if not payload["content"].strip() and not payload["messages"]:
+            return {
+                "request_id": body.request_id,
+                "status": "done",
+                "raw_only": body.raw_only,
+                "attempts": 0,
+                "result": {"skipped": "private"},
+                "error": None,
+            }
         # An absent boundary stays absent, so receipts written before boundaries
         # existed keep their fingerprint when the same batch is resubmitted.
         for key in ("workspace_id", "branch"):
@@ -400,6 +415,115 @@ def create_hub_app(
     @app.post("/v1/hub/retry", dependencies=[Depends(verify)])
     async def retry_failed():
         return {"queued": app.state.queue.retry_failed()}
+
+    def health_warnings() -> list[str]:
+        warnings: list[str] = []
+        failed, last_error = app.state.queue.failure_summary()
+        if failed > 0:
+            err = last_error or "unknown error"
+            warnings.append(
+                f"⚠️ MemHub 后台有 {failed} 条记忆写入失败（最近原因：{err[:160]}）。"
+                "请在回复开头提醒用户运行 `memhub doctor` 排查或运行 `memhub retry` 重试。"
+            )
+        if app.state.syncer is not None:
+            sync_err = app.state.syncer.status().get("last_error")
+            if sync_err:
+                warnings.append(
+                    f"⚠️ MemHub 跨设备同步异常（{str(sync_err)[:160]}）。"
+                    "请提醒用户运行 `memhub doctor` 检查同步状态。"
+                )
+        return warnings
+
+    @app.get("/v1/hub/conversations/{source_id}", dependencies=[Depends(verify)])
+    async def get_conversation(source_id: str, context_turns: int = 1):
+        """Progressive disclosure: fetch an L0_RAW dialogue by full ID or short prefix
+        (such as the 8-char ``(来源: L0 37c85fe9)`` tag), plus surrounding turns in
+        the same session."""
+        needle = source_id.strip()
+        if not needle:
+            raise HTTPException(status_code=400, detail="source_id cannot be empty")
+        core_client: MemoryClient = app.state.client
+        vector = core_client.factory.vector
+
+        # A full id is one record read. Only a short prefix needs the L0 scan, and
+        # that scan is bounded by the L0 layer filter rather than the whole store.
+        anchor = await asyncio.to_thread(vector.get, needle)
+        if anchor is not None and (
+            anchor.layer != Layer.L0_RAW
+            or anchor.app_id != core_client.settings.default_app_id
+            or anchor.user_id != HUB_USER_ID
+        ):
+            anchor = None
+        if anchor is None:
+            nodes = await asyncio.to_thread(
+                vector.get_many,
+                build_filter(
+                    app_ids=[core_client.settings.default_app_id],
+                    user_id=HUB_USER_ID,
+                    agent_ids=[""],
+                    statuses=[MemoryStatus.ACTIVE],
+                    layers=[Layer.L0_RAW],
+                ),
+                None,
+            )
+            matches = [
+                node
+                for node in nodes
+                if len(needle) >= 6 and node.node_id.startswith(needle)
+            ]
+            if not matches:
+                raise HTTPException(
+                    status_code=404, detail=f"L0 conversation {needle!r} not found"
+                )
+            anchor = max(
+                matches,
+                key=lambda n: (n.memory_at or n.gmt_created or 0, n.node_id),
+            )
+
+        span = max(0, min(context_turns, 20))
+        if span > 0 and anchor.session_id:
+            peers = await asyncio.to_thread(
+                vector.get_many,
+                build_filter(
+                    app_ids=[core_client.settings.default_app_id],
+                    user_id=HUB_USER_ID,
+                    agent_ids=[""],
+                    statuses=[MemoryStatus.ACTIVE],
+                    layers=[Layer.L0_RAW],
+                    session_ids=[anchor.session_id],
+                ),
+                None,
+            )
+            selected = sorted(
+                peers,
+                key=lambda n: (n.memory_at or n.gmt_created or 0, n.node_id),
+            )
+            idx = next(
+                (i for i, n in enumerate(selected) if n.node_id == anchor.node_id),
+                0,
+            )
+            selected = selected[max(0, idx - span) : idx + span + 1]
+        else:
+            selected = [anchor]
+        return {
+            "source_id": anchor.node_id[:8],
+            "memory_id": anchor.node_id,
+            "session_id": anchor.session_id,
+            "conversations": [
+                {
+                    "memory_id": n.node_id,
+                    "source_id": n.node_id[:8],
+                    "session_id": n.session_id,
+                    "content": n.content,
+                    "memory_at": n.memory_at or n.gmt_created,
+                    "workspace_id": canonical_workspace(
+                        str((n.custom or {}).get("workspace_id") or "")
+                    ),
+                    "is_anchor": n.node_id == anchor.node_id,
+                }
+                for n in selected
+            ],
+        }
 
     @app.post("/v1/hub/recall", dependencies=[Depends(verify)])
     async def recall(body: HubRecallRequest):
@@ -469,10 +593,14 @@ def create_hub_app(
                     session_ids=scope,
                 )
             ).memories
-        return {
+        out: dict[str, Any] = {
             "memories": memories.to_dict(),
             "conversations": [item.to_dict() for item in conversations.normal],
         }
+        warnings = health_warnings()
+        if warnings:
+            out["warnings"] = warnings
+        return out
 
     def embed_identity() -> dict[str, Any]:
         resolved = app.state.client.settings
@@ -600,7 +728,15 @@ def create_hub_app(
                     )
                 ),
             },
-            "writes": app.state.queue.counts(),
+            "writes": {
+                **app.state.queue.counts(),
+                **(
+                    {"last_error": err}
+                    if (err := app.state.queue.last_failed_error())
+                    else {}
+                ),
+            },
+            "warnings": health_warnings(),
             "digest": {
                 "auto": app.state.client.settings.mode == "dual" and digest_min_hours > 0,
                 "min_hours": digest_min_hours,

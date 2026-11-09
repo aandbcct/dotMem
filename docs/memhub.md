@@ -31,6 +31,8 @@ pip install "memhub[all]"
 memhub install-service
 
 # 2. 按需接入你本机正在用的 AI 工具（卸载用 memhub uninstall-host <工具名>）
+#    不带参数时会自动探测本机已安装的工具，只接入它们：
+memhub install-host
 memhub install-host claude-code
 memhub install-host codex
 memhub install-host cursor
@@ -156,16 +158,43 @@ memhub connect git git@github.com:<你的用户名>/my-vibecoding-memory.git
 
 | 想做什么 | 命令 |
 |---|---|
-| 只接入某个工具 | `memhub install-host cursor` |
+| 自动探测并接入本机已安装的 AI 工具 | `memhub install-host`（或 `memhub install-host cursor` 指定单个，`all` 接入全部） |
 | 取消接入 | `memhub uninstall-host cursor` |
 | 只导入某个工具的历史 | `memhub scan --source codex` |
 | 快速导入、稍后再整理 | `memhub scan --source all --raw-only`，之后 `memhub extract` |
+| 按 L0 来源短 ID 展开完整原话与前后上下文 | `memhub recall --source-id 37c85fe9` |
+| 诊断配置、Core、写入队列、同步与宿主接入状态 | `memhub doctor` |
 | 重试失败的整理任务 | `memhub retry` |
 | 立刻跨设备同步一次 | `memhub sync` |
 | 查看、搜索、编辑、删除记忆 | `memhub ui` |
 | 重启 Core | 再执行一次 `memhub install-service` |
 | 卸载开机自启服务（停止 Core） | `memhub uninstall-service` |
 | 断开多设备同步 | `memhub disconnect` |
+
+## 隐私：什么会被记住，什么不会
+
+- **`<private>...</private>`**：包起来的内容不入库，**同一轮里标签外的内容照常保存**。这是你主动声明的排除范围，随时可用：
+
+  ```
+  我的数据库密码是 <private>hunter2</private>，连接串是 postgres://db:5432/app
+  ```
+
+  标签内的 `hunter2` 丢弃，标签外的连接串入库。未闭合的 `<private>` 会丢弃其后全部内容。
+
+- **让 Agent 记住一个 API key**：直接说，不要加 `<private>`。默认配置下 key 原样保存，之后可以正常召回到。
+
+- **自动 Secret 脱敏默认关闭**（`redact_secrets: false`）。想防止工具片段里的密钥被长期保存（比如你贴过一段含 token 的 shell 命令），把它打开：
+
+  ```yaml
+  # ~/.memhub/config.yaml
+  redact_secrets: true   # 或环境变量 MEMHUB_REDACT_SECRETS=true
+  ```
+
+  打开后，OpenAI / Anthropic / GitHub / AWS / Slack / JWT / URL 密码等 20+ 种高置信度凭证会在落盘前替换为 `<redacted type='...'/>`。**这时「记住我的 key」也会被替换成占位符**，两者不可兼得。
+
+- **内联 Base64 图片**（浏览器截图等）无论开关如何都会被替换为 `<elided N chars>`，只影响体积，不影响语义。
+
+- **同步前确认仓库是私有的**：`memhub connect git` 会把记忆推到你自己指定的 Git 仓库。如果库里含密钥，仓库必须是私有的。
 
 ## 如何卸载
 

@@ -31,7 +31,8 @@ pip install "memhub[all]"
 # 1. 启动后台常驻服务（开机自启）
 memhub install-service
 
-# 2. 按需接入你正在用的 AI 工具（或用 memhub install-host all 一键接入全部 18 种）
+# 2. 接入你正在用的 AI 工具（不带参数会自动探测本机已安装的工具）
+memhub install-host
 memhub install-host claude-code
 memhub install-host codex
 

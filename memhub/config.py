@@ -154,6 +154,12 @@ class Settings(BaseSettings):
     # Default tenant namespace when add/list/search omit app_id (single-product default).
     default_app_id: str = "default"
 
+    # Hub 入库前的自动 Secret 脱敏（OpenAI / GitHub / AWS / JWT / URL 密码等）。
+    # 默认关闭：这是个人助理，用户说「记住我的 key」时就该记住。想防止工具片段里的
+    # 密钥被长期保存，设 MEMHUB_REDACT_SECRETS=true。``<private>`` 标注与 Base64
+    # 图片清洗始终生效，与本开关无关。
+    redact_secrets: bool = False
+
     # Optional full serialization; default overlaps model I/O and validates scope CAS.
     write_serialize_per_user: bool = False
 

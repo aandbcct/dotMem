@@ -54,7 +54,9 @@ from typing import Any, BinaryIO, Protocol
 import zstandard
 
 from memhub.client import strip_memory_injection
+from memhub.hub.browse import canonical_workspace
 from memhub.hub.config import CursorStore
+from memhub.hub.redact import sanitize_text, strip_image_payloads
 
 SOURCES = (
     "agentica",
@@ -189,7 +191,12 @@ def _strip_tags(text: str, tags: tuple[str, ...]) -> str:
 RecordParser = Callable[[dict, dict], "tuple[str, str, str, int | None] | None"]
 
 
+def _clean_text(text: str) -> str:
+    return sanitize_text(strip_memory_injection(text)).strip()
+
+
 def _tool_call(call_id: str, name: str, arguments: Any) -> dict:
+    arguments = strip_image_payloads(arguments)
     if not isinstance(arguments, str):
         arguments = json.dumps(arguments, ensure_ascii=False)
     return {
@@ -459,7 +466,7 @@ def _read_stream(
         if parsed is None:
             continue
         role, text, session_id, at = parsed
-        text = strip_memory_injection(text).strip()
+        text = _clean_text(text)
         steps = tuple(state["steps"])
         if text or steps:
             messages.append(Message(
@@ -734,7 +741,7 @@ def _read_cline(path: Path, start: int) -> tuple[list[Message], int]:
                             inp,
                         )
                     )
-        text = strip_memory_injection(_blocks_text(content)).strip()
+        text = _clean_text(_blocks_text(content))
         if text or steps:
             messages.append(
                 Message(role, text, session_id, at, idx, idx + 1, tuple(steps), workspace)
@@ -827,7 +834,7 @@ def _read_hermes(path: Path, start: int) -> tuple[list[Message], int]:
     messages = [
         Message(role, text, session_id, int(ts), row_id - 1, row_id)
         for row_id, session_id, role, content, ts in rows
-        if (text := strip_memory_injection(content or "").strip())
+        if (text := _clean_text(content or ""))
     ]
     return messages, rows[-1][0] if rows else start
 
@@ -857,7 +864,7 @@ def _read_opencode(path: Path, start: int) -> tuple[list[Message], int]:
         workspace = directory or (msg.get("path") or {}).get("cwd") or None
         kind = part.get("type")
         if kind == "text" and not part.get("synthetic"):
-            text = strip_memory_injection(part.get("text") or "").strip()
+            text = _clean_text(part.get("text") or "")
             if text:
                 messages.append(
                     Message(role, text, session_id, at, row_id - 1, row_id, (), workspace)
@@ -1029,7 +1036,13 @@ def build_turns(messages: list[Message]) -> tuple[list[Turn], Turn | None]:
     """
     turns: list[Turn] = []
     current: Turn | None = None
+    # Resolving a workspace walks the filesystem, and every message of a turn carries
+    # the same few directories; keep this call's answers instead of repeating it.
+    resolved: dict[str | None, str | None] = {}
     for msg in messages:
+        if msg.workspace not in resolved:
+            resolved[msg.workspace] = canonical_workspace(msg.workspace) or None
+        workspace = resolved[msg.workspace]
         if msg.role == "user" and msg.text:
             if current and (
                 current.assistant or current.steps or current.session_id != msg.session_id
@@ -1039,17 +1052,18 @@ def build_turns(messages: list[Message]) -> tuple[list[Turn], Turn | None]:
             if current is None:
                 current = Turn(
                     msg.session_id, msg.text, "", msg.at, msg.start, msg.end,
-                    workspace=msg.workspace, branch=msg.branch,
+                    workspace=workspace, branch=msg.branch,
                 )
             else:
                 current.user = f"{current.user}\n{msg.text}"
                 current.end = msg.end
+                current.workspace = workspace or current.workspace
         elif current is not None and current.session_id == msg.session_id:
             current.steps.extend(msg.steps)
             if msg.role == "assistant" and msg.text:
                 current.assistant = msg.text
             current.end = msg.end
-            current.workspace = msg.workspace or current.workspace
+            current.workspace = workspace or current.workspace
             current.branch = msg.branch or current.branch
     return [t for t in turns if t.assistant], current
 

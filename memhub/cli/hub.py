@@ -21,11 +21,12 @@ from urllib.parse import urlparse
 
 import httpx
 import typer
+from pydantic import ValidationError
 
 from memhub.hub import hosts as hub_hosts
 from memhub.hub import service as hub_service
 from memhub.hub import sync as hub_sync
-from memhub.hub.browse import current_rows
+from memhub.hub.browse import canonical_workspace, current_rows
 from memhub.hub.client import HubClient
 from memhub.hub.config import (
     CursorStore,
@@ -72,13 +73,15 @@ def _one_line(text: str, limit: int = 200) -> str:
     return flat[:limit] + ("…" if len(flat) > limit else "")
 
 
-def _targets(host: str) -> list[str]:
+def _targets(host: str, *, home: Path | None = None, path_env: str | None = None) -> list[str]:
+    if host == "auto":
+        return hub_hosts.detect_installed_hosts(home=home, path_env=path_env)
     if host == "all":
         return list(hub_hosts.HOSTS)
     if host not in hub_hosts.HOSTS:
         raise typer.BadParameter(
             f"unknown host {host!r}; choose from "
-            f"{', '.join(hub_hosts.HOSTS)} or all"
+            f"{', '.join(hub_hosts.HOSTS)}, auto, or all"
         )
     return [host]
 
@@ -405,10 +408,13 @@ def hub_ui(
 
 @hub_app.command("install-host")
 def hub_install_host(
-    host: str = typer.Argument("all", help=f"{' | '.join(hub_hosts.HOSTS)} | all"),
+    host: str = typer.Argument(
+        "auto",
+        help=f"{' | '.join(hub_hosts.HOSTS)} | auto | all（默认 auto 只接入本机已安装工具）",
+    ),
     hub_dir: str | None = HubDir,
 ) -> None:
-    """安装 Hub MCP 代理、recall skill 与采集 Hook。"""
+    """安装 Hub MCP 代理、recall skill 与采集 Hook（默认自动探测本机已安装工具）。"""
     _echo(
         [
             hub_hosts.install_host(item, hub_dir=hub_dir)
@@ -419,7 +425,7 @@ def hub_install_host(
 
 @hub_app.command("uninstall-host")
 def hub_uninstall_host(
-    host: str = typer.Argument("all", help=f"{' | '.join(hub_hosts.HOSTS)} | all"),
+    host: str = typer.Argument("all", help=f"{' | '.join(hub_hosts.HOSTS)} | auto | all"),
 ) -> None:
     """移除 Hub 写入的配置，其它宿主配置保持不动。"""
     _echo([hub_hosts.uninstall_host(item) for item in _targets(host)])
@@ -510,7 +516,8 @@ def _stash_prompt(payload: dict[str, Any], hub_dir: str | None, source: str) -> 
         return
     path = _pending_prompt(hub_dir, source, session_id)
     path.parent.mkdir(parents=True, exist_ok=True)
-    workspace = payload.get("cwd") or next(iter(payload.get("workspace_roots") or []), None)
+    raw_ws = payload.get("cwd") or next(iter(payload.get("workspace_roots") or []), None)
+    workspace = canonical_workspace(raw_ws) or None
     path.write_text(
         json.dumps(
             {"prompt": prompt, "at": int(time.time()), "workspace": workspace},
@@ -567,7 +574,8 @@ def _recall(payload: dict[str, Any], limit: int, hub_dir: str | None, source: st
     if not prompt:
         return
     # Cursor names the open folders instead of a working directory.
-    workspace = payload.get("cwd") or next(iter(payload.get("workspace_roots") or []), None)
+    raw_ws = payload.get("cwd") or next(iter(payload.get("workspace_roots") or []), None)
+    workspace = canonical_workspace(raw_ws) or None
 
     async def search() -> dict[str, Any]:
         async with make_client(hub_dir) as client:
@@ -593,6 +601,10 @@ def _recall(payload: dict[str, Any], limit: int, hub_dir: str | None, source: st
         context = (
             f"{context}\n\n历史对话（从旧到新，同一件事以最新的为准）：\n{raw}"
         ).strip()
+    warnings = result.get("warnings") or []
+    if warnings:
+        warning_block = "\n".join(str(w) for w in warnings)
+        context = f"{context}\n\n{warning_block}".strip()
     if context:
         # Tagged so strip_memory_injection drops it if a host echoes it back.
         context = f"<relevant-memories>\n{context}\n</relevant-memories>"
@@ -649,13 +661,46 @@ def hub_hook(
 
 @hub_app.command("recall")
 def hub_recall(
-    query: str = typer.Argument(...),
+    query: str = typer.Argument("", help="检索关键词（传 --source-id 时可省略）"),
+    source_id: str = typer.Option(
+        "",
+        "--source-id",
+        "-i",
+        help="按 L0 来源短 ID（如 37c85fe9）直接展开完整原始对话与前后上下文",
+    ),
+    context_turns: int = typer.Option(
+        1, "--context-turns", help="按 --source-id 展开时附带同会话前后轮数"
+    ),
     limit: int = typer.Option(10, "--limit"),
     raw_limit: int = typer.Option(5, "--raw-limit"),
     json_out: bool = typer.Option(False, "--json"),
     hub_dir: str | None = HubDir,
 ) -> None:
-    """同时检索当前记忆和历史对话 Evidence。"""
+    """同时检索当前记忆和历史对话 Evidence，或按 --source-id 展开 L0 原话。"""
+    target_id = source_id.strip()
+    if not target_id and not query.strip():
+        raise typer.BadParameter("请提供 query 检索词或 --source-id")
+
+    if target_id:
+        async def fetch_source() -> dict[str, Any]:
+            async with make_client(hub_dir) as client:
+                return await client.get_conversation(
+                    target_id, context_turns=context_turns
+                )
+
+        result = asyncio.run(fetch_source())
+        if json_out:
+            _echo(result)
+            return
+        lines = []
+        for item in result.get("conversations") or []:
+            marker = " [当前来源]" if item.get("is_anchor") else ""
+            lines.append(
+                f"- {_when(item)}[{item['session_id']}] (L0 {item.get('source_id', '')}){marker}\n"
+                f"{item['content'].strip()}"
+            )
+        typer.echo("\n\n".join(lines) or "没有找到对应的原始对话。")
+        return
 
     async def search() -> dict[str, Any]:
         async with make_client(hub_dir) as client:
@@ -751,3 +796,241 @@ def hub_memory_delete(
             return await client.delete_memory(memory_id)
 
     _echo(asyncio.run(remote()))
+
+
+def daemon_status(root: Path) -> dict[str, Any] | None:
+    """The live Core's ``/v1/hub/status``, or None when no Core answers.
+
+    A plain sync request on purpose: ``memhub doctor`` is a sync CLI command and
+    must also work from inside a running event loop (tests, notebooks), where
+    ``asyncio.run`` raises.
+    """
+    try:
+        cfg = resolve_hub_config(root)
+    except (RuntimeError, ValueError, OSError):
+        # No runtime.json or token: the Core was never started on this machine.
+        return None
+    try:
+        response = httpx.get(
+            f"{cfg.base_url}/v1/hub/status",
+            headers={"Authorization": f"Bearer {cfg.api_key}"},
+            timeout=5.0,
+        )
+        response.raise_for_status()
+        return response.json()
+    except (httpx.HTTPError, ValueError):
+        return None
+
+
+def run_doctor(hub_dir: str | Path | None = None) -> dict[str, Any]:
+    """Read-only diagnostic of configuration, Core, write queue, sync and host wiring.
+
+    Nothing here starts a Core, touches the memory store or edits a host config, so
+    it is safe to run while the daemon is serving. A broken ``config.yaml`` is
+    reported as a failing check instead of raising, because that is exactly the
+    case the command exists for.
+    """
+    checks: list[dict[str, Any]] = []
+    root = hub_root(hub_dir)
+
+    # 1. Model credentials and configuration.
+    try:
+        settings = hub_settings(root)
+    except (ValueError, ValidationError) as exc:
+        checks.append(
+            {
+                "name": "Config & keys",
+                "status": "fail",
+                "detail": f"~/.memhub/config.yaml is invalid: {_one_line(exc, 200)}",
+                "required": True,
+            }
+        )
+        settings = None
+    else:
+        missing_keys = [
+            name
+            for name, val in (
+                ("jev_api_key", settings.jev_api_key),
+                ("llm_api_key", settings.llm_api_key),
+                ("embed_api_key", settings.embed_api_key),
+            )
+            if not (val or "").strip()
+        ]
+        if missing_keys:
+            checks.append(
+                {
+                    "name": "Config & keys",
+                    "status": "fail",
+                    "detail": f"missing {', '.join(missing_keys)} — set in ~/.memhub/config.yaml",
+                    "required": True,
+                }
+            )
+        else:
+            checks.append(
+                {
+                    "name": "Config & keys",
+                    "status": "ok",
+                    "detail": (
+                        f"mode={settings.mode}, "
+                        f"embed={settings.embed_model} ({settings.embed_dim}d)"
+                    ),
+                    "required": True,
+                }
+            )
+
+    # 2. Core daemon reachability.
+    remote_status = daemon_status(root)
+
+    rt = runtime_status(root)
+    if remote_status is not None:
+        base_url = (rt or {}).get("base_url", "http://127.0.0.1:8765")
+        current = (remote_status.get("memories") or {}).get("current", 0)
+        checks.append(
+            {
+                "name": "Core daemon",
+                "status": "ok",
+                "detail": f"healthy at {base_url} ({current} current memories)",
+                "required": True,
+            }
+        )
+    else:
+        checks.append(
+            {
+                "name": "Core daemon",
+                "status": "fail",
+                "detail": "not reachable — run `memhub install-service` or `memhub serve`",
+                "required": True,
+            }
+        )
+
+    # 3. Write queue health.
+    writes = (remote_status or {}).get("writes") or {}
+    failed = int(writes.get("failed", 0))
+    last_err = writes.get("last_error")
+    if failed > 0:
+        checks.append(
+            {
+                "name": "Write queue",
+                "status": "warn",
+                "detail": (
+                    f"{failed} failed write(s)"
+                    + (f" ({last_err})" if last_err else "")
+                    + " — run `memhub retry`"
+                ),
+                "required": False,
+            }
+        )
+    elif remote_status is not None:
+        checks.append(
+            {
+                "name": "Write queue",
+                "status": "ok",
+                "detail": (
+                    f"done={writes.get('done', 0)}, "
+                    f"pending={writes.get('pending', 0)}, failed=0"
+                ),
+                "required": False,
+            }
+        )
+
+    # 4. Sync configuration and status.
+    sync_cfg = load_sync_config(root)
+    if sync_cfg is None:
+        checks.append(
+            {
+                "name": "Sync target",
+                "status": "ok",
+                "detail": "disabled (local only)",
+                "required": False,
+            }
+        )
+    else:
+        sync_info = (remote_status or {}).get("sync") or {}
+        sync_err = sync_info.get("last_error")
+        checks.append(
+            {
+                "name": "Sync target",
+                "status": "warn" if sync_err else "ok",
+                "detail": (
+                    f"{sync_cfg.kind} ({sync_cfg.target}) — error: {sync_err} — run `memhub sync`"
+                    if sync_err
+                    else f"{sync_cfg.kind} ({sync_cfg.target})"
+                ),
+                "required": False,
+            }
+        )
+
+    # 5. Detected AI hosts and wiring status.
+    detected = hub_hosts.detect_installed_hosts()
+    h_status = hub_hosts.hosts_status()
+    wired = [
+        h
+        for h in detected
+        if h_status[h]["skill"]
+        and h_status[h]["mcp"] in (True, None)
+        and h_status[h]["hooks"] in (True, None)
+    ]
+    unwired = [h for h in detected if h not in wired]
+    if not detected:
+        checks.append(
+            {
+                "name": "Detected hosts",
+                "status": "ok",
+                "detail": "no supported AI hosts detected on this machine",
+                "required": False,
+            }
+        )
+    elif unwired:
+        checks.append(
+            {
+                "name": "Detected hosts",
+                "status": "warn",
+                "detail": (
+                    f"{len(wired)}/{len(detected)} wired; "
+                    f"unwired: {', '.join(unwired)} — run `memhub install-host`"
+                ),
+                "required": False,
+            }
+        )
+    else:
+        checks.append(
+            {
+                "name": "Detected hosts",
+                "status": "ok",
+                "detail": f"{len(wired)}/{len(detected)} wired ({', '.join(wired)})",
+                "required": False,
+            }
+        )
+
+    ok = not any(c["required"] and c["status"] == "fail" for c in checks)
+    return {
+        "ok": ok,
+        "hub_dir": str(root),
+        "checks": checks,
+        "detected_hosts": detected,
+        "wired_hosts": wired,
+    }
+
+
+@hub_app.command("doctor")
+def hub_doctor(
+    json_out: bool = typer.Option(False, "--json", help="输出结构化 JSON 诊断报告"),
+    hub_dir: str | None = HubDir,
+) -> None:
+    """只读诊断：检查配置密钥、本机 Core、写入队列、跨端同步与已安装宿主工具接入状态。"""
+    report = run_doctor(hub_dir)
+    if json_out:
+        _echo(report)
+    else:
+        icons = {"ok": "✓", "warn": "!", "fail": "✗"}
+        typer.echo("memhub doctor\n")
+        for check in report["checks"]:
+            icon = icons.get(check["status"], "?")
+            typer.echo(f"  {icon} {check['name']:<18} {check['detail']}")
+        typer.echo("")
+        if report["ok"]:
+            typer.echo("All required checks passed.")
+        else:
+            typer.echo("Required check(s) failed — see remediation above.")
+    if not report["ok"]:
+        raise typer.Exit(code=1)

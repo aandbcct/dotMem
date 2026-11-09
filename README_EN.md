@@ -35,6 +35,8 @@ pip install "memhub[all]"
 memhub install-service
 
 # 2. Connect the AI tools you use (remove with memhub uninstall-host <tool>)
+#    With no argument it detects the tools installed on this machine:
+memhub install-host
 memhub install-host claude-code
 memhub install-host codex
 memhub install-host cursor

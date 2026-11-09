@@ -643,79 +643,119 @@ class HostSpec:
     # None for a host that speaks no MCP (OpenClaw).
     mcp: tuple[Part, str] | None = None
     hooks: tuple[Part, str] | None = None
+    binaries: tuple[str, ...] = ()
 
 
 HOSTS: dict[str, HostSpec] = {
     "agentica": HostSpec(
-        ".agentica", (JsonMcp(), ".agentica/mcp_config.json"), (AgenticaHooks(), ".agentica/config.yaml")
+        ".agentica",
+        (JsonMcp(), ".agentica/mcp_config.json"),
+        (AgenticaHooks(), ".agentica/config.yaml"),
+        ("agentica",),
     ),
     "claude-code": HostSpec(
-        ".claude", (JsonMcp(), ".claude.json"), (ClaudeStyleHooks(), ".claude/settings.json")
+        ".claude",
+        (JsonMcp(), ".claude.json"),
+        (ClaudeStyleHooks(), ".claude/settings.json"),
+        ("claude",),
     ),
     # Cline: global MCP in ~/.cline/data/settings/cline_mcp_settings.json, skills in ~/.cline/skills;
     # sessions are scanned from ~/.cline/data/sessions and legacy VS Code tasks.
     "cline": HostSpec(
-        ".cline", (JsonMcp(), ".cline/data/settings/cline_mcp_settings.json")
+        ".cline",
+        (JsonMcp(), ".cline/data/settings/cline_mcp_settings.json"),
+        None,
+        ("cline",),
     ),
     "codebuddy": HostSpec(
-        ".codebuddy", (JsonMcp(), ".codebuddy/mcp.json"), (ClaudeStyleHooks(), ".codebuddy/settings.json")
+        ".codebuddy",
+        (JsonMcp(), ".codebuddy/mcp.json"),
+        (ClaudeStyleHooks(), ".codebuddy/settings.json"),
+        ("codebuddy",),
     ),
     # Codex runs hooks only with `[features] hooks = true` and after the user trusts them.
     "codex": HostSpec(
-        ".codex", (TomlMcp(), ".codex/config.toml"), (ClaudeStyleHooks(), ".codex/hooks.json")
+        ".codex",
+        (TomlMcp(), ".codex/config.toml"),
+        (ClaudeStyleHooks(), ".codex/hooks.json"),
+        ("codex",),
     ),
     "copilot": HostSpec(
         ".copilot",
         (JsonMcp(), ".copilot/mcp-config.json"),
         (CopilotHooks(), ".copilot/hooks/memhub.json"),
+        ("copilot",),
     ),
-    "cursor": HostSpec(".cursor", (JsonMcp(), ".cursor/mcp.json"), (CursorHooks(), ".cursor/hooks.json")),
+    "cursor": HostSpec(
+        ".cursor",
+        (JsonMcp(), ".cursor/mcp.json"),
+        (CursorHooks(), ".cursor/hooks.json"),
+        ("cursor",),
+    ),
     # DeepSeek Harness (app and CLI share ~/.dsh): MCP in every profile patch, skill
     # in ~/.dsh/skills. The desktop bundle has no hooks plugin, so sessions are scanned.
-    "dsh": HostSpec(".dsh", (DshMcp(), ".dsh/profiles")),
+    "dsh": HostSpec(".dsh", (DshMcp(), ".dsh/profiles"), None, ("dsh",)),
     # Kimi: ``mcp.json`` for servers, ``config.toml`` for hooks. kimi-cli is the
     # Python CLI (~/.kimi), which injects nothing a prompt hook prints; kimi-code
     # (~/.kimi-code) is its successor and does.
     "kimi-cli": HostSpec(
-        ".kimi", (JsonMcp(), ".kimi/mcp.json"), (TomlHooks(("Stop",)), ".kimi/config.toml")
+        ".kimi",
+        (JsonMcp(), ".kimi/mcp.json"),
+        (TomlHooks(("Stop",)), ".kimi/config.toml"),
+        ("kimi",),
     ),
     "kimi-code": HostSpec(
         ".kimi-code",
         (JsonMcp(), ".kimi-code/mcp.json"),
         (TomlHooks(("UserPromptSubmit", "Stop")), ".kimi-code/config.toml"),
+        ("kimi-code",),
     ),
     "kiro": HostSpec(
         ".kiro",
         (JsonMcp(), ".kiro/settings/mcp.json"),
         (KiroHooks(), ".kiro/hooks/memhub.json"),
+        ("kiro", "kiro-cli"),
     ),
     # Hermes is scanned from its state.db; it gets MCP + skill, no hooks.
-    "hermes": HostSpec(".hermes", (YamlMcp(), ".hermes/config.yaml")),
+    "hermes": HostSpec(".hermes", (YamlMcp(), ".hermes/config.yaml"), None, ("hermes",)),
     # OpenClaw: zero-JS light integration — skill in ~/.openclaw/skills (uses CLI table)
     # and sessions scanned from ~/.openclaw/agents/*/sessions/*.jsonl.
-    "openclaw": HostSpec(".openclaw"),
+    "openclaw": HostSpec(".openclaw", None, None, ("openclaw",)),
     "opencode": HostSpec(
         ".config/opencode",
         (OpenCodeMcp(), ".config/opencode/opencode.json"),
         (OpenCodePlugin(), ".config/opencode/plugins/memhub-hub.js"),
+        ("opencode",),
     ),
     # Pi: zero-JS light integration — MCP in ~/.pi/agent/mcp.json, skill in
     # ~/.pi/agent/skills, sessions scanned from ~/.pi/agent/sessions.
-    "pi": HostSpec(".pi/agent", (JsonMcp(), ".pi/agent/mcp.json")),
+    "pi": HostSpec(".pi/agent", (JsonMcp(), ".pi/agent/mcp.json"), None, ("pi",)),
     # Qoder (CLI and IDE share ~/.qoder): Claude-style settings.json for mcpServers + hooks.
     "qoder": HostSpec(
-        ".qoder", (JsonMcp(), ".qoder/settings.json"), (ClaudeStyleHooks(), ".qoder/settings.json")
+        ".qoder",
+        (JsonMcp(), ".qoder/settings.json"),
+        (ClaudeStyleHooks(), ".qoder/settings.json"),
+        ("qoder",),
     ),
     # Trae reads Claude-style hooks from ~/.trae/hooks.json; its payload carries the
     # prompt and the final answer, so no transcript is read.
-    "trae": HostSpec(".trae", (JsonMcp(), TRAE_MCP), (ClaudeStyleHooks(), ".trae/hooks.json")),
+    "trae": HostSpec(
+        ".trae",
+        (JsonMcp(), TRAE_MCP),
+        (ClaudeStyleHooks(), ".trae/hooks.json"),
+        ("trae",),
+    ),
     "workbuddy": HostSpec(
-        ".workbuddy", (JsonMcp(), ".workbuddy/mcp.json"), (ClaudeStyleHooks(), ".workbuddy/settings.json")
+        ".workbuddy",
+        (JsonMcp(), ".workbuddy/mcp.json"),
+        (ClaudeStyleHooks(), ".workbuddy/settings.json"),
+        ("workbuddy",),
     ),
     "zcode": HostSpec(
         ".zcode",
         (ZCodeMcp(), ".zcode/cli/config.json"),
         (ZCodeHooks(), ".zcode/cli/config.json"),
+        ("zcode",),
     ),
 }
 
@@ -786,6 +826,35 @@ def uninstall_host(host: str, *, home: Path | None = None) -> dict[str, Any]:
         "mcp": spec.mcp[0].uninstall(home / spec.mcp[1]) if spec.mcp else False,
         "hooks": spec.hooks[0].uninstall(home / spec.hooks[1]) if spec.hooks else False,
     }
+
+
+def is_host_detected(
+    host: str, *, home: Path | None = None, path_env: str | None = None
+) -> bool:
+    """True when the host's config directory or CLI binary exists on this machine."""
+    home = home or Path.home()
+    spec = HOSTS[host]
+    if (home / spec.home_dir).exists():
+        return True
+    if host == "claude-code" and (home / ".claude.json").is_file():
+        return True
+    if host == "trae" and (home / TRAE_MCP).parent.exists():
+        return True
+    search_path = os.environ.get("PATH", "") if path_env is None else path_env
+    if search_path and any(shutil.which(b, path=search_path) is not None for b in spec.binaries):
+        return True
+    return False
+
+
+def detect_installed_hosts(
+    *, home: Path | None = None, path_env: str | None = None
+) -> list[str]:
+    """Host ids detected on this machine (config directory or executable on PATH)."""
+    return [
+        host
+        for host in HOSTS
+        if is_host_detected(host, home=home, path_env=path_env)
+    ]
 
 
 def hosts_status(*, home: Path | None = None) -> dict[str, dict[str, bool | None]]:

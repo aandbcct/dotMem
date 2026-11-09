@@ -35,11 +35,13 @@ pip install "memhub[all]"
 memhub install-service
 
 # 2. 按需接入你正在用的 AI 工具（卸载用 memhub uninstall-host <工具名>）
+#    不带参数时会自动探测本机已安装的工具；也可以直接指定：
+memhub install-host
 memhub install-host claude-code
 memhub install-host codex
 memhub install-host cursor
 # 支持：claude-code | codex | cursor | agentica | hermes | codebuddy | opencode | workbuddy | kimi-cli | kimi-code | dsh | trae | zcode | qoder | copilot | kiro | cline | pi | openclaw
-# 也可以一键接入全部：memhub install-host all
+# 一键接入全部：memhub install-host all
 
 # 3.（可选）把已有的历史会话导入为记忆
 memhub scan --source claude-code   # 或 --source all 导入全部已安装工具的历史
