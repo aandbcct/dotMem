@@ -18,7 +18,7 @@ Backends only move log entries:
   own origin directory.
 - ``http``: another MemHub Core (``/v1/hub/log/*``), which relays every origin it
   has received.
-- ``ssh``: the same Core API, each call one ``ssh <target> memhub hub relay``
+- ``ssh``: the same Core API, each call one ``ssh <target> memhub relay``
   command. Nothing stays connected between syncs.
 
 ``manifest.json`` (dir / git) and ``/v1/hub/log/heads`` (http / ssh) carry the

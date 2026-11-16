@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **文档与报错不再出现已经删除的 `memhub hub` 二级命令**：Hub 命令从 v0.2.2 起就是 `memhub serve`、`memhub install-service`、`memhub install-host`。`AGENTS.md` / `CLAUDE.md` 写明 `memhub/cli/hub.py` 只是源码模块，不是子命令；缺 token 的报错和 ssh 同步说明改为 `memhub serve` / `memhub relay`。下面 v0.2.2 升级说明里写过的 `memhub hub install-service`、`memhub hub install-host` 不存在。
 - **修复 memhub 工具把整段记忆原文返回给 agent、撑爆宿主上下文**：`memory_list` 每条返回完整 `content`（单条 `L0_RAW` 最长 8 万字），本机一次调用就到 5 万字符，被宿主截断；`conversation_search` 一次 4.1 万字，按 `source_id` 展开 20 轮上下文时 5.8 万字。新增 `memhub/tool_output.py` 统一上限，覆盖 Hub MCP（`memhub/hub/mcp.py`）、SDK MCP（`memhub/mcp/server.py`）、宿主集成 `_dispatch_tool` 和 `memhub recall` CLI 兜底命令：
   - 条数上限：`memory_search` 20、`memory_list` 50（默认 20）、`conversation_search` 10，`context_turns` 最多 3，`memory_list_scopes` 200。超出的 `limit` 会被压回上限，不再透传给 Core。
   - 单条字数上限：`memory_search` 600、`memory_list` 200（压成一行作预览）、`conversation_search` 1500，`source_id` 锚点段 8000，`memory_get` 8000。截断处标注 `…[已截断，原文共 N 字]`，全文用 `memory_get(id)` / `conversation_search(source_id=...)` 单独展开。
@@ -106,7 +107,7 @@
 
 ## [0.2.2] — 2026-11-02
 
-- **项目与包名全面更名为 `memhub`（`pip install memhub`、`import memhub`）**：破坏性变更。Python 包名由 `dual_mem` 改为 `memhub`，PyPI 包名与 CLI 主命令由 `dual-mem` / `dual-mem-mcp` / `dual-mem-hook` 改为 `memhub` / `memhub-mcp` / `memhub-hook`，配置与 Hub 根目录改为 `~/.memhub`（环境变量前缀改为 `MEMHUB_`）。升级后请将 `~/.dual-mem/config.yaml` 移至 `~/.memhub/config.yaml`，并重新执行 `memhub hub install-service` 与 `memhub hub install-host all`。
+- **项目与包名全面更名为 `memhub`（`pip install memhub`、`import memhub`）**：破坏性变更。Python 包名由 `dual_mem` 改为 `memhub`，PyPI 包名与 CLI 主命令由 `dual-mem` / `dual-mem-mcp` / `dual-mem-hook` 改为 `memhub` / `memhub-mcp` / `memhub-hook`，配置与 Hub 根目录改为 `~/.memhub`（环境变量前缀改为 `MEMHUB_`）。升级后请将 `~/.dual-mem/config.yaml` 移至 `~/.memhub/config.yaml`，并重新执行 `memhub install-service` 与 `memhub install-host`。
 - **每轮召回按项目限定，原始对话带时间、从旧到新排列**。离线评测（4 个项目 27 段真实改写会话、36 道 coding 题，按注入上下文逐点评审）里，只看 dual-mem 注入的上下文从 32/36 提到 35/36；同一份数据上 agentica 原生召回是 33/36。
   - `hub hook` 把宿主传来的 `cwd` 交给 Core（`/v1/hub/recall` 新字段 `workspace`）。`workspace_id` 随 `L0_RAW` 证据（`custom["workspace_id"]`）与 `procedure` 一同复制，Core 从本地同步库找出该项目的会话，事实、工程经验和原始对话只从这些会话里召回。别的项目的事实只在比本项目任何一条都更相关时才进来（问题本身就是在问那个项目）。画像（用户是谁、希望怎么干活）不分项目。没有 `cwd` 或这个目录还没有写入时不限定。
   - 原始对话每段标上时间、按时间从旧到新排列，标题写明「同一件事以最新的为准」。之前按会话 id 标注、按相关度排序，先后两次相反的说法看起来是并列的。

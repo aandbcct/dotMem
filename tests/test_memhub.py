@@ -1729,7 +1729,7 @@ def test_install_service_writes_launchd_plist_or_systemd_unit(
 
 
 def test_mcp_builds_without_a_running_core(tmp_path: Path) -> None:
-    """A host that starts the MCP server before `hub serve` must not crash at import time."""
+    """A host that starts the MCP server before `memhub serve` must not crash at import time."""
     pytest.importorskip("mcp.server.mcpserver")
     from memhub.hub.mcp import build_hub_mcp
 

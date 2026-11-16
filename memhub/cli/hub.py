@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
-"""`memhub hub`: one loopback Core per device, replicated through a sync target."""
+"""Hub CLI, registered as top-level `memhub` commands (there is no `memhub hub` subcommand).
+
+One loopback Core per device, replicated through a sync target.
+"""
 
 from __future__ import annotations
 

@@ -197,7 +197,7 @@ def build_hub_mcp(
     client: HubClient | None = None,
 ):
     """Build the MCP server. The Core is resolved per tool call, so a host that
-    starts before ``hub serve`` still gets working tools once the Core is up."""
+    starts before ``memhub serve`` still gets working tools once the Core is up."""
     try:
         from mcp.server.mcpserver import MCPServer
     except ImportError as exc:

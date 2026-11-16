@@ -25,7 +25,7 @@ class HubClient:
     ) -> None:
         if not api_key:
             raise ValueError(
-                "Hub API key missing: start local `memhub hub serve`"
+                "Hub API key missing: start local `memhub serve` or `memhub install-service`"
             )
         self.base_url = base_url.rstrip("/")
         self._http = httpx.AsyncClient(
@@ -162,7 +162,7 @@ class HubClient:
         )
 
     async def relay(self, method: str, path: str, body: Any = None) -> Any:
-        """Forward one Core API call (``hub relay``: sync over ssh)."""
+        """Forward one Core API call (``memhub relay``: sync over ssh)."""
         return await self._request(method, path, json=body)
 
     async def aclose(self) -> None:
