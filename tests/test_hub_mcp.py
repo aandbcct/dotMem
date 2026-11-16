@@ -441,3 +441,85 @@ def test_cli_memory_get_formats_procedure_and_json(monkeypatch) -> None:
     as_json = cli_runner.invoke(cli_main.app, ["memory-get", "a1b2c3d4", "--json"])
     assert as_json.exit_code == 0, as_json.output
     assert json.loads(as_json.output)["procedure"]["files"] == ["memhub/store.py"]
+
+
+class HugeCore(StubCore):
+    """A store whose rows are huge and plentiful, as a real raw dialogue store is."""
+
+    BIG = "长" * 50_000
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.rows = [
+            {
+                "id": f"m-{i}",
+                "content": self.BIG,
+                "layer": "L0_RAW",
+                "kind": "raw",
+                "at": i,
+                "is_latest": True,
+                "deleted": False,
+            }
+            for i in range(500)
+        ]
+
+    async def recall(self, *, query, limit=10, raw_limit=5, procedure_limit=3, workspace=None):
+        self.calls.append(("recall", query, limit, raw_limit))
+        item = {"content": self.BIG, "category": "fact", "layer": "L1_FACT"}
+        return {
+            "memories": {
+                "normal": [{**item, "memory_id": f"n-{i}", "score": 1 - i / 1000} for i in range(200)],
+                "procedures": [{**item, "memory_id": f"p-{i}", "score": 0.5} for i in range(200)],
+            },
+            "conversations": [
+                {"memory_id": f"r-{i}-xxxxxxxx", "session_id": "codex:a", "content": self.BIG}
+                for i in range(200)
+            ],
+        }
+
+    async def get_conversation(self, source_id: str, *, context_turns: int = 1) -> dict:
+        self.calls.append(("get_conversation", source_id, context_turns))
+        rows = [
+            {"memory_id": f"{source_id}-{i}", "source_id": source_id, "session_id": "codex:a",
+             "content": self.BIG, "is_anchor": i == context_turns}
+            for i in range(2 * context_turns + 1)
+        ]
+        return {"source_id": source_id, "memory_id": source_id, "session_id": "codex:a", "conversations": rows}
+
+    async def get_memory(self, memory_id: str) -> dict:
+        item = await super().get_memory(memory_id)
+        item["procedure"]["solution"] = self.BIG
+        item["content"] = self.BIG
+        return item
+
+
+@pytest.mark.parametrize(
+    ("tool", "args", "max_chars"),
+    [
+        ("memory_search", {"query": "x", "limit": 10_000}, 20_000),
+        ("memory_list", {"limit": 10_000}, 20_000),
+        ("conversation_search", {"query": "x", "limit": 10_000}, 20_000),
+        ("conversation_search", {"source_id": "37c85fe9", "context_turns": 100}, 20_000),
+        ("memory_get", {"memory_id": "a1b2c3d4"}, 10_000),
+    ],
+)
+async def test_tool_results_are_bounded_whatever_the_store_holds(tool, args, max_chars) -> None:
+    """A tool result enters the host agent's context: 50K-char rows and a huge
+    ``limit`` must not reach it (memory_list once returned 50K chars per call)."""
+    core = HugeCore()
+    result = await build_hub_mcp(client=core).call_tool(tool, args)
+    (block,) = result.content
+    assert len(block.text) < max_chars, (tool, len(block.text))
+    assert "已截断，原文共 50000 字" in block.text
+
+
+async def test_limits_are_capped_before_reaching_the_core() -> None:
+    core = HugeCore()
+    server = build_hub_mcp(client=core)
+    search = _payload(await server.call_tool("memory_search", {"query": "x", "limit": 10_000}))
+    assert len(search["memories"]) == 20
+    assert ("recall", "x", 20, 0) in core.calls
+    listed = _payload(await server.call_tool("memory_list", {"limit": 10_000}))
+    assert len(listed["memories"]) == 50
+    await server.call_tool("conversation_search", {"source_id": "37c85fe9", "context_turns": 100})
+    assert ("get_conversation", "37c85fe9", 3) in core.calls

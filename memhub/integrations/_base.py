@@ -27,6 +27,16 @@ from memhub.config import Settings, resolve_app_id
 from memhub.isolation import build_filter
 from memhub.retrieval.reader import Reader
 from memhub.sdk_models import MemoryItem
+from memhub.tool_output import (
+    CONVERSATION_MAX_ROWS,
+    CONVERSATION_ROW_CHARS,
+    LIST_MAX_ROWS,
+    LIST_ROW_CHARS,
+    SEARCH_MAX_ROWS,
+    SEARCH_ROW_CHARS,
+    cap,
+    clip,
+)
 from memhub.types import Layer, MemoryStatus
 
 logger = logging.getLogger("memhub.integrations")
@@ -807,7 +817,7 @@ class _SyncMemoryProvider:
                         "query": {"type": "string", "description": "Search query"},
                         "limit": {
                             "type": "integer",
-                            "description": "Max results (default 10)",
+                            "description": f"Max results (default 10, at most {SEARCH_MAX_ROWS})",
                         },
                     },
                     "required": ["query"],
@@ -817,7 +827,8 @@ class _SyncMemoryProvider:
                 "name": "conversation_search",
                 "description": (
                     "Search original conversation text (L0_RAW) to verify quotes, "
-                    "time, or source. Do not use for default fact recall."
+                    "time, or source. Do not use for default fact recall. "
+                    f"Each excerpt is clipped to {CONVERSATION_ROW_CHARS} chars."
                 ),
                 "parameters": {
                     "type": "object",
@@ -825,7 +836,7 @@ class _SyncMemoryProvider:
                         "query": {"type": "string", "description": "Search query"},
                         "limit": {
                             "type": "integer",
-                            "description": "Max results (default 10)",
+                            "description": f"Max results (default 10, at most {CONVERSATION_MAX_ROWS})",
                         },
                     },
                     "required": ["query"],
@@ -873,13 +884,17 @@ class _SyncMemoryProvider:
             },
             {
                 "name": "memory_list",
-                "description": "List current memories. Set include_history to also return archived versions.",
+                "description": (
+                    "List current memories with ids (content is a "
+                    f"{LIST_ROW_CHARS}-char preview). Set include_history to also "
+                    "return archived versions."
+                ),
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "limit": {
                             "type": "integer",
-                            "description": "Max results (default 20)",
+                            "description": f"Max results (default 20, at most {LIST_MAX_ROWS})",
                         },
                         "include_history": {
                             "type": "boolean",
@@ -906,27 +921,30 @@ class _SyncMemoryProvider:
                         "hint": "已达本轮检索上限，请基于已有记忆回答",
                     }
                 self._search_calls_this_turn += 1
-                search = (
-                    self._backend.search_conversation
-                    if name == "conversation_search"
-                    else self._backend.search
-                )
+                if name == "conversation_search":
+                    search = self._backend.search_conversation
+                    limit = cap(args.get("limit") or 10, CONVERSATION_MAX_ROWS)
+                    chars = CONVERSATION_ROW_CHARS
+                else:
+                    search = self._backend.search
+                    limit = cap(args.get("limit") or 10, SEARCH_MAX_ROWS)
+                    chars = SEARCH_ROW_CHARS
                 result = self._runner.run(
                     search(
                         query=args.get("query", ""),
                         user_id=self._user_id,
                         agent_ids=[self._agent_id],
-                        limit=int(args.get("limit") or 10),
+                        limit=limit,
                     )
                 )
-                items = result.memories.flatten(limit=int(args.get("limit") or 10))
+                items = result.memories.flatten(limit=limit)[:limit]
                 return {
                     "status": "success",
                     "count": len(items),
                     "memories": [
                         {
                             "memory_id": m.memory_id,
-                            "content": m.content,
+                            "content": clip(m.content, chars),
                             "score": m.score,
                         }
                         for m in items
@@ -963,7 +981,7 @@ class _SyncMemoryProvider:
                     self._backend.list(
                         user_id=self._user_id,
                         agent_id=self._agent_id,
-                        limit=int(args.get("limit") or 20),
+                        limit=cap(args.get("limit") or 20, LIST_MAX_ROWS),
                         include_history=bool(args.get("include_history") or False),
                     )
                 )
@@ -971,7 +989,11 @@ class _SyncMemoryProvider:
                     "status": "success",
                     "count": len(items),
                     "memories": [
-                        {"memory_id": m.memory_id, "content": m.content} for m in items
+                        {
+                            "memory_id": m.memory_id,
+                            "content": clip(" ".join(m.content.split()), LIST_ROW_CHARS),
+                        }
+                        for m in items
                     ],
                 }
             return {"error": f"Unknown tool: {name}"}

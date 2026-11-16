@@ -51,6 +51,12 @@ from memhub.retrieval.formatter import (
     format_project_view,
 )
 from memhub.retrieval.hybrid_engine import novel_source_excerpt, source_excerpt
+from memhub.tool_output import (
+    ANCHOR_CHARS,
+    CONTEXT_MAX_TURNS,
+    CONVERSATION_ROW_CHARS,
+    clip,
+)
 
 hub_app = typer.Typer(help="MemHub：每台设备一个本地 Core，跨 CLI 共享个人记忆，可跨设备同步")
 HubDir = typer.Option(None, "--hub-dir", help="Hub 根目录（默认 ~/.memhub）")
@@ -896,7 +902,7 @@ def hub_recall(
         async def fetch_source() -> dict[str, Any]:
             async with make_client(hub_dir) as client:
                 return await client.get_conversation(
-                    target_id, context_turns=context_turns
+                    target_id, context_turns=max(0, min(context_turns, CONTEXT_MAX_TURNS))
                 )
 
         result = asyncio.run(fetch_source())
@@ -906,9 +912,13 @@ def hub_recall(
         lines = []
         for item in result.get("conversations") or []:
             marker = " [当前来源]" if item.get("is_anchor") else ""
+            body = clip(
+                item["content"].strip(),
+                ANCHOR_CHARS if item.get("is_anchor") else CONVERSATION_ROW_CHARS,
+            )
             lines.append(
                 f"- {_when(item)}[{item['session_id']}] (L0 {item.get('source_id', '')}){marker}\n"
-                f"{item['content'].strip()}"
+                f"{body}"
             )
         typer.echo("\n\n".join(lines) or "没有找到对应的原始对话。")
         return
@@ -937,7 +947,8 @@ def hub_recall(
         sections.append(
             "## 历史对话\n"
             + "\n".join(
-                f"- [{item['session_id']}] {item['content'].strip()}"
+                f"- [{item['session_id']}] (L0 {item['memory_id'][:8]}) "
+                f"{clip(item['content'].strip(), CONVERSATION_ROW_CHARS)}"
                 for item in result["conversations"]
             )
         )

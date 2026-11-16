@@ -28,6 +28,11 @@ description: 用户的全局个人记忆（memhub MemHub，跨 Agentica / Claude
 | 忘掉 / 删掉某条记忆 | `memory_list(query="...")` 取 `id` → `memory_delete(memory_id=id)` | 只在用户明确要删除时用 |
 | 排查 memhub 自身故障 | `memory_status()` | 查看 Core、记忆数量和写队列状态 |
 
+返回内容都有上限，不会整段塞进上下文：`memory_search` 每条截到 600 字，`memory_list` 每条只给 200 字预览，
+`conversation_search` 每段截到 1500 字（`source_id` 指向的那段 8000 字），被截断的条目末尾标着
+`…[已截断，原文共 N 字]`。要看某条的全文，用 `memory_get(id)` 或 `conversation_search(source_id=...)` 单独展开，
+不要调大 `limit` 去凑。
+
 `memory_add` 返回 `ok: true` 就是成功终态；`status` 可能是 `pending`，后台会自动抽取。
 找不到旧条目是正常结果：注入内容可能来自原始对话摘要，库里未必有对应的可编辑记录，
 这时直接 `memory_add` 写一条新约定即可。

@@ -9,6 +9,18 @@ import sys
 from memhub.operations import MemoryOperations
 from memhub.client import MemoryClient
 from memhub.config import Settings
+from memhub.tool_output import (
+    CONVERSATION_MAX_ROWS,
+    CONVERSATION_ROW_CHARS,
+    GET_CHARS,
+    LIST_MAX_ROWS,
+    LIST_ROW_CHARS,
+    SCOPE_MAX_ROWS,
+    SEARCH_MAX_ROWS,
+    SEARCH_ROW_CHARS,
+    cap,
+    clip_item,
+)
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
@@ -18,7 +30,20 @@ _SEARCH_DOC = (
     "有演化历史的记忆带 evolution_chain（最新→最旧）。"
     "procedure_limit>0 时另返回 procedures 组：coding agent 工具轨迹里沉淀的工程经验"
     "（task / solution / files）。"
+    f"每组最多 {SEARCH_MAX_ROWS} 条，content 超过 {SEARCH_ROW_CHARS} 字会截断，全文用 memory_get。"
 )
+
+
+def _clip_groups(result: dict, limit: int) -> dict:
+    """A search result with every grouped item clipped (a tool result enters an
+    agent's context; one stored dialogue can be tens of thousands of chars)."""
+    return {
+        **result,
+        "memories": {
+            group: [clip_item(item, limit) for item in items]
+            for group, items in result["memories"].items()
+        },
+    }
 
 
 def build_mcp(
@@ -87,21 +112,27 @@ def build_mcp(
         raw_limit: int = 0,
         procedure_limit: int = 0,
     ) -> dict:
-        return await ops.memory_search(
+        result = await ops.memory_search(
             query=query,
             user_id=user_id,
             app_ids=app_ids,
             agent_ids=agent_ids,
-            limit=limit,
+            limit=cap(limit, SEARCH_MAX_ROWS),
             min_score=min_score,
             intention_limit=intention_limit,
             include_derived=include_derived,
             as_of=as_of,
-            raw_limit=raw_limit,
-            procedure_limit=procedure_limit,
+            raw_limit=min(raw_limit, SEARCH_MAX_ROWS),
+            procedure_limit=min(procedure_limit, SEARCH_MAX_ROWS),
         )
+        return _clip_groups(result, SEARCH_ROW_CHARS)
 
-    @mcp.tool(description="检索 L0 原文及保留的历史，用于核对原话/时间/来源。")
+    @mcp.tool(
+        description=(
+            "检索 L0 原文及保留的历史，用于核对原话/时间/来源。"
+            f"最多 {CONVERSATION_MAX_ROWS} 段，每段截断到 {CONVERSATION_ROW_CHARS} 字，全文用 memory_get。"
+        )
+    )
     async def conversation_search(
         query: str,
         user_id: str,
@@ -110,34 +141,42 @@ def build_mcp(
         limit: int = 10,
         min_score: float = 0.0,
     ) -> dict:
-        return await ops.conversation_search(
+        result = await ops.conversation_search(
             query=query,
             user_id=user_id,
             app_ids=app_ids,
             agent_ids=agent_ids,
-            limit=limit,
+            limit=cap(limit, CONVERSATION_MAX_ROWS),
             min_score=min_score,
         )
+        return _clip_groups(result, CONVERSATION_ROW_CHARS)
 
-    @mcp.tool(description="列出某 scope 的当前记忆。include_history=true 时连同已归档版本。")
+    @mcp.tool(
+        description=(
+            "列出某 scope 的当前记忆。include_history=true 时连同已归档版本。"
+            f"最多 {LIST_MAX_ROWS} 条，content 只是 {LIST_ROW_CHARS} 字预览，全文用 memory_get。"
+        )
+    )
     async def memory_list(
         user_id: str,
         app_id: str | None = None,
         agent_id: str = "",
-        limit: int = 100,
+        limit: int = 20,
         include_history: bool = False,
     ) -> list[dict]:
-        return await ops.memory_list(
+        items = await ops.memory_list(
             user_id=user_id,
             app_id=app_id,
             agent_id=agent_id,
-            limit=limit,
+            limit=cap(limit, LIST_MAX_ROWS),
             include_history=include_history,
         )
+        return [clip_item(item, LIST_ROW_CHARS) for item in items]
 
-    @mcp.tool(description="按 memory_id 获取单条；不存在返回 null。")
+    @mcp.tool(description=f"按 memory_id 获取单条；不存在返回 null。正文超过 {GET_CHARS} 字会截断。")
     async def memory_get(memory_id: str) -> dict | None:
-        return await ops.memory_get(memory_id)
+        item = await ops.memory_get(memory_id)
+        return clip_item(item, GET_CHARS) if item is not None else None
 
     @mcp.tool(description="追加一版更正并返回新 memory_id；旧 id 仍可 get，is_latest=false。")
     async def memory_update(memory_id: str, content: str) -> dict:
@@ -163,12 +202,14 @@ def build_mcp(
             agent_id=agent_id,
         )
 
-    @mcp.tool(description="列出存储中已有的记忆 scope（app_id + user_id + agent_id）。")
+    @mcp.tool(
+        description=f"列出存储中已有的记忆 scope（app_id + user_id + agent_id），最多 {SCOPE_MAX_ROWS} 个。"
+    )
     async def memory_list_scopes(
         app_id: str | None = None,
-        limit: int = 5000,
+        limit: int = SCOPE_MAX_ROWS,
     ) -> list[dict]:
-        return await ops.memory_list_scopes(app_id=app_id, limit=limit)
+        return await ops.memory_list_scopes(app_id=app_id, limit=cap(limit, SCOPE_MAX_ROWS))
 
     @mcp.tool(description="dual 模式生成 L3_DERIVED。system1 返回 processed=0，不会自动后台巩固。")
     async def memory_digest() -> dict:

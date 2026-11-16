@@ -300,3 +300,34 @@ async def test_load_profile_block_is_query_independent(tmp_storage, fake_embed):
     assert "张三" in first
     assert first.startswith("<user-profile>")
     await client.aclose()
+
+
+def test_dispatch_tool_results_are_bounded():
+    big = "长" * 50_000
+
+    class Backend:
+        async def search(self, **kwargs):
+            items = [
+                MemoryItem(memory_id=f"m{i}", content=big, category="fact", score=1.0)
+                for i in range(200)
+            ]
+            return SearchResult(
+                success=True,
+                request_id="req",
+                memories=SearchMemories(normal=items, procedures=items[:50]),
+                processing_time_ms=1.0,
+            )
+
+        async def list(self, **kwargs):
+            return [
+                MemoryItem(memory_id=f"m{i}", content=big, category="fact", score=1.0)
+                for i in range(kwargs["limit"])
+            ]
+
+    provider = _provider_with_backend(Backend())
+    provider.prefetch("第一轮")
+    searched = provider.handle_tool_call("memory_search", {"query": "x", "limit": 10_000})
+    assert len(searched) < 30_000
+    assert "已截断，原文共 50000 字" in searched
+    listed = provider.handle_tool_call("memory_list", {"limit": 10_000})
+    assert len(listed) < 30_000

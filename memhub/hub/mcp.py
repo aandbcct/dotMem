@@ -15,6 +15,19 @@ import httpx
 
 from memhub.hub.browse import current_rows
 from memhub.hub.client import HubClient
+from memhub.tool_output import (
+    ANCHOR_CHARS,
+    CONTEXT_MAX_TURNS,
+    CONVERSATION_MAX_ROWS,
+    CONVERSATION_ROW_CHARS,
+    GET_CHARS,
+    LIST_MAX_ROWS,
+    LIST_ROW_CHARS,
+    SEARCH_MAX_ROWS,
+    SEARCH_ROW_CHARS,
+    cap,
+    clip,
+)
 
 _SCOPE_NOTE = "已绑定本机个人记忆，不需要也不能传 user_id / app_id / agent_id。"
 _MEMORY_GROUPS = (
@@ -76,12 +89,15 @@ def _source_ref(item: dict[str, Any]) -> str:
     return ""
 
 
-def _search_rows(memories: dict[str, Any]) -> list[dict[str, Any]]:
-    """Flatten grouped recall results into one agent-readable list with ids."""
+def _search_rows(memories: dict[str, Any], limit: int) -> list[dict[str, Any]]:
+    """Flatten grouped recall results into one agent-readable list with ids.
+
+    Each content is clipped; ``memory_get`` returns a row in full.
+    """
     rows = [
         {
             "id": item.get("memory_id", ""),
-            "content": item.get("content", ""),
+            "content": clip(item.get("content", ""), SEARCH_ROW_CHARS),
             "category": item.get("category", group),
             "layer": item.get("layer", ""),
             "score": item.get("score", 0.0),
@@ -92,20 +108,87 @@ def _search_rows(memories: dict[str, Any]) -> list[dict[str, Any]]:
         for item in (memories.get(group) or [])
     ]
     rows.sort(key=lambda row: row["score"], reverse=True)
-    return rows
+    return rows[:limit]
 
 
 def _list_rows(rows: list[dict[str, Any]], query: str, limit: int) -> list[dict[str, Any]]:
     return [
         {
             "id": row["id"],
-            "content": row["content"],
+            "content": clip(" ".join(str(row["content"]).split()), LIST_ROW_CHARS),
             "layer": row["layer"],
             "kind": row["kind"],
             "at": row["at"],
         }
         for row in current_rows(rows, query=query, limit=limit)
     ]
+
+
+def _memory_view(item: dict[str, Any]) -> dict[str, Any]:
+    """One memory for ``memory_get``: identity, state and its text once.
+
+    A procedure's ``content`` is its task and solution again, so only the
+    structured ``procedure`` is returned for it.
+    """
+    view: dict[str, Any] = {
+        "memory_id": item["memory_id"],
+        "kind": item.get("kind", ""),
+        "layer": item.get("layer", ""),
+        "is_latest": item.get("is_latest", True),
+        **({"archived": True} if item.get("archived") else {}),
+        **({"memory_at": item["memory_at"]} if item.get("memory_at") else {}),
+        **({"update_type": item["update_type"]} if item.get("update_type") else {}),
+    }
+    procedure = item.get("procedure")
+    if procedure:
+        view["procedure"] = {
+            "task": procedure.get("task", ""),
+            "solution": clip(procedure.get("solution", ""), GET_CHARS),
+            "boundary_scope": procedure.get("boundary_scope", ""),
+            "boundary_envs": procedure.get("boundary_envs", ""),
+            "files": procedure.get("files", []),
+            **({"workspace_id": procedure["workspace_id"]} if procedure.get("workspace_id") else {}),
+            **({"branch": procedure["branch"]} if procedure.get("branch") else {}),
+        }
+    else:
+        view["content"] = clip(item.get("content", ""), GET_CHARS)
+    ref = _source_ref(item)
+    if ref:
+        view["source_id"] = ref
+    return view
+
+
+def _conversation_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Raw dialogue rows, each clipped; the anchor of a source lookup gets more room."""
+    out = []
+    for row in rows:
+        anchor = bool(row.get("is_anchor"))
+        memory_id = str(row.get("memory_id", ""))
+        out.append(
+            {
+                "source_id": row.get("source_id") or memory_id[:8],
+                "session_id": row.get("session_id", ""),
+                **({"memory_at": row["memory_at"]} if row.get("memory_at") else {}),
+                **({"workspace_id": row["workspace_id"]} if row.get("workspace_id") else {}),
+                **({"score": row["score"]} if "score" in row else {}),
+                **({"is_anchor": True} if anchor else {}),
+                "content": clip(
+                    str(row.get("content", "")),
+                    ANCHOR_CHARS if anchor else CONVERSATION_ROW_CHARS,
+                ),
+                **(
+                    {
+                        "retired_claims": [
+                            clip(str(c), LIST_ROW_CHARS)
+                            for c in row["retired_claims"][:5]
+                        ]
+                    }
+                    if row.get("retired_claims")
+                    else {}
+                ),
+            }
+        )
+    return out
 
 
 def build_hub_mcp(
@@ -162,26 +245,29 @@ def build_hub_mcp(
     @mcp.tool(
         description=(
             "语义检索当前生效的个人记忆（画像、事实、意图、工程经验）。"
-            "返回 memories 列表，每项含 id / content / score / layer。"
+            f"返回 memories 列表（最多 {SEARCH_MAX_ROWS} 条），每项含 id / content / score / layer；"
+            f"content 超过 {SEARCH_ROW_CHARS} 字会截断，需要全文时用 memory_get(id)。"
             "每轮提问注入的 <relevant-memories> 已包含相关记忆，先用注入内容，不够再查；"
             "要编辑记忆请用 memory_list。" + _SCOPE_NOTE
         )
     )
     async def memory_search(query: str, limit: int = 10) -> dict:
+        limit = cap(limit, SEARCH_MAX_ROWS)
         async with core() as hub:
             result = await _call(hub.recall(query=query, limit=limit, raw_limit=0))
         if not isinstance(result, dict) or result.get("ok") is False:
             return result
         return {
             "ok": True,
-            "memories": _search_rows(result["memories"]),
-            "hint": "没有匹配结果说明当前没有相关记忆；要编辑或删除请用 memory_list。",
+            "memories": _search_rows(result["memories"], limit),
+            "hint": "截断的条目用 memory_get(id) 看全文；没有匹配结果说明当前没有相关记忆。",
         }
 
     @mcp.tool(
         description=(
             "按记忆 ID（完整 ID 或 >=8 位前缀，如 [procedure-index id=a1b2c3d4] 或项目视图中的 id）"
             "精确读取单条记忆的完整内容（含 procedure 的 task / solution / boundary_envs / files 及来源 L0 短 ID）。"
+            f"正文超过 {GET_CHARS} 字会截断。"
             "当注入上下文仅展示目录标题索引且与当前任务相关时调用。" + _SCOPE_NOTE
         )
     )
@@ -190,24 +276,19 @@ def build_hub_mcp(
             item = await _call(hub.get_memory(memory_id))
         if not isinstance(item, dict) or item.get("ok") is False:
             return item
-        ref = _source_ref(item)
-        return {
-            "ok": True,
-            "memory": {
-                **item,
-                **({"source_id": ref} if ref else {}),
-            },
-        }
+        return {"ok": True, "memory": _memory_view(item)}
 
     @mcp.tool(
         description=(
             "列出当前生效的记忆条目及其 id，用于「改掉 / 撤销 / 更新 / 忘掉 / 删掉」"
             "某条约定时定位目标。query 为可选关键词（内容子串匹配），不传则按时间倒序返回最近 limit 条；"
+            f"最多 {LIST_MAX_ROWS} 条，content 只是 {LIST_ROW_CHARS} 字预览，全文用 memory_get(id)。"
             "返回的 id 可交给 memory_update / memory_delete。"
             "找不到匹配项时直接 memory_add 写新约定。" + _SCOPE_NOTE
         )
     )
-    async def memory_list(query: str = "", limit: int = 50) -> dict:
+    async def memory_list(query: str = "", limit: int = 20) -> dict:
+        limit = cap(limit, LIST_MAX_ROWS)
         async with core() as hub:
             rows = await _call(hub.list_memories())
         if not isinstance(rows, list):
@@ -258,7 +339,9 @@ def build_hub_mcp(
             "检索历史对话原文，或按 L0 来源 ID 展开完整原话与同会话前后上下文（渐进式披露）。"
             "1) 传 query 检索「我之前说过/问过什么」的原话、时间和来源；"
             "2) 传 source_id（如 <relevant-memories> 里的 `(来源: L0 37c85fe9)` 或 memory_search 返回的 source_id）"
-            "拉取该条记忆对应的完整 L0 原始对话及前后 context_turns 轮对话。"
+            f"拉取该条记忆对应的 L0 原始对话及前后 context_turns 轮对话（最多 {CONTEXT_MAX_TURNS} 轮）。"
+            f"检索最多返回 {CONVERSATION_MAX_ROWS} 段，每段截断到 {CONVERSATION_ROW_CHARS} 字，"
+            f"source_id 指向的那段截断到 {ANCHOR_CHARS} 字。"
             "返回 conversations 列表；session_id 形如 codex:<id>，冒号前是来源工具。"
             + _SCOPE_NOTE
         )
@@ -272,6 +355,8 @@ def build_hub_mcp(
         target_id = source_id.strip()
         if not target_id:
             target_id = _looks_like_l0_id(query)
+        limit = cap(limit, CONVERSATION_MAX_ROWS)
+        context_turns = max(0, min(int(context_turns), CONTEXT_MAX_TURNS))
         async with core() as hub:
             if target_id:
                 result = await _call(
@@ -284,8 +369,10 @@ def build_hub_mcp(
         return {
             "ok": True,
             **({"source_id": result["source_id"]} if "source_id" in result else {}),
-            "conversations": result["conversations"],
-            "hint": "这里只有历史对话原文，不是可编辑的记忆条目。",
+            "conversations": _conversation_rows(
+                result["conversations"][: 2 * CONTEXT_MAX_TURNS + 1 if target_id else limit]
+            ),
+            "hint": "这里只有历史对话原文，不是可编辑的记忆条目；截断处要看全文请用 source_id 单独展开。",
         }
 
     @mcp.tool(

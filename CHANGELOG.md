@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **修复 memhub 工具把整段记忆原文返回给 agent、撑爆宿主上下文**：`memory_list` 每条返回完整 `content`（单条 `L0_RAW` 最长 8 万字），本机一次调用就到 5 万字符，被宿主截断；`conversation_search` 一次 4.1 万字，按 `source_id` 展开 20 轮上下文时 5.8 万字。新增 `memhub/tool_output.py` 统一上限，覆盖 Hub MCP（`memhub/hub/mcp.py`）、SDK MCP（`memhub/mcp/server.py`）、宿主集成 `_dispatch_tool` 和 `memhub recall` CLI 兜底命令：
+  - 条数上限：`memory_search` 20、`memory_list` 50（默认 20）、`conversation_search` 10，`context_turns` 最多 3，`memory_list_scopes` 200。超出的 `limit` 会被压回上限，不再透传给 Core。
+  - 单条字数上限：`memory_search` 600、`memory_list` 200（压成一行作预览）、`conversation_search` 1500，`source_id` 锚点段 8000，`memory_get` 8000。截断处标注 `…[已截断，原文共 N 字]`，全文用 `memory_get(id)` / `conversation_search(source_id=...)` 单独展开。
+  - `memory_get` 不再返回内部字段（`tags`、`supersedes`、`supporting_ids` 等）；procedure 只返回结构化的 `procedure`，不再把 task+solution 作为 `content` 重复一遍。
+  - 本机实测（7.9k 条当前记忆）：`memory_list(limit=1000)` 5.0 万 → 1.5 万字，`conversation_search` 4.1 万 → 1.6 万字，`source_id` 展开 5.8 万 → 1.3 万字，`memory_search(limit=50)` 2.3 万 → 0.7 万字，`memory_get` 3.6k → 1.6k 字。新增回归测试，用 500 条 5 万字的假数据和 `limit=10000` 验证每个工具的结果都在上限内。
+  - `memhub-recall` skill 写明这些上限和看全文的方法。
+
 - **修复 Agentica 后台任务 / 子智能体 / 定时任务自动回报被当作用户原始对话写入记忆，并支持归档删除 `L0_RAW` 退出对话召回**：
   - `_parse_agentica` 识别会话 JSONL 行上的结构化标记 `automated: true` 与 `cron_job`：整轮跳过后台命令完成回执（如 `execute(background=True)` / `agentica watch`）、`delegate` 子会话回报、peer 会话投递及定时任务触发轮次（同时抑制该自动轮次内的 `tool` / `assistant` 记录，防止串入并覆盖上一轮真人对话的回答；运行中途不带 `automated` 的真人 `steer: true` 插话照常保留，带 `automated: true` 的插话单条忽略）。
   - `_AGENTICA_EXCLUDED_SOURCES` 在 `sdk` / `subagent` 基础上补齐 `cron` / `workflow`，排除非人类发起的定时与工作流会话文件；同时剥离 `/compact` 与自动切窗口注入的 `<context_window>`、`<session_notes>`、`<dropped_span>` 上下文块，只保留折叠在后面的真人提问。
