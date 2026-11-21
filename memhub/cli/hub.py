@@ -1221,6 +1221,19 @@ def run_doctor(hub_dir: str | Path | None = None) -> dict[str, Any]:
             }
         )
 
+    dsh_capture = ((remote_status or {}).get("capture") or {}).get("dsh")
+    if dsh_capture is not None:
+        detail = f"{dsh_capture['mode']} ({dsh_capture['state']})"
+        if last_at := dsh_capture.get("last_at"):
+            detail += f"; last capture {last_at}"
+        error = dsh_capture.get("last_error")
+        if error:
+            detail += f"; {error}"
+        checks.append({
+            "name": "DSH capture", "status": "warn" if error else "ok",
+            "detail": detail, "required": False,
+        })
+
     # 4. Sync configuration and status.
     try:
         sync_cfg = load_sync_config(root)

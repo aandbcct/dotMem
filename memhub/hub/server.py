@@ -37,6 +37,7 @@ from memhub.hub.browse import (
     workspace_sessions,
 )
 from memhub.retrieval.reader import Reader
+from memhub.hub.capture import DshCapture
 from memhub.hub.config import (
     SyncConfig,
     format_time,
@@ -388,6 +389,7 @@ def create_hub_app(
         core_client: MemoryClient | None = None
         queue: HubWriteQueue | None = None
         syncer: HubSyncer | None = None
+        capture: DshCapture | None = None
         app.state.syncer = None
         app.state.last_recall = None
         try:
@@ -485,8 +487,16 @@ def create_hub_app(
             queue.start()
             if syncer is not None:
                 syncer.start()
+            if core_client.settings.hub_capture_dsh:
+                async def submit_capture(**payload: Any) -> dict[str, Any]:
+                    return await submit_write(HubWriteRequest(**payload))
+
+                capture = DshCapture(root, submit_capture)
+            app.state.dsh_capture = capture
             yield
         finally:
+            if capture is not None:
+                await capture.close()
             if syncer is not None:
                 await syncer.close()
             if queue is not None:
@@ -1025,6 +1035,11 @@ def create_hub_app(
                 ),
             },
             "warnings": health_warnings(),
+            "capture": {
+                "dsh": app.state.dsh_capture.status() if app.state.dsh_capture else {
+                    "mode": "manual", "state": "disabled", "last_at": None, "last_error": None,
+                },
+            },
             "digest": {
                 "auto": app.state.client.settings.mode == "dual" and digest_min_hours > 0,
                 "min_hours": digest_min_hours,

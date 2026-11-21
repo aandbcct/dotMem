@@ -15,6 +15,7 @@ import sys
 import time
 import tomllib
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -165,7 +166,8 @@ def _dsh_events(
                 "message": {"role": "assistant", "content": [{"type": "text", "text": "好的，记下 pnpm"}]},
             },
         },
-        {"type": "turn/end", "seq": 7, "time": 1791004006000, "data": {"turn": 1}},
+        {"type": "turn/end", "seq": 7, "time": 1791004006000,
+         "data": {"turn": 1, "reason": {"kind": "completed"}}},
     ]
 
 
@@ -2882,16 +2884,177 @@ def test_dsh_reader_skips_subagents_and_resumes_by_decompressed_offset(tmp_path:
     events = _dsh_events("session-1", "/w")
     _zstd_jsonl(path, events[:4])
     first, end = spec.read(path, 0)
-    assert [m.role for m in first] == ["user", "assistant"]
+    assert [m.role for m in first] == ["turn/start", "user", "assistant"]
     # The writer appends a frame: the cursor resumes after what was already read.
     more = "".join(json.dumps(e, ensure_ascii=False) + "\n" for e in events[4:])
     path.write_bytes(path.read_bytes() + zstandard.ZstdCompressor().compress(more.encode()))
     rest, _ = spec.read(path, end)
-    assert [m.role for m in rest] == ["assistant", "assistant"]
-    assert rest[-1].text == "好的，记下 pnpm" and rest[-1].workspace == "/w"
+    assert [m.role for m in rest] == ["assistant", "assistant", "turn/end"]
+    assert rest[-2].text == "好的，记下 pnpm" and rest[-2].workspace == "/w"
     # A frame still being written decodes up to its last complete event.
     path.write_bytes(path.read_bytes()[:-5])
     assert len(spec.read(path, 0)[0]) >= 2
+
+
+async def test_dsh_scan_waits_for_completed_turn_and_preserves_cursor(tmp_path: Path) -> None:
+    path = tmp_path / "project" / "session" / "session.v4.jsonl.zstd"
+    events = _dsh_events("one", str(tmp_path))
+    calls = []
+
+    async def write(**payload):
+        calls.append(payload)
+        return {"status": "pending"}
+
+    async def scan():
+        with CursorStore(tmp_path / "hub") as cursors:
+            return await scan_file(
+                SimpleNamespace(write=write), source="dsh", path=path,
+                cursors=cursors, idle_seconds=0,
+            )
+
+    _zstd_jsonl(path, events[:5])
+    assert await scan() == 0
+    assert calls == []
+    _zstd_jsonl(path, events[:-1])
+    assert await scan() == 0
+    _zstd_jsonl(path, events)
+    assert await scan() == 1
+    assert await scan() == 0
+    assert len(calls) == 1
+    assert calls[0]["session_id"] == "dsh:one"
+    assert [m["content"] for m in calls[0]["messages"] if m["content"]] == [
+        "我偏好用 pnpm", "好的，记下 pnpm",
+    ]
+
+
+async def test_dsh_scan_does_not_mix_automations_or_interrupted_turns(tmp_path: Path) -> None:
+    first = _dsh_events("one", str(tmp_path), prompt="manual")
+    scheduled = _dsh_events("one", str(tmp_path), prompt="automated")[1:]
+    scheduled[1]["data"]["source"]["kind"] = "schedule"
+    interrupted = _dsh_events("one", str(tmp_path), prompt="interrupted")[1:]
+    interrupted[-1]["data"]["reason"]["kind"] = "interrupted"
+    for turn_number, turn in enumerate((scheduled, interrupted), start=2):
+        for event in turn:
+            event["seq"] += 7 * (turn_number - 1)
+            if "turn" in event["data"]:
+                event["data"]["turn"] = turn_number
+    path = tmp_path / "project" / "session" / "session.v4.jsonl.zstd"
+    _zstd_jsonl(path, first + scheduled + interrupted)
+    writes = []
+
+    async def write(**payload):
+        writes.append(payload)
+        return {"status": "pending"}
+
+    with CursorStore(tmp_path / "hub") as cursors:
+        assert await scan_file(
+            SimpleNamespace(write=write), source="dsh", path=path,
+            cursors=cursors, complete=True,
+        ) == 1
+    assert [m["content"] for m in writes[0]["messages"] if m["role"] == "user"] == [
+        "manual",
+    ]
+    assert len([m for m in writes[0]["messages"] if "tool_calls" in m]) == 1
+
+
+async def test_dsh_core_watches_live_turns_and_catches_up_on_restart(
+    tmp_path: Path, fake_embed, fake_llm, fake_jev, monkeypatch,
+) -> None:
+    root = tmp_path / "sessions"
+    root.mkdir()
+    monkeypatch.setitem(SOURCE_SPECS, "dsh", replace(SOURCE_SPECS["dsh"], root=str(root)))
+    hub = tmp_path / "hub"
+    settings = Settings(storage_dir=str(hub / "store"), hub_capture_dsh=True)
+    first = root / "project" / "first" / "session.v4.jsonl.zstd"
+    live = root / "project" / "live" / "session.v4.jsonl.zstd"
+    offline = root / "project" / "offline" / "session.v4.jsonl.zstd"
+    events = _dsh_events("live", str(tmp_path), prompt="public <private>omit</private>")
+    _zstd_jsonl(first, _dsh_events("first", str(tmp_path)))
+
+    async def until(predicate):
+        async with asyncio.timeout(8):
+            while not predicate():
+                await asyncio.sleep(0.02)
+
+    def rows():
+        with sqlite3.connect(hub / "hub.db") as db:
+            return [json.loads(row[0]) for row in db.execute(
+                "SELECT payload FROM hub_writes ORDER BY rowid"
+            )]
+
+    for expected in (1, 3):
+        core = MemoryClient(settings=settings, embed=fake_embed, llm=fake_llm, jev=fake_jev)
+        try:
+            async with _attached_core(hub, core) as (app, remote):
+                await until(lambda: len(rows()) == expected)
+                assert (await remote.status())["capture"]["dsh"]["mode"] == "watch"
+                if expected == 1:
+                    _zstd_jsonl(live, events[:-1])
+                    with CursorStore(hub) as cursors:
+                        await until(lambda: cursors.get("dsh", str(live.resolve())) is not None)
+                    assert len(rows()) == 1
+                    frames = live.parent / "replacement"
+                    _zstd_jsonl(frames, events)
+                    frames.replace(live)
+                    await until(lambda: len(rows()) == 2)
+                    live.touch()  # Duplicate change notifications cannot enqueue another write.
+                    _zstd_jsonl(first, _dsh_events("first", str(tmp_path)))
+                await _drain(app)
+        finally:
+            await core.aclose()
+        if expected == 1:
+            _zstd_jsonl(offline, _dsh_events("offline", str(tmp_path)))
+
+    jobs = rows()
+    assert [job["session_id"] for job in jobs] == ["dsh:first", "dsh:live", "dsh:offline"]
+    assert jobs[1]["messages"][0] == {"role": "user", "content": "public"}
+
+
+async def test_dsh_write_ids_are_stable_across_scan_batch_sizes(tmp_path: Path) -> None:
+    first = _dsh_events("one", str(tmp_path), prompt="first")
+    second = _dsh_events("one", str(tmp_path), prompt="second")[1:]
+    for event in second:
+        event["seq"] += 7
+        if "turn" in event["data"]:
+            event["data"]["turn"] = 2
+    path = tmp_path / "project" / "session" / "session.v4.jsonl.zstd"
+    _zstd_jsonl(path, first + second)
+    request_ids = []
+
+    async def write(**payload):
+        request_ids.append(payload["request_id"])
+        if len(request_ids) == 1:
+            raise ConnectionError("receipt was not received")
+        return {"status": "pending"}
+
+    with CursorStore(tmp_path / "hub") as cursors:
+        for batch in (1, 5):
+            options = dict(source="dsh", path=path, cursors=cursors, batch_turns=batch)
+            if batch == 1:
+                with pytest.raises(ConnectionError):
+                    await scan_file(SimpleNamespace(write=write), **options)
+            else:
+                assert await scan_file(SimpleNamespace(write=write), **options) == 2
+    assert len(request_ids) == 3
+    assert request_ids[0] == request_ids[1] != request_ids[2]
+
+
+@pytest.mark.parametrize(
+    ("capture", "level", "detail"),
+    [
+        ({"mode": "manual", "state": "disabled"}, "ok", "manual"),
+        ({"mode": "watch", "state": "watching", "last_at": "2026-11-21 14:00:00"},
+         "ok", "2026-11-21 14:00:00"),
+        ({"mode": "watch", "state": "failed", "last_error": "watch failed"},
+         "warn", "watch failed"),
+    ],
+)
+def test_doctor_distinguishes_dsh_capture_modes(tmp_path: Path, monkeypatch, capture, level, detail):
+    monkeypatch.setattr(cli_hub, "daemon_status", lambda _root: {"capture": {"dsh": capture}})
+    report = cli_hub.run_doctor(tmp_path)
+    row = next(c for c in report["checks"] if c["name"] == "DSH capture")
+    assert row["status"] == level
+    assert detail in row["detail"]
 
 
 def test_trae_hook_recalls_then_captures_prompt_and_answer(tmp_path: Path, monkeypatch) -> None:

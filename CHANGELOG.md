@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **DeepSeek Harness 支持自动采集**：设置 `hub_capture_dsh: true` 后，Core 通过系统文件通知读取变更的 DSH 会话，只在真人对话的成功 `turn/end` 落盘后入队，重启时从持久游标补录。不需要 DSH 插件或外部定时任务；`memhub doctor` 显示监听状态。
 - **文档与报错不再出现已经删除的 `memhub hub` 二级命令**：Hub 命令从 v0.2.2 起就是 `memhub serve`、`memhub install-service`、`memhub install-host`。`AGENTS.md` / `CLAUDE.md` 写明 `memhub/cli/hub.py` 只是源码模块，不是子命令；缺 token 的报错和 ssh 同步说明改为 `memhub serve` / `memhub relay`。下面 v0.2.2 升级说明里写过的 `memhub hub install-service`、`memhub hub install-host` 不存在。
 - **修复 memhub 工具把整段记忆原文返回给 agent、撑爆宿主上下文**：`memory_list` 每条返回完整 `content`（单条 `L0_RAW` 最长 8 万字），本机一次调用就到 5 万字符，被宿主截断；`conversation_search` 一次 4.1 万字，按 `source_id` 展开 20 轮上下文时 5.8 万字。新增 `memhub/tool_output.py` 统一上限，覆盖 Hub MCP（`memhub/hub/mcp.py`）、SDK MCP（`memhub/mcp/server.py`）、宿主集成 `_dispatch_tool` 和 `memhub recall` CLI 兜底命令：
   - 条数上限：`memory_search` 20、`memory_list` 50（默认 20）、`conversation_search` 10，`context_turns` 最多 3，`memory_list_scopes` 200。超出的 `limit` 会被压回上限，不再透传给 Core。

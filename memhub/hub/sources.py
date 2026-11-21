@@ -661,7 +661,7 @@ def _read_stream(
         text = _clean_text(text)
         steps = tuple(state["steps"])
         signals = tuple(state["signals"])
-        if text or steps or signals:
+        if text or steps or signals or role == "turn/start":
             messages.append(Message(
                 role, text, session_id, at, line_start, position,
                 steps, state["workspace"], state["branch"], signals,
@@ -1038,6 +1038,9 @@ def _read_kimi_code(path: Path, start: int) -> tuple[list[Message], int]:
     )
 
 
+DSH_TRANSCRIPT_NAME = "session.v4.jsonl.zstd"
+
+
 def _parse_dsh(record: dict, state: dict) -> tuple[str, str, str, int | None] | None:
     """DeepSeek Harness events: the session header names the project and whether it is
     a subagent's; ``user/message`` from the user, ``assistant/message`` text blocks (the
@@ -1052,6 +1055,10 @@ def _parse_dsh(record: dict, state: dict) -> tuple[str, str, str, int | None] | 
         return None
     data = record.get("data") or {}
     at = _ms_seconds(record.get("time"))
+    if kind == "turn/start":
+        return kind, "", state["session_id"], at
+    if kind == "turn/end":
+        return kind, data["reason"]["kind"], state["session_id"], at
     if kind == "tool/call":
         state["steps"].append(_tool_call(data["callId"], data["name"], data["arguments"]))
         return "assistant", "", state["session_id"], at
@@ -1065,10 +1072,42 @@ def _parse_dsh(record: dict, state: dict) -> tuple[str, str, str, int | None] | 
 def _read_dsh(path: Path, start: int) -> tuple[list[Message], int]:
     """Cursor positions are offsets into the decompressed events."""
     raw = _unzstd(path)
+    if start > len(raw):
+        raise ValueError("DSH log is shorter than its acknowledged cursor")
     state: dict[str, Any] = {
         "session_id": path.parent.name, "steps": [], "signals": [], "workspace": None, "branch": None,
     }
     return _read_stream(io.BytesIO(raw), len(raw), start, _parse_dsh, state)
+
+
+def _dsh_turns(messages: list[Message], reached: int) -> tuple[list[Turn], int]:
+    """Only release human turns whose successful end is in the durable log."""
+    turns: list[Turn] = []
+    current: Turn | None = None
+    open_at: int | None = None
+    for msg in messages:
+        if msg.role == "turn/start":
+            open_at, current = msg.start, None
+        elif msg.role == "turn/end":
+            if msg.text == "completed" and current and current.assistant:
+                current.end = msg.end
+                turns.append(current)
+            open_at, current = None, None
+        elif msg.role == "user":
+            if current is None:
+                # An older scanner may have stopped at the prompt, after turn/start.
+                open_at = msg.start if open_at is None else open_at
+                current = Turn(
+                    msg.session_id, msg.text, "", msg.at, open_at, msg.end,
+                    workspace=canonical_workspace(msg.workspace) or None,
+                )
+            else:
+                current.user += f"\n{msg.text}"
+        elif current is not None:
+            current.steps.extend(msg.steps)
+            if msg.text:
+                current.assistant = msg.text
+    return turns, reached if open_at is None else open_at
 
 
 def _read_hermes(path: Path, start: int) -> tuple[list[Message], int]:
@@ -1261,7 +1300,7 @@ SOURCE_SPECS: dict[str, SourceSpec] = {
     "dsh": SourceSpec(
         "dsh",
         ".dsh/sessions",
-        lambda root: sorted(root.rglob("session.v4.jsonl.zstd"), key=lambda p: p.stat().st_mtime_ns),
+        lambda root: sorted(root.rglob(DSH_TRANSCRIPT_NAME), key=lambda p: p.stat().st_mtime_ns),
         _read_dsh,
     ),
     "hermes": SourceSpec(
@@ -1428,16 +1467,21 @@ async def scan_file(
             # Host formats are third-party and rewritten in place; whatever the
             # parser trips on is a property of this file, not of the scan.
             raise TranscriptError(f"{source} {path}: {type(exc).__name__}: {exc}") from exc
-        turns, open_turn = build_turns(messages)
-        ended = complete or time.time() - path.stat().st_mtime >= idle_seconds
-        if open_turn and open_turn.assistant and ended:
-            turns.append(open_turn)
-            open_turn = None
-        stop = open_turn.start if open_turn else reached
+        if source == "dsh":
+            turns, stop = _dsh_turns(messages, reached)
+        else:
+            turns, open_turn = build_turns(messages)
+            ended = complete or time.time() - path.stat().st_mtime >= idle_seconds
+            if open_turn and open_turn.assistant and ended:
+                turns.append(open_turn)
+                open_turn = None
+            stop = open_turn.start if open_turn else reached
         if max_turns and len(turns) > max_turns:
             turns = turns[:max_turns]
             stop = turns[-1].end
-        for batch in _batches(turns, batch_turns):
+        # Live capture and a manual DSH scan must replay the same request ID,
+        # even if the Core committed the receipt before the cursor advanced.
+        for batch in _batches(turns, 1 if source == "dsh" else batch_turns):
             messages_in = [m for turn in batch for m in turn.messages()]
             raw_signals = [s for turn in batch for s in turn.signals]
             resolved_signals = (

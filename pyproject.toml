@@ -30,6 +30,7 @@ dependencies = [
 api = [
     "fastapi>=0.110",
     "uvicorn>=0.29",
+    "watchfiles>=0.20",
 ]
 # CLI (`memhub add|search|...`)
 cli = [
