@@ -3,6 +3,7 @@
 ## Unreleased
 
 - **DeepSeek Harness 支持自动采集**：设置 `hub_capture_dsh: true` 后，Core 通过系统文件通知读取变更的 DSH 会话，只在真人对话的成功 `turn/end` 落盘后入队，重启时从持久游标补录。不需要 DSH 插件或外部定时任务；`memhub doctor` 显示监听状态。
+- **WorkBuddy / CodeBuddy 的定时任务不再当作原始对话写入记忆**：产品把已触发的日程包在 `<automation_system_reminder>` 里，任务正文放在 `<user_query>`。采集时整轮跳过（含随后的工具调用和回答，避免串到上一条真人对话）。专用沙箱目录 `WorkBuddy-automation-*` 的会话文件整份不扫。DeepSeek Harness 的 `source.kind=schedule`（以及 `bot`、`tool-jobs`）本来就不是 `user`，不会入库；Agentica 的 `cron` / `workflow` 会话和 `cron_job` 轮次维持原样排除。本机 Claude Code、Codex、Cursor、Kimi、OpenClaw 的会话里没有另一套日程标记。
 - **文档与报错不再出现已经删除的 `memhub hub` 二级命令**：Hub 命令从 v0.2.2 起就是 `memhub serve`、`memhub install-service`、`memhub install-host`。`AGENTS.md` / `CLAUDE.md` 写明 `memhub/cli/hub.py` 只是源码模块，不是子命令；缺 token 的报错和 ssh 同步说明改为 `memhub serve` / `memhub relay`。下面 v0.2.2 升级说明里写过的 `memhub hub install-service`、`memhub hub install-host` 不存在。
 - **修复 memhub 工具把整段记忆原文返回给 agent、撑爆宿主上下文**：`memory_list` 每条返回完整 `content`（单条 `L0_RAW` 最长 8 万字），本机一次调用就到 5 万字符，被宿主截断；`conversation_search` 一次 4.1 万字，按 `source_id` 展开 20 轮上下文时 5.8 万字。新增 `memhub/tool_output.py` 统一上限，覆盖 Hub MCP（`memhub/hub/mcp.py`）、SDK MCP（`memhub/mcp/server.py`）、宿主集成 `_dispatch_tool` 和 `memhub recall` CLI 兜底命令：
   - 条数上限：`memory_search` 20、`memory_list` 50（默认 20）、`conversation_search` 10，`context_turns` 最多 3，`memory_list_scopes` 200。超出的 `limit` 会被压回上限，不再透传给 Core。
@@ -16,7 +17,7 @@
   - `_AGENTICA_EXCLUDED_SOURCES` 在 `sdk` / `subagent` 基础上补齐 `cron` / `workflow`，排除非人类发起的定时与工作流会话文件；同时剥离 `/compact` 与自动切窗口注入的 `<context_window>`、`<session_notes>`、`<dropped_span>` 上下文块，只保留折叠在后面的真人提问。
   - `Reader.search_conversation` 过滤 `latest_only=True`，`GET /v1/hub/conversations/{source_id}` 展开同会话前后轮时排除已归档退役的 `L0_RAW`，且 `/ui` 原始对话卡片支持点击「删除」直接退役脏 `L0_RAW`，删除后不再进入历史对话召回。
 - **召回不再每次全量读库**：BM25 词法召回改为按记忆域建倒排索引（`LexicalIndex`，打分与原全量 BM25+ 逐位一致），项目视图按 workspace 缓存；两者都以记忆库的写入计数（`generation`，存在共享 journal 里，本地写、跨设备同步、其他进程写入都会递增）为失效键，写入后下一次召回即可见。本机 5.6k 条记忆实测，稳态召回 0.70s → 0.17s。
-- **`memhub doctor` 新增 `Recall latency` 检查项**：报告当前记忆条数和最近一次召回耗时，超过 3s 告警；`/v1/hub/status` 新增 `recall` 字段。
+- **`memhub doctor` 分开报告热召回、写入后缓存重建、其他冷召回和查询 Embedding 耗时**：显示最近 15 分钟内的最新耗时和中位数；同类最近最多 5 笔中至少 3 笔超过 3 秒才告警。不再根据一次慢召回推断记忆库过大；`/v1/hub/status` 保留最近一次召回并提供分组样本。
 - **修复长编码会话写入反复失败 `CodingDecisionError: coding extraction requires a {"candidates": [...]} object`**：根因不是输入超长，而是**输出**被截断。会话里可沉淀的工程经验多时，抽取回复写到 `max_tokens`（默认 4096，部分网关上限也是 4096）就被截断，残缺 JSON 解析为空，再按"空结果"重试仍被截断，最后报错；写入任务重试 9 次后进入 failed。现在 `LLMClient.chat_json` 识别 `finish_reason == "length"` 并抛 `LLMOutputTruncatedError`（不再把截断当空结果重试），procedure 抽取器收到后在最近的用户轮次处把对话一分为二，分别抽取再合并；用一条 329 条消息的真实失败会话验证，由失败变为 3 次调用产出 5 条 procedure。
 - **修复同一会话在 JEV 判定阶段报 `coding source and drafts exceed the Jev context budget`**：每条 procedure 草稿都带着整个会话的文件列表（上述会话 103 个路径），5 条草稿光路径就占约 32K 字符，叠加 22K 源对话超过 60K 预算。文件列表只用于检索、不参与判定，现在送进 JEV 的每条草稿只带前 8 个路径（落库的 procedure 仍保留全部路径），该会话判定状态从约 70K 降到约 41K。
 

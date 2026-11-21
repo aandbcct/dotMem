@@ -13,9 +13,11 @@ import os
 import secrets
 import time
 import uuid
-from collections import Counter
+from collections import Counter, deque
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from pathlib import Path
+from threading import Lock
 from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException
@@ -36,7 +38,6 @@ from memhub.hub.browse import (
     source_boundaries,
     workspace_sessions,
 )
-from memhub.retrieval.reader import Reader
 from memhub.hub.capture import DshCapture
 from memhub.hub.config import (
     SyncConfig,
@@ -51,9 +52,16 @@ from memhub.hub.config import (
 from memhub.hub.queue import HubWriteQueue, evidence_fingerprint
 from memhub.hub.redact import sanitize_messages, sanitize_text
 from memhub.hub.sync import HubSyncer, SyncBackend, project_received
+from memhub.isolation import build_filter
+from memhub.retrieval.reader import Reader
+from memhub.retrieval.telemetry import (
+    RecallBucket,
+    RecallTiming,
+    capture_recall_timing,
+    record_cache_rebuild,
+)
 from memhub.sdk_models import SearchMemories
 from memhub.types import Layer, MemoryNode, MemoryStatus
-from memhub.isolation import build_filter
 
 HUB_USER_ID = "default"
 # Project view keeps L1 rules from being crowded out by cross-cutting profiles.
@@ -277,7 +285,7 @@ def _select_project_conventions(nodes: list[MemoryNode]) -> list[MemoryNode]:
 
 
 def retired_claims_by_source(
-    nodes: list[MemoryNode], raw_ids: set[str]
+    nodes: list[MemoryNode], raw_ids: set[str] | None = None
 ) -> dict[str, list[str]]:
     """Superseded or archived wording of a raw dialogue, keyed by L0 id.
 
@@ -297,9 +305,39 @@ def retired_claims_by_source(
             for s in [custom.get("source_node_id"), *(custom.get("source_ids") or [])]
             if s
         }
-        for rid in refs & raw_ids:
+        if raw_ids is not None:
+            refs &= raw_ids
+        for rid in refs:
             retired.setdefault(rid, []).append(node.content)
     return retired
+
+
+class _RetiredClaimsIndex:
+    """Reverse provenance for superseded and archived claims in the Hub scope."""
+
+    def __init__(self) -> None:
+        self._lock = Lock()
+        self._snapshot: tuple[int, dict[str, list[str]]] | None = None
+
+    def get(self, client: MemoryClient, raw_ids: set[str]) -> dict[str, list[str]]:
+        vector = client.factory.vector
+        with self._lock:
+            generation = vector.generation
+            if self._snapshot is None or self._snapshot[0] != generation:
+                where = build_filter(
+                    app_ids=[client.settings.default_app_id],
+                    user_id=HUB_USER_ID,
+                    agent_ids=[""],
+                    statuses=[MemoryStatus.ACTIVE],
+                    layers=[Layer.L1_FACT, Layer.L2_PROFILE],
+                )
+                # Version plans set is_latest=False for both replacement and archive.
+                where["is_latest"] = False
+                nodes = vector.get_many(where, limit=None)
+                record_cache_rebuild(after_write=self._snapshot is not None)
+                self._snapshot = generation, retired_claims_by_source(nodes)
+            _, by_source = self._snapshot
+        return {rid: by_source[rid] for rid in raw_ids if rid in by_source}
 
 
 def _hub_readable(node: MemoryNode, app_id: str) -> bool:
@@ -343,10 +381,59 @@ class ProjectViewCache:
         if hit is not None and hit[0] == generation and now - hit[1] < self.max_age:
             return hit[2]
         value = project_sessions_and_view(client, workspace)
+        record_cache_rebuild(after_write=hit is not None and hit[0] != generation)
         if len(self._entries) >= self.max_entries:
             self._entries.pop(min(self._entries, key=lambda k: self._entries[k][1]))
         self._entries[workspace] = (generation, now, value)
         return value
+
+
+@dataclass(frozen=True)
+class _RecallSample:
+    at: int
+    finished: float
+    seconds: float
+    bucket: RecallBucket
+    embedding_seconds: float
+
+
+class _RecallHistory:
+    """Bounded in-process history; the status check does not issue a recall."""
+
+    WINDOW_SECONDS = 15 * 60
+
+    def __init__(self) -> None:
+        self._samples: deque[_RecallSample] = deque(maxlen=60)
+
+    def record(self, seconds: float, timing: RecallTiming) -> None:
+        self._samples.append(
+            _RecallSample(
+                at=int(time.time()),
+                finished=time.monotonic(),
+                seconds=round(seconds, 3),
+                bucket=timing.bucket,
+                embedding_seconds=round(timing.embedding_seconds, 3),
+            )
+        )
+
+    def status(self) -> dict[str, Any] | None:
+        if not self._samples:
+            return None
+        last = self._samples[-1]
+        cutoff = time.monotonic() - self.WINDOW_SECONDS
+        samples: dict[str, list[float]] = {
+            key: [] for key in ("warm", "after_write", "cold", "embedding")
+        }
+        for sample in self._samples:
+            if sample.finished >= cutoff:
+                samples[sample.bucket].append(sample.seconds)
+                samples["embedding"].append(sample.embedding_seconds)
+        return {
+            "at": last.at,
+            "seconds": last.seconds,
+            "window_seconds": self.WINDOW_SECONDS,
+            "sample_seconds": samples,
+        }
 
 
 def create_hub_app(
@@ -391,7 +478,7 @@ def create_hub_app(
         syncer: HubSyncer | None = None
         capture: DshCapture | None = None
         app.state.syncer = None
-        app.state.last_recall = None
+        app.state.recall_history = _RecallHistory()
         try:
             resolved_key = load_or_create_runtime_token(root, token=api_key)
             app.state.api_key = resolved_key
@@ -406,6 +493,7 @@ def create_hub_app(
             )
             app.state.client = core_client
             app.state.project_views = ProjectViewCache()
+            app.state.retired_claims = _RetiredClaimsIndex()
 
             async def configure_sync(cfg: SyncConfig | None, backend=None) -> None:
                 """(Re)start replication for ``cfg``; None stops it."""
@@ -738,8 +826,16 @@ def create_hub_app(
 
     @app.post("/v1/hub/recall", dependencies=[Depends(verify)])
     async def recall(body: HubRecallRequest):
-        core_client: MemoryClient = app.state.client
+        if max(body.limit, body.procedure_limit, body.raw_limit) <= 0:
+            return await recall_payload(body)
         started = time.perf_counter()
+        with capture_recall_timing() as timing:
+            out = await recall_payload(body)
+        app.state.recall_history.record(time.perf_counter() - started, timing)
+        return out
+
+    async def recall_payload(body: HubRecallRequest) -> dict[str, Any]:
+        core_client: MemoryClient = app.state.client
         if app.state.syncer is not None:
             # Answer from the local store now; newer memories arrive for the next one.
             app.state.syncer.pull_if_stale()
@@ -811,18 +907,9 @@ def create_hub_app(
         if conv_dicts:
             raw_ids = {c["memory_id"] for c in conv_dicts if c.get("memory_id")}
             if raw_ids:
-                all_curated = await asyncio.to_thread(
-                    core_client.factory.vector.get_many,
-                    build_filter(
-                        app_ids=[core_client.settings.default_app_id],
-                        user_id=HUB_USER_ID,
-                        agent_ids=[""],
-                        statuses=[MemoryStatus.ACTIVE],
-                        layers=[Layer.L1_FACT, Layer.L2_PROFILE],
-                    ),
-                    None,
+                retired_by_raw = await asyncio.to_thread(
+                    app.state.retired_claims.get, core_client, raw_ids
                 )
-                retired_by_raw = retired_claims_by_source(all_curated, raw_ids)
                 for c in conv_dicts:
                     claims = retired_by_raw.get(c.get("memory_id", ""))
                     if claims:
@@ -842,10 +929,6 @@ def create_hub_app(
         warnings = health_warnings()
         if warnings:
             out["warnings"] = warnings
-        app.state.last_recall = {
-            "at": int(time.time()),
-            "seconds": round(time.perf_counter() - started, 3),
-        }
         return out
 
     def embed_identity() -> dict[str, Any]:
@@ -1047,7 +1130,7 @@ def create_hub_app(
                 "last_error": app.state.queue.last_idle_error,
             },
             "sync": app.state.syncer.status() if app.state.syncer is not None else None,
-            "recall": app.state.last_recall,
+            "recall": app.state.recall_history.status(),
         }
 
     return app
