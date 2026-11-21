@@ -4023,6 +4023,7 @@ def test_ui_sidebar_source_filter_and_search_matches_source_and_session(tmp_path
     html = (Path(__file__).resolve().parent.parent / "memhub" / "hub" / "ui.html").read_text(
         encoding="utf-8"
     )
+    assert "清除语义结果" not in html
     script = html.split("<script>", 1)[1].split("</script>", 1)[0]
     harness = tmp_path / "ui_test.mjs"
     harness.write_text(
@@ -4040,7 +4041,7 @@ function makeEl(id = "") {
     addEventListener() {},
   };
 }
-for (const id of ["root", "sidebar", "main-scroll", "q", "clear-slot", "hist", "summary", "list", "toast"]) {
+for (const id of ["root", "sidebar", "main-scroll", "q", "hist", "summary", "list", "toast"]) {
   elements[id] = makeEl(id);
 }
 globalThis.location = { hash: "", pathname: "/ui" };
@@ -4087,6 +4088,17 @@ if (visible().length !== 1 || visible()[0].id !== "a1b2c3d4-0001") throw new Err
 
 state.text = "e5f6a7b8";
 if (visible().length !== 1 || visible()[0].id !== "e5f6a7b8-0002") throw new Error("text search by id failed");
+
+// 3. One clear action: clearing restores all rows.
+state.text = "语义问题";
+state.semanticQuery = "语义问题";
+state.hits = new Set(["e5f6a7b8-0002"]);
+elements.q.value = "语义问题";
+render(true);
+if (!elements.summary.innerHTML.includes("Esc 退出")) throw new Error("semantic summary missing clear hint");
+clearSearch();
+if (state.hits !== null || state.text !== "" || state.semanticQuery !== "") throw new Error("clear did not reset search state");
+if (elements.q.value !== "" || visible().length !== 3) throw new Error("clear did not restore rows");
 
 console.log("UI_SOURCE_FILTER_OK");
 """,

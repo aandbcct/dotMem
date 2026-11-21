@@ -656,7 +656,6 @@ function mountShell() {
             ${SEARCH_SVG}
             <input type="search" id="q" placeholder="输入关键词、来源工具（如 agentica）或会话/记忆 ID 即时筛选；按回车语义搜索">
           </div>
-          <span id="clear-slot"></span>
           <label class="chk"><input type="checkbox" id="hist"> 显示历史版本</label>
           <button data-reload="1">刷新</button>
         </div>
@@ -679,7 +678,11 @@ function mountShell() {
   q.addEventListener("keydown", e => {
     if (e.key === "Enter" && !state.composing) {
       e.preventDefault();
-      semantic(q.value);
+      semantic(q.value).catch(err => toast("失败：" + err.message));
+    } else if (e.key === "Escape" && (q.value || state.hits)) {
+      e.preventDefault();
+      clearSearch();
+      q.focus();
     }
   });
   document.getElementById("hist").addEventListener("change", e => {
@@ -695,6 +698,14 @@ function onSearchInput(val) {
     state.semanticQuery = "";
   }
   renderContent(false);
+}
+
+function clearSearch() {
+  state.hits = null;
+  state.semanticQuery = "";
+  state.text = "";
+  document.getElementById("q").value = "";
+  render(true);
 }
 
 function updateCardInPlace(id) {
@@ -737,14 +748,12 @@ function renderSidebar() {
 
 function renderContent(resetScroll) {
   const rows = visible();
-  const clearSlot = document.getElementById("clear-slot");
-  clearSlot.innerHTML = state.hits ? `<button data-clear="1">清除语义结果</button>` : "";
 
   const summary = document.getElementById("summary");
   const projLabel = state.project === "*" ? "全部项目" : base(state.project);
   const srcLabel = state.source === "*" ? "全部来源" : srcName(state.source);
   const kindLabel = state.kind === "*" ? "全部类型" : (KIND[state.kind] || state.kind);
-  summary.innerHTML = `<span>${esc(projLabel)} · ${esc(srcLabel)} · ${esc(kindLabel)} · 共 <b>${rows.length}</b> 条${state.hits ? `（语义搜索："${esc(state.semanticQuery)}"）` : ""}</span>`;
+  summary.innerHTML = `<span>${esc(projLabel)} · ${esc(srcLabel)} · ${esc(kindLabel)} · 共 <b>${rows.length}</b> 条${state.hits ? `（语义搜索："${esc(state.semanticQuery)}" · Esc 退出）` : ""}</span>`;
 
   const mainEl = document.getElementById("main-scroll");
   const prevScroll = mainEl.scrollTop;
@@ -803,7 +812,7 @@ async function semantic(query) {
 }
 
 document.addEventListener("click", async e => {
-  const t = e.target.closest("[data-project],[data-source],[data-kind],[data-toggle],[data-edit],[data-del],[data-save],[data-cancel],[data-reload],[data-clear]");
+  const t = e.target.closest("[data-project],[data-source],[data-kind],[data-toggle],[data-edit],[data-del],[data-save],[data-cancel],[data-reload]");
   if (!t) return;
   const d = t.dataset;
   try {
@@ -834,12 +843,6 @@ document.addEventListener("click", async e => {
       const id = d.cancel;
       state.editing = null;
       updateCardInPlace(id);
-    } else if (d.clear) {
-      state.hits = null;
-      state.semanticQuery = "";
-      state.text = "";
-      document.getElementById("q").value = "";
-      render(false);
     } else if (d.reload) {
       await load();
       toast("已刷新");

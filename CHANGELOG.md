@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **`/ui` 去掉与搜索框叉叉重复的「清除语义结果」按钮**：清空输入本来就会退出语义结果。现在语义模式在汇总行提示「Esc 退出」，按 Esc 清空输入和结果；回车检索失败也会提示原因，不再停留在「正在检索…」。
 - **DeepSeek Harness 支持自动采集**：设置 `hub_capture_dsh: true` 后，Core 通过系统文件通知读取变更的 DSH 会话，只在真人对话的成功 `turn/end` 落盘后入队，重启时从持久游标补录。不需要 DSH 插件或外部定时任务；`memhub doctor` 显示监听状态。
 - **WorkBuddy / CodeBuddy 的定时任务不再当作原始对话写入记忆**：产品把已触发的日程包在 `<automation_system_reminder>` 里，任务正文放在 `<user_query>`。采集时整轮跳过（含随后的工具调用和回答，避免串到上一条真人对话）。专用沙箱目录 `WorkBuddy-automation-*` 的会话文件整份不扫。DeepSeek Harness 的 `source.kind=schedule`（以及 `bot`、`tool-jobs`）本来就不是 `user`，不会入库；Agentica 的 `cron` / `workflow` 会话和 `cron_job` 轮次维持原样排除。本机 Claude Code、Codex、Cursor、Kimi、OpenClaw 的会话里没有另一套日程标记。
 - **文档与报错不再出现已经删除的 `memhub hub` 二级命令**：Hub 命令从 v0.2.2 起就是 `memhub serve`、`memhub install-service`、`memhub install-host`。`AGENTS.md` / `CLAUDE.md` 写明 `memhub/cli/hub.py` 只是源码模块，不是子命令；缺 token 的报错和 ssh 同步说明改为 `memhub serve` / `memhub relay`。下面 v0.2.2 升级说明里写过的 `memhub hub install-service`、`memhub hub install-host` 不存在。
