@@ -196,6 +196,9 @@ class VectorStore(ABC):
     def get_many(self, where: dict, limit: int | None = 1000) -> list[MemoryNode]: ...
 
     @abstractmethod
+    def get_metadata_nodes(self, where: dict) -> list[MemoryNode]: ...
+
+    @abstractmethod
     def get_ids(self, where: dict) -> list[str]: ...
 
     @abstractmethod
@@ -1144,6 +1147,18 @@ class ChromaVectorStore(VectorStore):
             MemoryNode.from_storage(content, meta)
             for content, meta in zip(result["documents"], result["metadatas"])
         ]
+
+    def get_metadata_nodes(self, where: dict) -> list[MemoryNode]:
+        """Metadata-only nodes for provenance scans; content stays empty.
+
+        Session and workspace boundaries read only metadata, so a large L0 corpus
+        never has to be materialised as dialogue text in Python.
+        """
+        with self._guard():
+            result = self.collection.get(
+                where=_normalize_where(where), include=["metadatas"]
+            )
+        return [MemoryNode.from_storage("", meta) for meta in result["metadatas"]]
 
     def get_ids(self, where: dict) -> list[str]:
         """Ids of the nodes matching a metadata filter; no documents or metadata read."""

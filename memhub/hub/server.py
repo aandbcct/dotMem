@@ -213,7 +213,11 @@ def project_sessions_and_view(
         "agent_ids": [""],
         "statuses": [MemoryStatus.ACTIVE],
     }
-    raw_nodes = vector.get_many(build_filter(**scope, layers=[Layer.L0_RAW]), None)
+    # Session boundaries need L0 metadata only; pulling every dialogue text into
+    # Python here was the dominant cost of rebuilding the project view after a write.
+    raw_nodes = vector.get_metadata_nodes(
+        build_filter(**scope, layers=[Layer.L0_RAW])
+    )
     proc_nodes = vector.get_many(build_filter(**scope, kinds=[PROCEDURE_KIND]), None)
     boundaries = source_boundaries([*raw_nodes, *proc_nodes])
     sessions = workspace_sessions([*raw_nodes, *proc_nodes], workspace)

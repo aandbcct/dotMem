@@ -36,8 +36,9 @@ needed to apply the lesson. Preserve commands, paths, versions and error text ve
 Use the narrowest scope supported by the source; do not generalize a repo or machine
 constraint to other repos or environments. Omit unknown details rather than guessing.
 Write generated prose in the language of the user's request, not the assistant's.
-中文请求（含繁体中文）→ task、solution、boundary_envs 和改写的检索词用简体中文；
-技术字面量和逐字摘录的检索词保持原样。
+For a Chinese request (including Traditional Chinese), write task, solution,
+boundary_envs and paraphrased search keys in Simplified Chinese; keep technical
+literals and verbatim quoted search keys unchanged.
 
 Output a JSON object {"candidates": [...]}, each candidate an object with:
 - task: string, a short, self-contained question about the component and problem
@@ -51,8 +52,10 @@ Output a JSON object {"candidates": [...]}, each candidate an object with:
   across projects; "global" only when evidence supports a general rule
 - confidence: number in [0, 1]
 Return an empty candidates array when the source contains only ephemeral edits or no durable engineering knowledge.
-语言示例（不是来源证据）：用户问「為什麼同步失敗」时，生成的 task 写「为什么同步失败」，
-不是逐字复制这句繁体；逐字检索词才可保留「為什麼同步失敗」。返回前检查所有生成正文是否用简体字。
+Language example (not evidence): for a user asking "為什麼同步失敗", the generated
+task is "为什么同步失败", not a verbatim copy of the Traditional Chinese phrase; only
+verbatim search keys may keep "為什麼同步失敗". Check that all generated prose uses
+Simplified Chinese before returning.
 """
 
 # A long session can hold more procedures than one completion's ``max_tokens``

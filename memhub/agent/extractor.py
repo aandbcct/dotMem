@@ -177,6 +177,8 @@ class Extractor:
             'Set durable=false only for one-off operational narration, transient progress, pleasantries, '
             'or incidental run artifacts with no continuing value. A reusable fact may come from either speaker. '
             'durable=false candidates are dropped before adjudication. Use true or omit durable when unsure. '
+            "Never mark durable=false on a candidate carrying a name, number, unit, path, command, version, "
+            "identifier, quoted error or explicit condition; concrete evidence stays reusable whichever speaker supplied it. "
             "identity holds explicitly stated, stable attributes OF THE USER: role, residence, relationships, recurring habits, "
             "possessions and standing personal preferences. One attribute per item. A fact about a colleague is never an "
             "identity item, even if the user states it; do not infer personality or preference from one-off requests, "

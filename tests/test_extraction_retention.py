@@ -4,6 +4,7 @@ import httpx
 import pytest
 
 from memhub import MemoryClient
+from memhub.agent.extractor import Extractor
 from memhub.agent.mem_agent import MemAgent
 from memhub.cli.hub import build_hub_prompt_context
 from memhub.config import Settings
@@ -107,3 +108,28 @@ async def test_retired_bulk_noise_route_cannot_delete_records(
         assert client.factory.vector.get(node.node_id).content == text
     finally:
         await client.aclose()
+
+
+class _PromptCapture:
+    def __init__(self) -> None:
+        self.system = ""
+
+    async def chat_json_for_content(
+        self, *, content, build_system, merge_results, user, temperature, max_tokens
+    ):
+        self.system = build_system(content)
+        return {}
+
+
+async def test_system1_prompt_protects_concrete_evidence() -> None:
+    capture = _PromptCapture()
+    await Extractor(llm=capture).extract_system1(
+        content="用户：接口超时统一设成 7.3 秒",
+        current_time="2026-11-21T00:00:00+00:00",
+    )
+    system = capture.system
+    assert "Never mark durable=false on a candidate carrying a name" in system
+    assert "Retain names, numbers and units" in system
+    assert "explicitly stated, stable attributes OF THE USER" in system
+    assert "Keep exact commands, paths, technical identifiers" in system
+    assert "transient operational action or progress narration" in system

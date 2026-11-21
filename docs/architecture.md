@@ -81,4 +81,35 @@ dual 写入后登记 scope；digest 对未归纳的 L1/L2（含 procedure）做�
 | System2 / 图库 | 关闭 | 显式 digest |
 | 版本保留 | 全部保留 | 全部保留 |
 
+## 召回缓存与时延
+
+一次 Hub 召回（`POST /v1/hub/recall`，宿主 hook 每轮提问都会调用）走：
+同步拉取 → 项目视图 → 两路混合检索（语义 + BM25）→ 历史对话 → 注入预算裁剪。
+向量侧是 Chroma HNSW 加固定 `top_k`，不随记忆条数线性增长；随库增大的主要是
+Python 侧的全量语料读取与缓存重建。
+
+| 缓存 | 失效键 | 重建内容 |
+| --- | --- | --- |
+| `_LexicalCache` | `vector.generation` + `where` | 该 scope 的 BM25 倒排（逐文档分词） |
+| `ProjectViewCache` | `vector.generation` + workspace，另有 300s `max_age` | 项目约定视图与会话边界 |
+| `_RetiredClaimsIndex` | `vector.generation` | 已退役说法的反向来源索引 |
+
+`generation` 记在共享 journal 里，本机写入、跨设备同步、其它进程写入都会递增，
+所以缓存不会读到陈旧数据；代价是**每轮采集写入后，下一轮提问必然重建这些缓存**。
+项目视图计算会话边界只读取 L0 的元数据（`get_metadata_nodes`），不把原始对话
+正文拉进 Python；本机 1895 条 L0 实测这一步的读取耗时与读全文相当，收益是内存
+占用而不是时延。原始对话的 BM25 语料也限定 `is_latest`。注入文本有
+`hub_inject_max_chars`（默认 3000）等硬上限，长度不随库增长。
+
+**怎么观测。** `/v1/hub/status` 的 `recall` 按 `warm` / `after_write` / `cold` /
+`embedding` 分桶记录最近 15 分钟样本，`memhub doctor` 只在最近 5 个样本里至少
+3 个超过 3s 时告警。`after_write` 偏慢是正常的重建代价，不是写入失败；若持续
+超过 3s，说明库内文本量已让重建变重，可以逐条归档无用条目，或检查后台采集
+是否高频写入。稳态 `warm` 只花一次 query embedding。
+
+**本机受控实测**（约 7.5k 条当前记忆、1895 条 L0）：写一条 `raw_only` 证据后立刻
+召回，写后首次召回中位 2.77s、随后稳态 0.89s。偶发的 7s 以上样本与后台写入或
+机器负载同时出现，不能稳定复现，不要拿单次样本判断回归；`doctor` 也要求最近
+5 个样本里至少 3 个超阈值才告警。真正确认长尾要在固定查询集上重复多轮取分位数。
+
 更多接入与部署细节见 [mcp_integration.md](mcp_integration.md)。
