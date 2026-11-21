@@ -49,7 +49,6 @@ from memhub.hub.config import (
     publish_runtime,
     unpublish_runtime,
 )
-from memhub.hub.noise import normalized, purge_reason, template_current
 from memhub.hub.queue import HubWriteQueue, evidence_fingerprint
 from memhub.hub.redact import sanitize_messages, sanitize_text
 from memhub.hub.sync import HubSyncer, SyncBackend, project_received
@@ -93,11 +92,6 @@ HUB_RECALL_MIN_SCORE = 0.2
 # Profile items (who the user is, how they want the work done) are recalled as
 # their own group and for every project.
 HUB_RECALL_PROFILE_LIMIT = 3
-
-
-class HubPurgeRequest(BaseModel):
-    dry_run: bool = True
-    confirm: bool = False
 
 
 class HubRecallRequest(BaseModel):
@@ -1041,66 +1035,6 @@ def create_hub_app(
         """Retire the current version; it stays in the history."""
         return changed(await app.state.client.delete(memory_id))
 
-    @app.post("/v1/hub/memories/purge", dependencies=[Depends(verify)])
-    async def purge_memories(body: HubPurgeRequest):
-        """Physically drop low-value rows; L0_RAW and personal identifiers stay."""
-        core_client: MemoryClient = app.state.client
-        where = build_filter(
-            app_ids=[core_client.settings.default_app_id],
-            user_id=HUB_USER_ID,
-            agent_ids=[""],
-            statuses=[MemoryStatus.ACTIVE],
-        )
-        nodes = await asyncio.to_thread(
-            core_client.factory.vector.get_many, where, None
-        )
-        rows = browse_rows(nodes)
-        by_id = {row["id"]: row for row in rows}
-        raw_ids = {row["id"] for row in rows if row["kind"] == "raw"}
-        now = time.time()
-        reasons: dict[str, str] = {}
-        for row in rows:
-            if row["is_latest"]:
-                reason = purge_reason(row, now)
-                if reason:
-                    reasons[row["id"]] = reason
-        seen: dict[str, str] = {}
-        for row in sorted(rows, key=lambda r: r["at"] or 0):
-            if not row["is_latest"] or row["id"] in raw_ids:
-                continue
-            key = normalized(row["content"])
-            if not key:
-                continue
-            if key in seen:
-                reasons.setdefault(row["id"], "duplicate")
-            else:
-                seen[key] = row["id"]
-        targets = set(reasons)
-        frontier = list(targets)
-        while frontier:
-            current = frontier.pop()
-            row = by_id.get(current) or {}
-            for other in [*row.get("supersedes", ()), *row.get("superseded_by", ())]:
-                if other in by_id and other not in targets and other not in raw_ids:
-                    targets.add(other)
-                    frontier.append(other)
-        targets -= raw_ids
-        summary = dict(Counter(reasons.values()))
-        samples = [
-            {"id": row["id"][:8], "at": row["at"], "content": row["content"][:90]}
-            for row in rows
-            if row["id"] in targets
-        ][:8]
-        if body.dry_run or not body.confirm:
-            return {
-                "dry_run": True,
-                "candidates": len(targets),
-                "by_reason": summary,
-                "samples": samples,
-            }
-        await asyncio.to_thread(core_client.factory.vector.delete, sorted(targets))
-        return {"deleted": len(targets), "by_reason": summary}
-
     @app.get("/v1/hub/log/heads", dependencies=[Depends(verify)])
     async def log_heads():
         vector = app.state.client.factory.vector
@@ -1170,10 +1104,6 @@ def create_hub_app(
         return {
             "instance_id": app.state.instance_id,
             "root": str(root),
-            "noise": {
-                "current": len(latest),
-                "template_current": template_current(latest),
-            },
             "memories": {
                 "versions": len(nodes),
                 "current": len(latest),

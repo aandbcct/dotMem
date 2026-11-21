@@ -10,7 +10,6 @@ from datetime import date, datetime, time, timezone
 from typing import Any
 
 from memhub.agent.extractor import Extractor
-from memhub.agent.quality import is_low_value_candidate
 from memhub.agent.reconciler import ReconcileOp, Reconciler, build_apply_custom
 from memhub.errors import (
     DecisionContextError,
@@ -239,11 +238,10 @@ class MemAgent:
                     "valid_from": _validity(item.get("valid_from"), end_of_day=False),
                     "valid_until": _validity(item.get("valid_until"), end_of_day=True),
                 }
-                durable = entry.pop("durable", None)
+                if entry.pop("durable", None) is False:
+                    continue
                 if not entry.get("temporal_scope"):
                     entry.pop("temporal_scope", None)
-                if is_low_value_candidate(entry["content"], item_kind, durable):
-                    continue
                 meta.append(entry)
         # Structured basic profile fields are candidates, not an independent KV overwrite rule.
         for key, value in (extracted.get("basic_info") or {}).items():

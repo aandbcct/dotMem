@@ -249,6 +249,8 @@ def test_doctor_warns_only_on_repeated_slowness(
     samples[slow_bucket] = slow_history
     status = {
         "memories": {"current": 41_000},
+        # Older Core versions may still return this field to a newer CLI.
+        "noise": {"current": 41_000, "template_current": 20_000},
         "writes": {"done": 1},
         "recall": {"at": 1, "seconds": 4.9, "window_seconds": 900, "sample_seconds": samples},
     }
@@ -273,6 +275,8 @@ def test_doctor_warns_only_on_repeated_slowness(
     )
     assert "outgrown" not in out.output
     assert "41000 current memories" in out.output
+    assert "purge-noise" not in out.output
+    assert "Memory hygiene" not in out.output
     for key, name in labels.items():
         if samples[key]:
             assert f"last {samples[key][-1]:.2f}s" in checks[name]["detail"]

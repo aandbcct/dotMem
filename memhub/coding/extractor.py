@@ -25,25 +25,34 @@ edits/renames with no non-obvious lesson, transient status narration, or unverif
 speculation. Do not self-censor genuine rules or solutions merely because they might
 already exist in memory: JEV independently decides knownness, coverage and version
 updates against existing heads.
-The user's requests, corrections and decisions are the primary evidence; take details
-from the assistant's answers only as far as they reflect verified outcomes or rules
-presented to the user. Personal lifestyle preferences, identity and non-engineering
-plans of the user are stored by another extractor; do not restate them here unless
-they constrain engineering work.
-Preserve complete commands, paths, numbers, reasons, environment boundaries and
-qualifications. Do not invent missing details.
-Write every text field in the language of the user's messages; do not translate.
+Use the user's explicit corrections, constraints and decisions as primary evidence.
+Preserve explicit rules even if they have not been executed, but label a decision as
+a decision. Treat a fix or root cause as verified only when the source reports a
+concrete check and its outcome. Do not promote a proposed command, a plan or a
+suspected cause to a working solution. Skip personal identity and one-off requests.
+Keep one reusable lesson per candidate. Remove the session recap but retain the
+diagnostic signal, cause if established, exact steps, checks and failure conditions
+needed to apply the lesson. Preserve commands, paths, versions and error text verbatim.
+Use the narrowest scope supported by the source; do not generalize a repo or machine
+constraint to other repos or environments. Omit unknown details rather than guessing.
+Write generated prose in the language of the user's request, not the assistant's.
+中文请求（含繁体中文）→ task、solution、boundary_envs 和改写的检索词用简体中文；
+技术字面量和逐字摘录的检索词保持原样。
 
 Output a JSON object {"candidates": [...]}, each candidate an object with:
-- task: string, a self-contained retrieval question
+- task: string, a short, self-contained question about the component and problem
 - search_keys: array of strings, alternative phrasings of the task: the user's own
   wording of the problem (verbatim when the source has it), the exact error message
   or symptom, and a short rephrasing someone would search for later
-- solution: string, the complete content
+- solution: string, the minimal actionable explanation with supporting evidence
 - boundary_envs: string, environment constraints in one sentence ("" if none)
-- boundary_scope: one of "strict" | "project" | "user" | "global"
+- boundary_scope: "strict" only for a single session; "project" for a repo-specific
+  lesson even if it has an OS or version constraint; "user" for a personal rule
+  across projects; "global" only when evidence supports a general rule
 - confidence: number in [0, 1]
 Return an empty candidates array when the source contains only ephemeral edits or no durable engineering knowledge.
+语言示例（不是来源证据）：用户问「為什麼同步失敗」时，生成的 task 写「为什么同步失败」，
+不是逐字复制这句繁体；逐字检索词才可保留「為什麼同步失敗」。返回前检查所有生成正文是否用简体字。
 """
 
 # A long session can hold more procedures than one completion's ``max_tokens``

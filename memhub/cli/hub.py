@@ -36,7 +36,6 @@ from memhub.hub.browse import (
     inspect_local_procedure_files,
 )
 from memhub.hub.client import HubClient
-from memhub.hub.noise import injection_noise
 from memhub.hub.config import (
     CursorStore,
     SyncConfig,
@@ -85,8 +84,6 @@ HUB_INJECT_MAX_LINES = 120
 RECALL_WARN_SECONDS = 3.0
 RECALL_WARN_WINDOW = 5
 RECALL_WARN_COUNT = 3
-MEMORY_SCALE_WARN = 8000
-NOISE_WARN_RATIO = 0.20
 
 
 def make_client(hub_dir: str | None) -> HubClient:
@@ -395,20 +392,6 @@ def hub_retry(hub_dir: str | None = HubDir) -> None:
     _echo(asyncio.run(run()))
 
 
-@hub_app.command("purge-noise")
-def hub_purge_noise(
-    hub_dir: str | None = HubDir,
-    confirm: bool = typer.Option(False, "--confirm", help="执行物理删除；默认只预览"),
-) -> None:
-    """物理精简低价值记忆；原始对话与个人标识条目全部保留。"""
-
-    async def run() -> dict[str, Any]:
-        async with make_client(hub_dir) as client:
-            return await client.purge_noise(dry_run=not confirm, confirm=confirm)
-
-    _echo(asyncio.run(run()))
-
-
 @hub_app.command("status")
 def hub_status(hub_dir: str | None = HubDir) -> None:
     """Core 记忆/队列状态，以及本机扫描进度和宿主接入状态。"""
@@ -666,17 +649,6 @@ def build_hub_prompt_context(
         )
         for k, v in raw_memories.items()
     }
-    for group in ("normal", "profile", "proactive"):
-        items = memories.get(group)
-        if isinstance(items, list):
-            memories[group] = [
-                item
-                for item in items
-                if not (
-                    isinstance(item, dict)
-                    and injection_noise(str(item.get("content") or ""))
-                )
-            ]
     raw_view = result.get("project_view")
     project_view: dict[str, Any] | None = None
     if isinstance(raw_view, dict):
@@ -1196,24 +1168,6 @@ def run_doctor(hub_dir: str | Path | None = None) -> dict[str, Any]:
                 "status": "fail",
                 "detail": "not reachable — run `memhub install-service` or `memhub serve`",
                 "required": True,
-            }
-        )
-
-    hygiene = (remote_status or {}).get("noise")
-    if isinstance(hygiene, dict):
-        current = int(hygiene.get("current", 0))
-        templates = int(hygiene.get("template_current", 0))
-        ratio = templates / current if current else 0.0
-        warn = current > MEMORY_SCALE_WARN or ratio > NOISE_WARN_RATIO
-        checks.append(
-            {
-                "name": "Memory hygiene",
-                "status": "warn" if warn else "ok",
-                "detail": (
-                    f"{templates}/{current} template rows, {current} current memories"
-                    + (" — run `memhub purge-noise`" if warn else "")
-                ),
-                "required": False,
             }
         )
 

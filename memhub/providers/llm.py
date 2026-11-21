@@ -97,8 +97,7 @@ def chunk_text_for_llm(text: str, max_chars: int) -> list[str]:
 
 
 def _dedupe_memory_items(items: list) -> list:
-    seen: set[str] = set()
-    out: list = []
+    by_content: dict[str, Any] = {}
     for item in items:
         if isinstance(item, str):
             key = item.strip()
@@ -108,11 +107,17 @@ def _dedupe_memory_items(items: list) -> list:
             payload = item
         else:
             continue
-        if not key or key in seen:
+        if not key:
             continue
-        seen.add(key)
-        out.append(payload)
-    return out
+        if key not in by_content:
+            by_content[key] = payload
+            continue
+        previous = by_content[key]
+        # A repeated candidate is droppable only if every copy explicitly says so.
+        if isinstance(previous, dict) and previous.get("durable") is False:
+            if not isinstance(payload, dict) or payload.get("durable") is not False:
+                by_content[key] = payload
+    return list(by_content.values())
 
 
 def merge_extract_results(parts: list[dict]) -> dict:
