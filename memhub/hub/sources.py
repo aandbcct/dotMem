@@ -111,6 +111,9 @@ _AGENTICA_WINDOW_MARK = (
     "New context window started. Continue from session notes and search_session."
 )
 _CURSOR_QUERY_RE = re.compile(r"<user_query>\s*(.*?)\s*</user_query>", re.DOTALL)
+# WorkBuddy / CodeBuddy wrap a fired schedule in this tag, then put the task
+# text in ``<user_query>``. The tag is the product marker; the query text is not.
+_AUTOMATION_REMINDER_MARK = "<automation_system_reminder>"
 # Cursor stamps each prompt: ``<timestamp>Wednesday, Oct 14, 2026, 1:16 PM (UTC+8)</timestamp>``.
 _CURSOR_TIME_RE = re.compile(
     r"<timestamp>\w+, (\w{3} \d{1,2}, \d{4}, \d{1,2}:\d{2} [AP]M) "
@@ -407,7 +410,11 @@ def _parse_claude(record: dict, state: dict) -> tuple[str, str, str, int | None]
 
 
 def _parse_codebuddy(record: dict, state: dict) -> tuple[str, str, str, int | None] | None:
-    """CodeBuddy and WorkBuddy share one JSONL format: ``message`` and ``function_call``."""
+    """CodeBuddy and WorkBuddy share one JSONL format: ``message`` and ``function_call``.
+
+    A scheduled run is a user message carrying ``<automation_system_reminder>``.
+    That turn, including the tool calls and answer after it, is not a human conversation.
+    """
     if record.get("cwd"):
         state["workspace"] = record["cwd"]
     if record.get("gitBranch"):
@@ -418,6 +425,17 @@ def _parse_codebuddy(record: dict, state: dict) -> tuple[str, str, str, int | No
         return None
     session_id = record.get("sessionId") or state["session_id"]
     at = _ms_seconds(record.get("timestamp"))
+    if kind == "message" and record.get("role") == "user":
+        raw = _blocks_text(record.get("content"))
+        if _AUTOMATION_REMINDER_MARK in raw:
+            state["automated_turn"] = True
+            return None
+        state["automated_turn"] = False
+        query = _CURSOR_QUERY_RE.search(raw)
+        text = query.group(1) if query else _strip_tags(raw, _CODEBUDDY_MARKUP)
+        return "user", text, session_id, at
+    if state.get("automated_turn"):
+        return None
     if kind == "function_call":
         state["steps"].append(
             _tool_call(
@@ -449,13 +467,9 @@ def _parse_codebuddy(record: dict, state: dict) -> tuple[str, str, str, int | No
         state["signals"].append(sig)
         return "assistant", "", session_id, at
     role = record.get("role")
-    if kind != "message" or role not in ("user", "assistant"):
+    if kind != "message" or role != "assistant":
         return None
-    text = _blocks_text(record.get("content"))
-    if role == "user":
-        query = _CURSOR_QUERY_RE.search(text)
-        text = query.group(1) if query else _strip_tags(text, _CODEBUDDY_MARKUP)
-    return role, text, session_id, at
+    return role, _blocks_text(record.get("content")), session_id, at
 
 
 def _parse_codex(record: dict, state: dict) -> tuple[str, str, str, int | None] | None:
@@ -1040,8 +1054,9 @@ def _read_kimi_code(path: Path, start: int) -> tuple[list[Message], int]:
 
 def _parse_dsh(record: dict, state: dict) -> tuple[str, str, str, int | None] | None:
     """DeepSeek Harness events: the session header names the project and whether it is
-    a subagent's; ``user/message`` from the user, ``assistant/message`` text blocks (the
-    ``reasoning`` blocks are not the answer) and ``tool/call`` steps."""
+    a subagent's; ``user/message`` whose ``source.kind`` is ``user`` (a ``schedule``
+    fire, ``bot`` delivery, or ``tool-jobs`` notice is not), ``assistant/message``
+    text blocks (the ``reasoning`` blocks are not the answer) and ``tool/call`` steps."""
     kind = record.get("type")
     if kind == "session":
         state["session_id"] = record["id"]
@@ -1155,6 +1170,16 @@ class SourceSpec:
 
 
 _AGENTICA_EXCLUDED_SOURCES = frozenset({"sdk", "subagent", "cron", "workflow"})
+
+
+def _is_workbuddy_automation_file(path: Path) -> bool:
+    """True for a WorkBuddy sandbox session created for a schedule.
+
+    The product encodes ``~/WorkBuddy/automation-<id>`` into the project directory
+    slug. In-repo schedules are ordinary project sessions and are dropped by the
+    ``<automation_system_reminder>`` marker instead.
+    """
+    return any("WorkBuddy-automation-" in part for part in path.parts)
 
 
 def _is_agentica_excluded(path: Path) -> bool:
@@ -1321,7 +1346,7 @@ SOURCE_SPECS: dict[str, SourceSpec] = {
     "workbuddy": SourceSpec(
         "workbuddy",
         ".workbuddy/projects",
-        _jsonl_files("*.jsonl"),
+        _jsonl_files("*.jsonl", exclude=_is_workbuddy_automation_file),
         lambda p, s: _read_jsonl(p, s, _parse_codebuddy),
     ),
     "zcode": SourceSpec(
@@ -1418,6 +1443,8 @@ async def scan_file(
     """
     spec = SOURCE_SPECS[source]
     if source == "agentica" and _is_agentica_excluded(path):
+        return 0
+    if source == "workbuddy" and _is_workbuddy_automation_file(path):
         return 0
     key = str(path.resolve())
     with cursors.lock(source, key):
@@ -1531,7 +1558,9 @@ def locate_transcript(
     """
     if payload.get("transcript_path") or payload.get("transcriptPath"):
         target = Path(payload.get("transcript_path") or payload["transcriptPath"]).expanduser()
-        if source == "agentica" and _is_agentica_excluded(target):
+        if (source == "agentica" and _is_agentica_excluded(target)) or (
+            source == "workbuddy" and _is_workbuddy_automation_file(target)
+        ):
             return None
         return target
     root = (roots or default_source_roots())[source]

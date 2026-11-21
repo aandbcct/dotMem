@@ -19,6 +19,7 @@ from collections import Counter
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from statistics import median
 from typing import Any
 from urllib.parse import urlparse
 
@@ -81,6 +82,8 @@ HUB_INJECT_MAX_CHARS = 3000
 HUB_INJECT_MAX_LINES = 120
 # A prompt hook waits for recall before every turn; past this it is felt.
 RECALL_WARN_SECONDS = 3.0
+RECALL_WARN_WINDOW = 5
+RECALL_WARN_COUNT = 3
 
 
 def make_client(hub_dir: str | None) -> HubClient:
@@ -1198,28 +1201,38 @@ def run_doctor(hub_dir: str | Path | None = None) -> dict[str, Any]:
             }
         )
 
-    # 3b. Store size and recall latency: recall reads more as the store grows.
+    # 3b. A single slow recall is informative, not a store health warning.
     if remote_status is not None:
-        current = int((remote_status.get("memories") or {}).get("current", 0))
-        last = remote_status.get("recall")
-        slow = last is not None and last["seconds"] > RECALL_WARN_SECONDS
-        checks.append(
-            {
-                "name": "Recall latency",
-                "status": "warn" if slow else "ok",
-                "detail": (
-                    f"{current} current memories; last recall "
-                    + (f"{last['seconds']:.2f}s" if last is not None else "not yet run")
-                    + (
-                        f" (> {RECALL_WARN_SECONDS:g}s: the store has outgrown the "
-                        "recall path, report it with this count)"
-                        if slow
-                        else ""
+        recall = remote_status.get("recall") or {}
+        sample_seconds = recall.get("sample_seconds", {})
+        for key, label in (
+            ("warm", "Recall warm"),
+            ("after_write", "Recall after write"),
+            ("cold", "Recall cold"),
+            ("embedding", "Recall embedding"),
+        ):
+            values = sample_seconds.get(key, [])
+            recent = values[-RECALL_WARN_WINDOW:]
+            slow = sum(seconds > RECALL_WARN_SECONDS for seconds in recent)
+            warn = slow >= RECALL_WARN_COUNT
+            detail = "no recent samples"
+            if values:
+                detail = (
+                    f"last {values[-1]:.2f}s; median {median(values):.2f}s "
+                    f"({len(values)} in last {recall['window_seconds'] // 60}m)"
+                )
+                if warn:
+                    detail += (
+                        f"; {slow}/{len(recent)} recent samples > {RECALL_WARN_SECONDS:g}s"
                     )
-                ),
-                "required": False,
-            }
-        )
+            checks.append(
+                {
+                    "name": label,
+                    "status": "warn" if warn else "ok",
+                    "detail": detail,
+                    "required": False,
+                }
+            )
 
     # 4. Sync configuration and status.
     try:

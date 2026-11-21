@@ -10,6 +10,7 @@ from memhub.coding.types import procedure_detail
 from memhub.isolation import build_filter
 from memhub.registry import ComponentFactory
 from memhub.retrieval.hybrid_engine import search_hybrid
+from memhub.retrieval.telemetry import measure_recall_embedding
 from memhub.sdk_models import MemoryItem, ReadResult, SearchMemories
 from memhub.types import Layer, MemoryNode, MemoryStatus
 
@@ -49,7 +50,8 @@ class Reader:
         rid = request_id or "search"
         # Search has one query vector, so the write-side batching window only
         # adds latency here.
-        query_embedding = await self.factory.embed.embed(query)
+        with measure_recall_embedding():
+            query_embedding = await self.factory.embed.embed(query)
         memories = await search_hybrid(
             factory=self.factory,
             query=query,
@@ -118,7 +120,8 @@ class Reader:
         created_after: int | None = None,
     ) -> SearchMemories:
         """Recall L0_RAW (retained source history) as evidence. Never mixed into default search."""
-        query_embedding = await self.factory.embed.embed(query)
+        with measure_recall_embedding():
+            query_embedding = await self.factory.embed.embed(query)
         when = build_filter(
             app_ids=app_ids,
             user_id=user_id,

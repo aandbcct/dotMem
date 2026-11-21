@@ -19,6 +19,7 @@ from dataclasses import replace
 from memhub.coding.types import PROCEDURE_KIND, procedure_detail
 from memhub.isolation import build_filter
 from memhub.registry import ComponentFactory
+from memhub.retrieval import rrf
 from memhub.retrieval.bm25 import (
     LexicalIndex,
     compute_bm25_confidences,
@@ -29,7 +30,7 @@ from memhub.retrieval.evolution import expand_evolution_chains
 from memhub.retrieval.hybrid_scoring import score_vdb_node
 from memhub.retrieval.intention_recall import recall_intentions
 from memhub.retrieval.schema_selection import select_schemas
-from memhub.retrieval import rrf
+from memhub.retrieval.telemetry import record_cache_rebuild
 from memhub.sdk_models import EvolutionItem, MemoryItem, SearchMemories
 from memhub.types import Layer, MemoryNode, MemoryStatus
 
@@ -154,6 +155,7 @@ class _LexicalCache:
         if hit is None or hit[0] != generation:
             nodes = vector.get_many(where, limit=None)
             index = LexicalIndex([f"{n.content} {' '.join(n.tags)}".strip() for n in nodes])
+            record_cache_rebuild(after_write=hit is not None)
             hit = (generation, nodes, index)
         entries[key] = hit  # most recently used last
         while len(entries) > self.max_entries:

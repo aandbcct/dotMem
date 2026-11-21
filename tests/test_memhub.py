@@ -2872,6 +2872,93 @@ def test_cursor_prompt_hook_replies_additional_context_scoped_to_workspace_root(
     assert sent[0]["workspace"] == "/w/repo" and sent[0]["query"] == "测试命令?"
 
 
+def test_workbuddy_skips_scheduled_automation_turns_and_sandbox_files(tmp_path: Path) -> None:
+    spec = SOURCE_SPECS["workbuddy"]
+    sandbox = tmp_path / "Users-me-WorkBuddy-automation-1" / "sched.jsonl"
+    _jsonl(
+        sandbox,
+        [
+            {
+                "type": "message",
+                "role": "user",
+                "sessionId": "sched",
+                "timestamp": 1791003001000,
+                "content": [{"type": "input_text", "text": "每天跑论文仓库维护"}],
+            }
+        ],
+    )
+    assert spec.discover(tmp_path) == []
+
+    path = tmp_path / "proj" / "wb.jsonl"
+    _jsonl(
+        path,
+        [
+            {
+                "type": "message",
+                "role": "user",
+                "sessionId": "wb",
+                "timestamp": 1791003001000,
+                "cwd": "/repo",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": "<automation_system_reminder>scheduled</automation_system_reminder>"
+                        "<user_query>更新 README 并 push</user_query>",
+                    }
+                ],
+            },
+            {
+                "type": "function_call",
+                "sessionId": "wb",
+                "timestamp": 1791003001500,
+                "name": "Bash",
+                "arguments": {"command": "git status"},
+            },
+            {
+                "type": "message",
+                "role": "assistant",
+                "sessionId": "wb",
+                "timestamp": 1791003002000,
+                "content": [{"type": "output_text", "text": "已推送"}],
+            },
+            {
+                "type": "message",
+                "role": "user",
+                "sessionId": "wb",
+                "timestamp": 1791003003000,
+                "cwd": "/repo",
+                "content": [{"type": "input_text", "text": "<user_query>这篇论文怎么改标题</user_query>"}],
+            },
+            {
+                "type": "message",
+                "role": "assistant",
+                "sessionId": "wb",
+                "timestamp": 1791003004000,
+                "content": [{"type": "output_text", "text": "标题改短"}],
+            },
+        ],
+    )
+    messages, _ = spec.read(path, 0)
+    turns, open_turn = build_turns(messages)
+    assert open_turn is not None
+    assert [t.user for t in turns] == []
+    assert open_turn.user == "这篇论文怎么改标题"
+    assert open_turn.assistant == "标题改短"
+    assert "更新 README" not in open_turn.user
+    assert "已推送" not in open_turn.assistant
+
+
+def test_dsh_reader_skips_schedule_source(tmp_path: Path) -> None:
+    spec = SOURCE_SPECS["dsh"]
+    events = _dsh_events("sched", "/w", prompt="每日巡检")
+    events[2]["data"]["source"] = {"kind": "schedule"}
+    path = tmp_path / "session.v4.jsonl.zstd"
+    _zstd_jsonl(path, events)
+    messages, _ = spec.read(path, 0)
+    assert [m.text for m in messages if m.role == "user"] == []
+    assert build_turns(messages) == ([], None)
+
+
 def test_dsh_reader_skips_subagents_and_resumes_by_decompressed_offset(tmp_path: Path) -> None:
     spec = SOURCE_SPECS["dsh"]
     sub = tmp_path / "--w--" / "sub" / "session.v4.jsonl.zstd"
