@@ -393,6 +393,18 @@ class MemHubWorkspace:
     async def get_context_prompt(self) -> str:
         return await self._ws.get_context_prompt()
 
+    def context_text(self) -> str:
+        return self._ws.context_text()
+
+    def refresh_context_snapshot(self) -> None:
+        self._ws.refresh_context_snapshot()
+
+    def agents_md_chain(self) -> str:
+        return self._ws.agents_md_chain()
+
+    def agents_md_digest(self) -> str:
+        return self._ws.agents_md_digest()
+
     async def freeze_snapshots(self, query: str = "") -> None:
         await self._ws.freeze_snapshots(query=query)
 
