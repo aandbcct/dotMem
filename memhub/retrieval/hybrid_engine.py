@@ -762,6 +762,7 @@ async def search_hybrid(
             layers=[Layer.L0_RAW],
             statuses=[MemoryStatus.ACTIVE],
             created_after=created_after,
+            latest_only=True,
         )
         nodes = await asyncio.to_thread(
             vector.query, embedding=query_embedding, where=where, top_k=raw_limit * 3

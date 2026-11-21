@@ -10,6 +10,7 @@ from datetime import date, datetime, time, timezone
 from typing import Any
 
 from memhub.agent.extractor import Extractor
+from memhub.agent.quality import is_low_value_candidate
 from memhub.agent.reconciler import ReconcileOp, Reconciler, build_apply_custom
 from memhub.errors import (
     DecisionContextError,
@@ -211,7 +212,7 @@ class MemAgent:
                     value = item["value"]
                     if isinstance(value, (dict, list)):
                         value = json.dumps(value, ensure_ascii=False)
-                    item = dict(item, content=f"The user's {item['attribute']} is {value}.",
+                    item = dict(item, content=f"用户的{item['attribute']}是{value}。",
                                 dimension=item["attribute"])
                 if (
                     not isinstance(item, dict)
@@ -238,15 +239,18 @@ class MemAgent:
                     "valid_from": _validity(item.get("valid_from"), end_of_day=False),
                     "valid_until": _validity(item.get("valid_until"), end_of_day=True),
                 }
+                durable = entry.pop("durable", None)
                 if not entry.get("temporal_scope"):
                     entry.pop("temporal_scope", None)
+                if is_low_value_candidate(entry["content"], item_kind, durable):
+                    continue
                 meta.append(entry)
         # Structured basic profile fields are candidates, not an independent KV overwrite rule.
         for key, value in (extracted.get("basic_info") or {}).items():
             if value is not None and str(value).strip():
                 meta.append(
                     {
-                        "content": f"The user's {key} is {value}.",
+                        "content": f"用户的{key}是{value}。",
                         "layer": Layer.L2_PROFILE.value,
                         "kind": "profile",
                         "source_ids": list(source_ids),

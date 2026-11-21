@@ -129,6 +129,14 @@ class HubClient:
             },
         )
 
+    async def purge_noise(self, *, dry_run: bool, confirm: bool) -> dict[str, Any]:
+        """Physically drop low-value rows; L0_RAW and personal identifiers are kept."""
+        return await self._request(
+            "POST",
+            "/v1/hub/memories/purge",
+            json={"dry_run": dry_run, "confirm": confirm},
+        )
+
     async def get_conversation(
         self, source_id: str, *, context_turns: int = 1
     ) -> dict[str, Any]:

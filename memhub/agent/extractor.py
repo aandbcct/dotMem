@@ -116,7 +116,8 @@ class Extractor:
         )
         system = (
             "Generate faithful explicit atomic candidates from the supplied conversation. "
-            "Use the conversation language. Extract durable user- and task-specific records, not every sentence; "
+            "Use the conversation language; when the user writes Chinese, write every candidate in Chinese. "
+            "Extract durable user- and task-specific records, not every sentence; "
             "the full conversation is retained separately as source evidence. Jev decides knownness and update relations. "
             "Preserve every explicit personal/project fact, number, name, condition, negation, reason for a choice/change, and explicit plan. "
             "Text the user brings for a task (a draft email, a passage to polish, a message to translate, a post) is "
@@ -140,6 +141,10 @@ class Extractor:
             "commands, technical rationale, recommendations), but omit generic explanations, pleasantries, repetitive "
             "procedural advice, and transient operational action or progress narration (such as 'the assistant added/edited/"
             "updated/ran/confirmed...'). "
+            "A candidate must be reusable in a later session: omit one-off file paths, log paths, session ids, "
+            "transient progress counts, and statements that only say something did NOT happen. "
+            "Do not wrap a fact in a boilerplate 'The assistant ...' or 'The user ...' preamble when a direct "
+            "statement carries the same information. "
             "Record what the user states or does; do not generalize it into a broader preference or trait. "
             "When the user asks the assistant to forget, stop using or not remember something about them, that is a "
             "withdrawal, not a new fact: do NOT extract the withdrawn detail (from this request or from earlier "
@@ -156,9 +161,12 @@ class Extractor:
             "(YYYY-MM-DD) and temporal_scope (verbatim time phrase). Omit all three keys otherwise; never fill defaults. "
             "A reason/condition is NOT a temporal_scope. A plan's scheduled event date is NOT its validity window; "
             "keep the event date in content, without valid_from/valid_until. 'Already own' and 'currently' do not supply validity bounds. "
-            'Return {"identity":[{"content":"current user state", "speaker":"user"}], '
-            '"facts":[{"content":"event or concrete detail", "speaker":"user|assistant"}], '
-            '"intentions":[{"content":"explicit user plan", "speaker":"user"}], "basic_info":{}}. '
+            'Return {"identity":[{"content":"current user state", "speaker":"user", "durable":true}], '
+            '"facts":[{"content":"event or concrete detail", "speaker":"user|assistant", "durable":true}], '
+            '"intentions":[{"content":"explicit user plan", "speaker":"user", "durable":true}], "basic_info":{}}. '
+            'Set durable=false only for one-off operational narration, transient progress, pleasantries, '
+            'one-off file or log paths, and statements that merely say something did NOT happen; '
+            'durable=false candidates are dropped before adjudication. Omit durable when the record is reusable. '
             "identity is the profile list: current state, identity, relationship, possession and explicit preference. "
             "Each identity item contains ONE attribute only. Split occupation, residence, diet, relationships, possessions "
             "and preferences into separate objects; never combine them into a profile paragraph. "
@@ -166,7 +174,8 @@ class Extractor:
             "intentions holds explicit future plans/goals, never transient questions. A future plan goes ONLY in intentions, "
             "not also in facts. A completed booking is a fact, distinct from the scheduled future activity. Put each candidate in ONE list; "
             "do not repeat it elsewhere. Empty lists are valid. Always keep basic_info empty. "
-            "Do not write placeholder text or explanations. "
+            "identity holds only stable attributes; a file path, log path, session id or transient state is not "
+            "an identity attribute. Do not write placeholder text or explanations. "
             "Empty facts is correct when there are no durable user/task records or concrete factual details."
         )
         if feedback:
