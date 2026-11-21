@@ -64,6 +64,7 @@ class MemoryWriter:
         workspace_id: str | None = None,
         workspace_remote: str | None = None,
         tool_signals: list[dict] | None = None,
+        assistant_models: list[str] | None = None,
     ) -> WriterOutcome:
         scope = (app_id, user_id, agent_id)
         key = "request:" + json.dumps([scope, request_id])
@@ -97,6 +98,7 @@ class MemoryWriter:
                     workspace_id=workspace_id,
                     workspace_remote=workspace_remote,
                     tool_signals=tool_signals,
+                    assistant_models=assistant_models,
                 )
             elif tool_signals and not (raw.custom or {}).get("tool_signals"):
                 merged_custom = {**(raw.custom or {}), "tool_signals": tool_signals}
@@ -133,6 +135,7 @@ class MemoryWriter:
         workspace_id: str | None = None,
         workspace_remote: str | None = None,
         tool_signals: list[dict] | None = None,
+        assistant_models: list[str] | None = None,
     ) -> MemoryNode:
         raw = MemoryNode(
             content=content,
@@ -153,6 +156,7 @@ class MemoryWriter:
                     ("workspace_id", workspace_id),
                     ("workspace_remote", workspace_remote),
                     ("tool_signals", tool_signals),
+                    ("assistant_models", assistant_models),
                 )
                 if v
             }
@@ -184,6 +188,7 @@ class MemoryWriter:
         workspace_id: str | None = None,
         workspace_remote: str | None = None,
         tool_signals: list[dict] | None = None,
+        assistant_models: list[str] | None = None,
     ) -> WriterOutcome:
         """Store L0 evidence under ``request_id`` without extraction.
 
@@ -219,6 +224,7 @@ class MemoryWriter:
                     workspace_id=workspace_id,
                     workspace_remote=workspace_remote,
                     tool_signals=tool_signals,
+                    assistant_models=assistant_models,
                 )
             elif (
                 raw.content != content

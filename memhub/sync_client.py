@@ -140,6 +140,7 @@ class SyncMemoryClient:
         branch: str | None = None,
         workspace_remote: str | None = None,
         tool_signals: list[dict] | None = None,
+        assistant_models: list[str] | None = None,
     ) -> WriteResult:
         return self._run(
             self._client.add(
@@ -155,6 +156,7 @@ class SyncMemoryClient:
                 branch=branch,
                 workspace_remote=workspace_remote,
                 tool_signals=tool_signals,
+                assistant_models=assistant_models,
             )
         )
 
@@ -172,6 +174,7 @@ class SyncMemoryClient:
         workspace_id: str | None = None,
         workspace_remote: str | None = None,
         tool_signals: list[dict] | None = None,
+        assistant_models: list[str] | None = None,
     ) -> WriteResult:
         return self._run(
             self._client.add_raw(
@@ -186,6 +189,7 @@ class SyncMemoryClient:
                 workspace_id=workspace_id,
                 workspace_remote=workspace_remote,
                 tool_signals=tool_signals,
+                assistant_models=assistant_models,
             )
         )
 

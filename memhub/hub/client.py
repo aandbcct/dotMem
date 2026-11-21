@@ -72,6 +72,7 @@ class HubClient:
         workspace_id: str | None = None,
         branch: str | None = None,
         tool_signals: list[dict] | None = None,
+        assistant_models: list[str] | None = None,
     ) -> dict[str, Any]:
         """Submit evidence. Returns once it is durable in the Core (a receipt with
         status ``pending``); ``wait=True`` instead blocks until it is processed."""
@@ -88,6 +89,8 @@ class HubClient:
         }
         if tool_signals is not None:
             body["tool_signals"] = tool_signals
+        if assistant_models is not None:
+            body["assistant_models"] = assistant_models
         return await self._request("POST", "/v1/hub/writes", json=body)
 
     async def write_status(self, request_id: str) -> dict[str, Any]:

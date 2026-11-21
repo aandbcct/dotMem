@@ -3126,6 +3126,71 @@ async def test_dsh_write_ids_are_stable_across_scan_batch_sizes(tmp_path: Path) 
     assert request_ids[0] == request_ids[1] != request_ids[2]
 
 
+async def test_dsh_answer_model_survives_resume_and_is_stored_as_provenance(
+    tmp_path: Path, fake_embed, fake_llm, fake_jev,
+) -> None:
+    hub = tmp_path / "hub"
+    path = tmp_path / "session" / "session.v4.jsonl.zstd"
+    first = _dsh_events("model-test", str(tmp_path))
+    first.insert(3, {"type": "request/header", "data": {"header": {"config": {"model": "draft"}}}})
+    first.insert(-2, {"type": "request/header", "data": {"header": {"config": {"model": "answer"}}}})
+    later = _dsh_events("model-test", str(tmp_path), prompt="继承当前模型的下一轮回答")[1:]
+    _zstd_jsonl(path, first)
+    core = _memory_client(hub, fake_embed, fake_llm, fake_jev)
+    try:
+        async with _attached_core(hub, core) as (app, remote):
+            with CursorStore(hub) as cursors:
+                assert await scan_file(remote, source="dsh", path=path, cursors=cursors) == 1
+                _zstd_jsonl(path, first + later)
+                assert await scan_file(remote, source="dsh", path=path, cursors=cursors, raw_only=True) == 1
+            await _drain(app)
+            reply = await remote._request("GET", "/v1/hub/memories")
+            rows = [row for row in reply["memories"] if row["kind"] == "raw"]
+            assert len(rows) == 2
+            assert all(row["assistant_models"] == ["answer"] for row in rows)
+            assert all("answer" not in row["content"] for row in rows)
+            assert any(row["assistant_models"] == ["answer"] for row in reply["memories"] if row["source_ids"])
+    finally:
+        await core.aclose()
+
+
+@pytest.mark.parametrize(
+    ("source", "records"),
+    [
+        ("agentica", [
+            {"type": "user", "content": "question"},
+            {"type": "assistant", "content": "answer", "model": "host-model"},
+        ]),
+        ("claude-code", [
+            {"type": "user", "message": {"content": "question"}},
+            {"type": "assistant", "message": {"content": "answer", "model": "host-model"}},
+        ]),
+        ("codex", [
+            {"type": "session_meta", "payload": {"id": "test"}},
+            {"type": "event_msg", "payload": {"type": "task_started"}},
+            {"type": "turn_context", "payload": {"model": "host-model"}},
+            {"type": "event_msg", "payload": {"type": "user_message", "message": "question"}},
+            {"type": "event_msg", "payload": {"type": "agent_message", "message": "answer"}},
+            {"type": "event_msg", "payload": {"type": "task_complete"}},
+            {"type": "event_msg", "payload": {"type": "task_started"}},
+            {"type": "event_msg", "payload": {"type": "agent_message", "message": "unattributed"}},
+        ]),
+    ],
+)
+def test_transcript_reader_keeps_structured_answer_model(tmp_path, source, records):
+    path = tmp_path / "rollout-test.jsonl"
+    _jsonl(path, records)
+    read = SOURCE_SPECS[source].read
+    transcript, _ = read(path, 0)
+    question = next(m for m in transcript if m.role == "user")
+    resumed, _ = read(path, question.start)
+    assert [(m.text, m.assistant_model) for m in resumed if m.text == "answer"] == [
+        ("answer", "host-model"),
+    ]
+    if source == "codex":
+        assert resumed[-1].text == "unattributed" and resumed[-1].assistant_model is None
+
+
 @pytest.mark.parametrize(
     ("capture", "level", "detail"),
     [
@@ -4066,6 +4131,14 @@ state.rows = [
   { id: "99887766-0003", kind: "profile", content: "偏好极简代码", project: "", source: "", session_id: "", at: 1794485000, is_latest: true, deleted: false, supersedes: [], superseded_by: [], source_ids: [], procedure: null },
 ];
 state.byId = Object.fromEntries(state.rows.map(r => [r.id, r]));
+
+const raw = state.rows[0];
+const fact = { ...state.rows[1], assistant_models: ["model-one", "model-two"] };
+if (!card(fact).includes('aria-label="编辑记忆"') || !card(fact).includes('aria-label="删除记忆"')) throw new Error("collapsed fact actions missing");
+if (!card(fact).includes("model-one") || !card(fact).includes("model-two")) throw new Error("answer source models missing");
+if (card(raw).includes("data-edit") || !card(raw).includes("data-del")) throw new Error("raw should be deletable, not editable");
+if (/data-(edit|del)=/.test(card({ ...fact, is_latest: false }))) throw new Error("history exposes mutations");
+if (card(raw).includes('class="model-meta"')) throw new Error("unattributed model displayed");
 
 render(true);
 if (!elements.sidebar.innerHTML.includes("<h2>来源工具</h2>")) throw new Error("missing source header");

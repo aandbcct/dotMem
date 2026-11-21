@@ -142,6 +142,7 @@ class HubWriter(Protocol):
         workspace_id: str | None = None,
         branch: str | None = None,
         tool_signals: list[dict] | None = None,
+        assistant_models: list[str] | None = None,
     ) -> dict[str, Any]: ...
 
 
@@ -159,6 +160,7 @@ class Message:
     workspace: str | None = None
     branch: str | None = None
     signals: tuple[dict, ...] = ()
+    assistant_model: str | None = None
 
 
 @dataclass
@@ -173,6 +175,7 @@ class Turn:
     workspace: str | None = None
     branch: str | None = None
     signals: list[dict] = field(default_factory=list)
+    assistant_model: str | None = None
 
     def messages(self) -> list[dict]:
         out: list[dict] = [{"role": "user", "content": self.user}, *self.steps]
@@ -334,6 +337,8 @@ def _parse_agentica(record: dict, state: dict) -> tuple[str, str, str, int | Non
         state["steps"].append(
             _tool_call(str(call.get("id") or ""), str(function.get("name") or ""), function.get("arguments") or {})
         )
+    if kind == "assistant":
+        state["answer_model"] = record.get("model")
     return (
         kind,
         _blocks_text(record.get("content")),
@@ -370,7 +375,10 @@ def _parse_claude(record: dict, state: dict) -> tuple[str, str, str, int | None]
     if record.get("type") not in ("user", "assistant") or record.get("isSidechain") or record.get("isMeta"):
         return None
     at = _iso_seconds(record.get("timestamp"))
-    content = (record.get("message") or {}).get("content")
+    message = record.get("message") or {}
+    content = message.get("content")
+    if record["type"] == "assistant":
+        state["answer_model"] = message.get("model")
     for block in content if isinstance(content, list) else []:
         if not isinstance(block, dict):
             continue
@@ -481,6 +489,7 @@ def _parse_codex(record: dict, state: dict) -> tuple[str, str, str, int | None] 
         return None
     if record.get("type") == "turn_context":
         state["workspace"] = payload.get("cwd") or state["workspace"]
+        state["request_model"] = payload.get("model")
         return None
     if record.get("type") == "response_item":
         kind = payload.get("type")
@@ -524,6 +533,9 @@ def _parse_codex(record: dict, state: dict) -> tuple[str, str, str, int | None] 
         return None
     at = _iso_seconds(record.get("timestamp"))
     kind = payload.get("type")
+    if kind in ("task_started", "task_complete"):
+        state.pop("request_model", None)
+    state["answer_model"] = state.get("request_model")
     if kind == "item_completed":
         item = payload.get("item") or {}
         role = {"UserMessage": "user", "AgentMessage": "assistant"}.get(
@@ -645,7 +657,8 @@ def _record(line: bytes) -> dict | None:
 
 
 def _read_stream(
-    fp: BinaryIO, size: int, start: int, parse: RecordParser, state: dict[str, Any]
+    fp: BinaryIO, size: int, start: int, parse: RecordParser, state: dict[str, Any],
+    *, resume_context: tuple[str, ...] = (),
 ) -> tuple[list[Message], int]:
     """Messages after byte ``start`` of a JSONL stream of ``size`` bytes.
 
@@ -660,6 +673,10 @@ def _read_stream(
         head = _record(fp.readline())
         if head is not None:
             parse(head, state)
+        while resume_context and fp.tell() < start and (line := fp.readline()):
+            record = _record(line)
+            if record is not None and record.get("type") in resume_context:
+                parse(record, state)
         fp.seek(start)
     for line in fp:
         if not line.endswith(b"\n"):
@@ -668,6 +685,7 @@ def _read_stream(
         record = _record(line)
         state["steps"] = []
         state["signals"] = []
+        state["answer_model"] = None
         parsed = parse(record, state) if record is not None else None
         if parsed is None:
             continue
@@ -675,16 +693,19 @@ def _read_stream(
         text = _clean_text(text)
         steps = tuple(state["steps"])
         signals = tuple(state["signals"])
+        model = state["answer_model"]
         if text or steps or signals or role == "turn/start":
             messages.append(Message(
                 role, text, session_id, at, line_start, position,
                 steps, state["workspace"], state["branch"], signals,
+                model.strip() or None if role == "assistant" and isinstance(model, str) else None,
             ))
     return messages, position
 
 
 def _read_jsonl(
-    path: Path, start: int, parse: RecordParser, **seed: Any
+    path: Path, start: int, parse: RecordParser, *,
+    resume_context: tuple[str, ...] = (), **seed: Any,
 ) -> tuple[list[Message], int]:
     """Messages after byte ``start`` of a JSONL file.
 
@@ -695,7 +716,9 @@ def _read_jsonl(
         **seed,
     }
     with path.open("rb") as fp:
-        return _read_stream(fp, path.stat().st_size, start, parse, state)
+        return _read_stream(
+            fp, path.stat().st_size, start, parse, state, resume_context=resume_context,
+        )
 
 
 def _unzstd(path: Path) -> bytes:
@@ -1074,12 +1097,16 @@ def _parse_dsh(record: dict, state: dict) -> tuple[str, str, str, int | None] | 
         return kind, "", state["session_id"], at
     if kind == "turn/end":
         return kind, data["reason"]["kind"], state["session_id"], at
+    if kind == "request/header":
+        state["request_model"] = data["header"]["config"].get("model")
+        return None
     if kind == "tool/call":
         state["steps"].append(_tool_call(data["callId"], data["name"], data["arguments"]))
         return "assistant", "", state["session_id"], at
     if kind == "user/message" and data["source"]["kind"] == "user":
         return "user", _blocks_text(data["content"]), state["session_id"], at
     if kind == "assistant/message":
+        state["answer_model"] = state.get("request_model")
         return "assistant", _blocks_text(data["message"]["content"]), state["session_id"], at
     return None
 
@@ -1092,7 +1119,10 @@ def _read_dsh(path: Path, start: int) -> tuple[list[Message], int]:
     state: dict[str, Any] = {
         "session_id": path.parent.name, "steps": [], "signals": [], "workspace": None, "branch": None,
     }
-    return _read_stream(io.BytesIO(raw), len(raw), start, _parse_dsh, state)
+    return _read_stream(
+        io.BytesIO(raw), len(raw), start, _parse_dsh, state,
+        resume_context=("request/header",),
+    )
 
 
 def _dsh_turns(messages: list[Message], reached: int) -> tuple[list[Turn], int]:
@@ -1122,6 +1152,7 @@ def _dsh_turns(messages: list[Message], reached: int) -> tuple[list[Turn], int]:
             current.steps.extend(msg.steps)
             if msg.text:
                 current.assistant = msg.text
+                current.assistant_model = msg.assistant_model
     return turns, reached if open_at is None else open_at
 
 
@@ -1308,7 +1339,7 @@ SOURCE_SPECS: dict[str, SourceSpec] = {
         "codex",
         ".codex/sessions",
         _jsonl_files("rollout-*.jsonl"),
-        lambda p, s: _read_jsonl(p, s, _parse_codex),
+        lambda p, s: _read_jsonl(p, s, _parse_codex, resume_context=("turn_context", "event_msg")),
     ),
     "copilot": SourceSpec(
         "copilot",
@@ -1439,6 +1470,7 @@ def build_turns(messages: list[Message]) -> tuple[list[Turn], Turn | None]:
             current.signals.extend(msg.signals)
             if msg.role == "assistant" and msg.text:
                 current.assistant = msg.text
+                current.assistant_model = msg.assistant_model
             current.end = msg.end
             current.workspace = workspace or current.workspace
             current.branch = msg.branch or current.branch
@@ -1517,6 +1549,9 @@ async def scan_file(
                 else []
             )
             extra_kw = {"tool_signals": resolved_signals} if resolved_signals else {}
+            models = list(dict.fromkeys(turn.assistant_model for turn in batch if turn.assistant_model))
+            if models:
+                extra_kw["assistant_models"] = models
             session_id = f"{source}:{batch[0].session_id}"
             request_id = hashlib.sha256(
                 json.dumps(

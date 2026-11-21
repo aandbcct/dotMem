@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from memhub.coding.types import procedure_detail
-from memhub.types import MemoryNode
+from memhub.types import Layer, MemoryNode
 
 _WORKTREE_GITDIR_RE = re.compile(r"^(.+)[/\\]\.git[/\\]worktrees[/\\]([^/\\]+)$", re.DOTALL)
 _SUBMODULE_GITDIR_RE = re.compile(r"^(.+)[/\\]\.git[/\\]modules[/\\](.+)$", re.DOTALL)
@@ -447,6 +447,10 @@ def matching_workspace_nodes(
 def browse_rows(nodes: list[MemoryNode]) -> list[dict[str, Any]]:
     """Every version, newest first, with its project and source host."""
     by_source = workspaces_by_source(nodes)
+    source_models = {
+        node.node_id: (node.custom or {}).get("assistant_models", []) for node in nodes
+        if node.layer == Layer.L0_RAW
+    }
     canon_cache: dict[str, str] = {}
     rows = []
     for node in nodes:
@@ -476,6 +480,10 @@ def browse_rows(nodes: list[MemoryNode]) -> list[dict[str, Any]]:
                 "supersedes": list(node.supersedes),
                 "superseded_by": list(node.superseded_by),
                 "source_ids": source_ids,
+                "assistant_models": list(dict.fromkeys(
+                    model for source_id in [node.node_id, *source_ids]
+                    for model in source_models.get(source_id, ())
+                )),
                 "procedure": detail.to_dict() if detail is not None else None,
             }
         )

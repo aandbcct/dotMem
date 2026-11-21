@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **记忆来源与管理界面**：新采集的 DeepSeek Harness、Agentica、Claude Code、Codex 对话保留宿主日志中的回答模型，作为来源元数据显示在记忆卡片，不写入事实正文；没有模型元数据的记录不猜测。管理界面采用扁平布局，未展开的当前记忆也可通过图标编辑或归档删除，原始对话仍只支持删除。
 - **`/ui` 去掉与搜索框叉叉重复的「清除语义结果」按钮**：清空输入本来就会退出语义结果。现在语义模式在汇总行提示「Esc 退出」，按 Esc 清空输入和结果；回车检索失败也会提示原因，不再停留在「正在检索…」。
 - **DeepSeek Harness 支持自动采集**：设置 `hub_capture_dsh: true` 后，Core 通过系统文件通知读取变更的 DSH 会话，只在真人对话的成功 `turn/end` 落盘后入队，重启时从持久游标补录。不需要 DSH 插件或外部定时任务；`memhub doctor` 显示监听状态。
 - **WorkBuddy / CodeBuddy 的定时任务不再当作原始对话写入记忆**：产品把已触发的日程包在 `<automation_system_reminder>` 里，任务正文放在 `<user_query>`。采集时整轮跳过（含随后的工具调用和回答，避免串到上一条真人对话）。专用沙箱目录 `WorkBuddy-automation-*` 的会话文件整份不扫。DeepSeek Harness 的 `source.kind=schedule`（以及 `bot`、`tool-jobs`）本来就不是 `user`，不会入库；Agentica 的 `cron` / `workflow` 会话和 `cron_job` 轮次维持原样排除。本机 Claude Code、Codex、Cursor、Kimi、OpenClaw 的会话里没有另一套日程标记。

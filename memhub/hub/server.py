@@ -81,6 +81,7 @@ class HubWriteRequest(BaseModel):
     workspace_id: str | None = None
     branch: str | None = None
     tool_signals: list[dict] | None = None
+    assistant_models: list[str] | None = None
     # ``False`` returns as soon as the evidence is durable; the job runs later.
     wait: bool = False
 
@@ -524,6 +525,7 @@ def create_hub_app(
                     "session_id": payload["session_id"],
                     "memory_at": payload["memory_at"],
                     "request_id": payload["request_id"],
+                    "assistant_models": payload.get("assistant_models"),
                 }
                 # Rows queued before boundaries existed carry none.
                 workspace_id = payload.get("workspace_id")
@@ -657,6 +659,11 @@ def create_hub_app(
             # ``.git`` are blocking work; keep them off the Core's event loop.
             payload["content"] = sanitize_text(payload["content"], redact=redact)
             payload["messages"] = sanitize_messages(payload["messages"], redact=redact)
+            if body.assistant_models:
+                payload["assistant_models"] = list(dict.fromkeys(
+                    clean for model in body.assistant_models
+                    if (clean := sanitize_text(model, redact=redact).strip())
+                )) or None
             if isinstance(payload.get("tool_signals"), list):
                 cleaned_signals = []
                 for sig in payload["tool_signals"]:
