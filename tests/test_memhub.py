@@ -3149,7 +3149,11 @@ async def test_dsh_answer_model_survives_resume_and_is_stored_as_provenance(
             assert len(rows) == 2
             assert all(row["assistant_models"] == ["answer"] for row in rows)
             assert all("answer" not in row["content"] for row in rows)
-            assert any(row["assistant_models"] == ["answer"] for row in reply["memories"] if row["source_ids"])
+            assert all(
+                row["assistant_models"] == []
+                for row in reply["memories"]
+                if row["kind"] != "raw"
+            )
     finally:
         await core.aclose()
 
@@ -4134,8 +4138,10 @@ state.byId = Object.fromEntries(state.rows.map(r => [r.id, r]));
 
 const raw = state.rows[0];
 const fact = { ...state.rows[1], assistant_models: ["model-one", "model-two"] };
+const attributedRaw = { ...raw, assistant_models: ["model-one", "model-two"] };
 if (!card(fact).includes('aria-label="编辑记忆"') || !card(fact).includes('aria-label="删除记忆"')) throw new Error("collapsed fact actions missing");
-if (!card(fact).includes("model-one") || !card(fact).includes("model-two")) throw new Error("answer source models missing");
+if (card(fact).includes("model-one") || card(fact).includes("model-two")) throw new Error("model name leaked to derived card");
+if (!card(attributedRaw).includes("model-one") || !card(attributedRaw).includes("model-two")) throw new Error("raw model provenance missing");
 if (card(raw).includes("data-edit") || !card(raw).includes("data-del")) throw new Error("raw should be deletable, not editable");
 if (/data-(edit|del)=/.test(card({ ...fact, is_latest: false }))) throw new Error("history exposes mutations");
 if (card(raw).includes('class="model-meta"')) throw new Error("unattributed model displayed");

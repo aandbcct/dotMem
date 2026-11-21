@@ -292,8 +292,8 @@
   }
   .meta-item { display: inline-flex; align-items: center; gap: 4px; }
   .model-meta {
-    display: inline-block; max-width: min(100%, 300px); color: var(--active-text);
-    background: var(--active); border-radius: 4px; padding: 0 6px;
+    display: inline-block; max-width: min(100%, 220px);
+    color: var(--muted); font-size: 11px; opacity: 0.72;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .badge-state {
@@ -627,10 +627,11 @@ function detail(row) {
 }
 
 function modelBadge(row) {
+  if (row.kind !== "raw") return "";
   const models = row.assistant_models || [];
   if (!models.length) return "";
   const label = models.join("、");
-  return `<span class="model-meta" title="来源回答模型：${esc(label)}">${esc(label)}</span>`;
+  return `<span class="model-meta" title="回答模型：${esc(label)}">${esc(label)}</span>`;
 }
 
 function card(row) {

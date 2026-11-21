@@ -447,10 +447,6 @@ def matching_workspace_nodes(
 def browse_rows(nodes: list[MemoryNode]) -> list[dict[str, Any]]:
     """Every version, newest first, with its project and source host."""
     by_source = workspaces_by_source(nodes)
-    source_models = {
-        node.node_id: (node.custom or {}).get("assistant_models", []) for node in nodes
-        if node.layer == Layer.L0_RAW
-    }
     canon_cache: dict[str, str] = {}
     rows = []
     for node in nodes:
@@ -480,10 +476,13 @@ def browse_rows(nodes: list[MemoryNode]) -> list[dict[str, Any]]:
                 "supersedes": list(node.supersedes),
                 "superseded_by": list(node.superseded_by),
                 "source_ids": source_ids,
-                "assistant_models": list(dict.fromkeys(
-                    model for source_id in [node.node_id, *source_ids]
-                    for model in source_models.get(source_id, ())
-                )),
+                # Model provenance belongs to the raw dialogue; derived memories
+                # carry no model badge in the UI.
+                "assistant_models": (
+                    list(dict.fromkeys((node.custom or {}).get("assistant_models", [])))
+                    if node.layer == Layer.L0_RAW
+                    else []
+                ),
                 "procedure": detail.to_dict() if detail is not None else None,
             }
         )
