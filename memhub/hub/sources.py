@@ -1630,7 +1630,7 @@ async def scan_sources(
     """
     roots = roots or default_source_roots()
     if "excluded_projects" not in scan_kwargs:
-        scan_kwargs["excluded_projects"] = hub_settings(hub_dir).hub_excluded_projects
+        scan_kwargs["excluded_projects"] = hub_settings(hub_dir).memhub_excluded_projects
     summary: dict[str, dict[str, int]] = {}
     remaining = max_turns
     with CursorStore(hub_dir) as cursors:

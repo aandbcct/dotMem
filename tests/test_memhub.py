@@ -3721,7 +3721,7 @@ def test_private_prompt_hook_does_not_contact_core_or_stash(tmp_path: Path, monk
 def test_excluded_hook_and_cli_are_silent_without_core(tmp_path: Path, monkeypatch) -> None:
     private = tmp_path / "private"
     private.mkdir()
-    monkeypatch.setenv("MEMHUB_HUB_EXCLUDED_PROJECTS", str(private))
+    monkeypatch.setenv("MEMHUB_MEMHUB_EXCLUDED_PROJECTS", str(private))
 
     def no_core(_hub):
         pytest.fail("an excluded workspace must not contact Core")
@@ -3741,7 +3741,7 @@ async def test_excluded_core_workspace_does_not_read_or_write(
 ) -> None:
     private = tmp_path / "private"
     core = _memory_client(tmp_path, fake_embed, fake_llm, fake_jev)
-    monkeypatch.setattr(core.settings, "hub_excluded_projects", f"{private}/**", raising=False)
+    monkeypatch.setattr(core.settings, "memhub_excluded_projects", f"{private}/**")
     async with _attached_core(tmp_path, core) as (app, remote):
         before = app.state.queue.counts()
         out = await remote.write(content="do not write", request_id="deny",

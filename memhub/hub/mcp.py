@@ -220,7 +220,7 @@ def build_hub_mcp(
     mcp = MCPServer("memhub-hub", log_level="WARNING")
 
     async def excluded(workspace: str | None, ctx: Context) -> bool:
-        rules = hub_settings(hub_dir).hub_excluded_projects
+        rules = hub_settings(hub_dir).memhub_excluded_projects
         if not rules:
             return False
         if any(is_excluded_workspace(ws, rules) for ws in (str(Path.cwd()), workspace)):

@@ -67,4 +67,4 @@ CLI 入口是 `python3 -m memhub.cli <子命令>`，安装后也可直接 `memhu
 
 标签内的 `hunter2` 不会进库，标签外的连接串会；标签外的回答或工具输出若复述它，仍可能被采集。
 整条提问用 `<private>...</private>` 包住时，本轮提问、回答和工具记录都不写入 MemHub。
-本机的 `hub_excluded_projects` 可停用匹配目录的采集与召回；当宿主未提供项目根时，MCP 记忆工具可传 `workspace` 供排除检查。
+本机的 `memhub_excluded_projects` 可停用匹配目录的采集与召回；当宿主未提供项目根时，MCP 记忆工具可传 `workspace` 供排除检查。

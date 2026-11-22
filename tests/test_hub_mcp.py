@@ -187,7 +187,7 @@ async def test_remember_is_one_call_and_a_terminal_result() -> None:
 async def test_excluded_workspace_tools_never_contact_core(tmp_path, monkeypatch) -> None:
     private = tmp_path / "private"
     private.mkdir()
-    monkeypatch.setenv("MEMHUB_HUB_EXCLUDED_PROJECTS", str(private))
+    monkeypatch.setenv("MEMHUB_MEMHUB_EXCLUDED_PROJECTS", str(private))
     core = StubCore()
     server = build_hub_mcp(client=core)
     for name, args in (

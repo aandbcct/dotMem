@@ -489,7 +489,7 @@ def hub_scan(
                 "raw_only": raw_only,
                 "batch_turns": batch,
                 "idle_seconds": idle,
-                "excluded_projects": hub_settings(hub_dir).hub_excluded_projects,
+                "excluded_projects": hub_settings(hub_dir).memhub_excluded_projects,
             }
             if file is None:
                 return await scan_sources(
@@ -549,7 +549,7 @@ def _hook_workspaces(payload: dict[str, Any]) -> list[str]:
 
 
 def _excluded_at_cwd(hub_dir: str | None, *workspaces: str) -> bool:
-    rules = hub_settings(hub_dir).hub_excluded_projects
+    rules = hub_settings(hub_dir).memhub_excluded_projects
     return any(is_excluded_workspace(ws, rules) for ws in [str(Path.cwd()), *workspaces])
 
 
@@ -845,7 +845,7 @@ def _recall(payload: dict[str, Any], limit: int, hub_dir: str | None, source: st
     prompt = sanitize_text(payload.get("prompt", "")).strip()
     workspaces = _hook_workspaces(payload)
     settings = hub_settings(hub_dir)
-    if not prompt or any(is_excluded_workspace(ws, settings.hub_excluded_projects)
+    if not prompt or any(is_excluded_workspace(ws, settings.memhub_excluded_projects)
                          for ws in [str(Path.cwd()), *workspaces]):
         return
     workspace = next(iter(workspaces), None)

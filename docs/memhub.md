@@ -219,8 +219,10 @@ memhub connect git git@github.com:<你的用户名>/my-vibecoding-memory.git
 
   ```yaml
   # ~/.memhub/config.yaml
-  hub_excluded_projects: "~/Documents/Private/**,/tmp/scratch,remote:example/client-acme"
+  memhub_excluded_projects: "~/Documents/Private/**,/tmp/scratch,remote:example/client-acme"
   ```
+
+  也可通过环境变量 `MEMHUB_MEMHUB_EXCLUDED_PROJECTS` 设置，值同样为逗号分隔的规则。
 
   普通路径包含自身和子目录；glob 的 `*` 不跨目录，`**` 跨目录。匹配时也检查 Git 项目根及 `remote:组织/仓库`，便于覆盖同仓库的多个 checkout。命中后，Hook 不注入任何 MemHub 内容（含全局画像和用法提示），自动监听、手动扫描均跳过该目录的已完成轮次并推进游标，取消排除不会补录已经跳过的轮次。
 

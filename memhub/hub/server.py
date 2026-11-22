@@ -587,7 +587,7 @@ def create_hub_app(
                     return await submit_write(HubWriteRequest(**payload))
 
                 capture = DshCapture(
-                    root, submit_capture, excluded_projects=core_client.settings.hub_excluded_projects,
+                    root, submit_capture, excluded_projects=core_client.settings.memhub_excluded_projects,
                 )
             app.state.dsh_capture = capture
             yield
@@ -665,7 +665,7 @@ def create_hub_app(
         def prepare() -> str | None:
             # Regex sanitizing of a large batch and the workspace's walk up to
             # ``.git`` are blocking work; keep them off the Core's event loop.
-            if is_excluded_workspace(body.workspace_id, settings.hub_excluded_projects):
+            if is_excluded_workspace(body.workspace_id, settings.memhub_excluded_projects):
                 return "excluded"
             if is_private_turn(body.content, body.messages):
                 return "private"
@@ -846,7 +846,7 @@ def create_hub_app(
     @app.post("/v1/hub/recall", dependencies=[Depends(verify)])
     async def recall(body: HubRecallRequest):
         if await asyncio.to_thread(
-            is_excluded_workspace, body.workspace, app.state.client.settings.hub_excluded_projects,
+            is_excluded_workspace, body.workspace, app.state.client.settings.memhub_excluded_projects,
         ):
             return {"skipped": "excluded", "memories": SearchMemories().to_dict(), "conversations": []}
         if max(body.limit, body.procedure_limit, body.raw_limit) <= 0:

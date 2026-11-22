@@ -81,6 +81,16 @@ def test_env_overrides_yaml(tmp_path, monkeypatch):
     assert Settings().mode == "system1"
 
 
+def test_memhub_excluded_projects_loads_from_yaml_and_environment(tmp_path, monkeypatch):
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text('memhub_excluded_projects: "/private/project/**"\n', encoding="utf-8")
+    monkeypatch.setenv("MEMHUB_CONFIG_FILE", str(cfg))
+    monkeypatch.delenv("MEMHUB_MEMHUB_EXCLUDED_PROJECTS", raising=False)
+    assert Settings().memhub_excluded_projects == "/private/project/**"
+    monkeypatch.setenv("MEMHUB_MEMHUB_EXCLUDED_PROJECTS", "remote:team/project")
+    assert Settings().memhub_excluded_projects == "remote:team/project"
+
+
 def test_init_overrides_yaml(tmp_path, monkeypatch):
     cfg = tmp_path / "config.yaml"
     cfg.write_text("mode: dual\n", encoding="utf-8")
