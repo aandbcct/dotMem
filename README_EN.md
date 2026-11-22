@@ -96,7 +96,8 @@ Once connected, `memhub` runs invisibly: completed turns are distilled asynchron
 | **ZCode** / **Qoder** / **GitHub Copilot** / **AWS Kiro** | ✅ | ✅ | ✅ | ✅ |
 | **Trae** | ✅ | ✅ | ✅ | — |
 | **Kimi CLI** | MCP + Skill | ✅ | ✅ | ✅ |
-| **DeepSeek Harness** / **Hermes** / **Cline** / **Pi** | MCP + Skill | `scan` | ✅ | ✅ |
+| **DeepSeek Harness** | MCP + Skill | `scan`, or `hub_capture_dsh` | ✅ | ✅ |
+| **Hermes** / **Cline** / **Pi** | MCP + Skill | `scan` | ✅ | ✅ |
 | **OpenClaw** | Skill + CLI | `scan` | — | ✅ |
 
 </details>
@@ -183,13 +184,14 @@ Feedback and feature requests welcome in [Issues](https://github.com/shibing624/
 
 ## News
 
+- [2026/11/22] **v0.2.5**: Whole-turn `<private>` blocks and `memhub_excluded_projects`; optional DeepSeek Harness live capture; scheduled tasks and background reports stay out of memory; memory tool replies are size-capped. See [Release-v0.2.5](https://github.com/shibing624/memhub/releases/tag/v0.2.5).
 - [2026/11/12] **v0.2.4**: Expanded to 18 AI hosts; `memhub install-host` auto-detects installed tools; added `memhub doctor` and budgeted progressive disclosure; unified Agentica CLI/Web/Desktop/IM capture. See [Release-v0.2.4](https://github.com/shibing624/memhub/releases/tag/v0.2.4).
 - [2026/11/03] **v0.2.3**: Automatic Cursor capture & prompt recall; added `memhub remember`; refreshed light-theme `memhub ui` and compact vector storage. See [Release-v0.2.3](https://github.com/shibing624/memhub/releases/tag/v0.2.3).
-- [2026/11/02] **v0.2.2**: Unified package & CLI under `memhub`; launched `memhub ui` dashboard and float16 snapshot sync. See [Release-v0.2.2](https://github.com/shibing624/memhub/releases/tag/v0.2.2).
 
 <details>
 <summary>Earlier releases</summary>
 
+- [2026/11/02] **v0.2.2**: Unified package & CLI under `memhub`; launched `memhub ui` dashboard and float16 snapshot sync. See [Release-v0.2.2](https://github.com/shibing624/memhub/releases/tag/v0.2.2).
 - [2026/11/01] **v0.2.1**: Local-first multi-device change-log sync, removing persistent SSH tunnels. See [Release-v0.2.1](https://github.com/shibing624/memhub/releases/tag/v0.2.1).
 - [2026/10/24] **v0.2.0**: Unified chat and coding memory APIs with automatic procedure distillation from tool traces. See [Release-v0.2.0](https://github.com/shibing624/memhub/releases/tag/v0.2.0).
 - [2026/10/23] **v0.1.4**: Local cross-tool Memory Hub & #1 across LoCoMo / LongMemEval / PersonaMem-v2. See [Release-v0.1.4](https://github.com/shibing624/memhub/releases/tag/v0.1.4).

@@ -61,7 +61,7 @@ CodeBuddy 未登录、Cursor 的 CLI 已卸载、Hermes 本机没装，WorkBuddy
 | kimi-code | ✅ | ✅ | ✅（纯文本） |
 | OpenCode | ✅ | ✅ | 插件转发（上面的真实运行已覆盖） |
 | kimi-cli | ✅ | ✅ | 不适用：1.49 不读提示词 hook 的输出，只采集 |
-| DeepSeek Harness | ✅ | ✅ | 不适用：桌面版没有 hooks 插件，会话靠 `memhub scan` 导入 |
+| DeepSeek Harness | ✅ | ✅ | 不适用：桌面版没有提问 hook，不自动注入。会话默认可 `memhub scan` 导入；`hub_capture_dsh: true` 后 Core 监听会话文件自动采集 |
 | Hermes | ✅ | ✅ | 不适用：只接了 MCP 和 skill |
 
 这项验证能证明 memhub 一侧的接线是通的，但**不能证明宿主里的模型一定会去用它**。后者只在上面 5 个工具里用真实运行验证过。

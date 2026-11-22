@@ -96,7 +96,8 @@ memhub ui                          # 打开 http://127.0.0.1:8765/ui
 | **ZCode** / **Qoder** / **GitHub Copilot** / **AWS Kiro** | ✅ | ✅ | ✅ | ✅ |
 | **Trae** | ✅ | ✅ | ✅ | — |
 | **Kimi CLI** | MCP + Skill | ✅ | ✅ | ✅ |
-| **DeepSeek Harness** / **Hermes** / **Cline** / **Pi** | MCP + Skill | `scan` | ✅ | ✅ |
+| **DeepSeek Harness** | MCP + Skill | `scan`，或打开 `hub_capture_dsh` | ✅ | ✅ |
+| **Hermes** / **Cline** / **Pi** | MCP + Skill | `scan` | ✅ | ✅ |
 | **OpenClaw** | Skill + CLI | `scan` | — | ✅ |
 
 </details>
@@ -183,13 +184,14 @@ embed_api_key: ""  # 向量模型密钥（支持 embed_base_url 自定义网关�
 
 ## News
 
+- [2026/11/22] **v0.2.5**：整轮 `<private>` 与 `memhub_excluded_projects` 可排除项目；DeepSeek Harness 可打开自动采集；定时任务和后台回报不再入库；记忆工具返回有字数上限。详见 [Release-v0.2.5](https://github.com/shibing624/memhub/releases/tag/v0.2.5)。
 - [2026/11/12] **v0.2.4**：支持宿主扩展至 18 种；`memhub install-host` 默认自动探测本机已装工具；新增 `memhub doctor` 与预算制渐进披露召回；Agentica 全端采集打通。详见 [Release-v0.2.4](https://github.com/shibing624/memhub/releases/tag/v0.2.4)。
 - [2026/11/03] **v0.2.3**：Cursor 自动采集与提问前注入；新增 `memhub remember`；`memhub ui` 升级浅白主题并优化检索与存储体积。详见 [Release-v0.2.3](https://github.com/shibing624/memhub/releases/tag/v0.2.3)。
-- [2026/11/02] **v0.2.2**：包名与 CLI 统一升级为 `memhub`；新增可视化管理页 `memhub ui` 与向量压缩同步快照。详见 [Release-v0.2.2](https://github.com/shibing624/memhub/releases/tag/v0.2.2)。
 
 <details>
 <summary>更早版本</summary>
 
+- [2026/11/02] **v0.2.2**：包名与 CLI 统一升级为 `memhub`；新增可视化管理页 `memhub ui` 与向量压缩同步快照。详见 [Release-v0.2.2](https://github.com/shibing624/memhub/releases/tag/v0.2.2)。
 - [2026/11/01] **v0.2.1**：多设备改为每台本地检索 + 变更日志同步，移除常驻 SSH 隧道。详见 [Release-v0.2.1](https://github.com/shibing624/memhub/releases/tag/v0.2.1)。
 - [2026/10/24] **v0.2.0**：统一对话与 Coding 记忆接口，支持从工具轨迹自动沉淀工程排障经验。详见 [Release-v0.2.0](https://github.com/shibing624/memhub/releases/tag/v0.2.0)。
 - [2026/10/23] **v0.1.4**：发布本地跨工具记忆中枢；LoCoMo / LongMemEval / PersonaMem-v2 同场评测第一。详见 [Release-v0.1.4](https://github.com/shibing624/memhub/releases/tag/v0.1.4)。
