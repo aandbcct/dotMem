@@ -1494,8 +1494,13 @@ def _batches(
     skipped = False
     for turn in turns:
         skip_turn = skip(turn)
-        if batch and (len(batch) >= size or batch[-1].session_id != turn.session_id
-                      or batch[-1].workspace != turn.workspace or skipped != skip_turn):
+        if batch and (
+            len(batch) >= size
+            or batch[-1].session_id != turn.session_id
+            or batch[-1].workspace != turn.workspace
+            or batch[-1].workspace_path != turn.workspace_path
+            or skipped != skip_turn
+        ):
             yield skipped, batch
             batch = []
         batch.append(turn)
@@ -1565,15 +1570,10 @@ async def scan_file(
                 turns.append(open_turn)
                 open_turn = None
             stop = open_turn.start if open_turn else reached
-        if max_turns and len(turns) > max_turns:
-            turns = turns[:max_turns]
-            stop = turns[-1].end
+
         # Live capture and a manual DSH scan must replay the same request ID,
         # even if the Core committed the receipt before the cursor advanced.
-        for skipped, batch in _batches(turns, 1 if source == "dsh" else batch_turns, skip):
-            if skipped:
-                cursors.advance(source, key, batch[-1].end, 0)
-                continue
+        async def submit_batch(batch: list[Turn]) -> int:
             messages_in = sanitize_messages([m for turn in batch for m in turn.messages()])
             raw_signals = [s for turn in batch for s in turn.signals]
             resolved_signals = (
@@ -1610,9 +1610,20 @@ async def scan_file(
                 branch=batch[-1].branch,
                 **extra_kw,
             )
-            accepted = 0 if (receipt.get("result") or {}).get("skipped") else len(batch)
-            cursors.advance(source, key, batch[-1].end, accepted)
-            written += accepted
+            return 0 if (receipt.get("result") or {}).get("skipped") else len(batch)
+
+        for skipped, batch in _batches(turns, 1 if source == "dsh" else batch_turns, skip):
+            if skipped:
+                cursors.advance(source, key, batch[-1].end, 0)
+                continue
+            while batch:
+                remaining = max_turns - written if max_turns else len(batch)
+                if remaining <= 0:
+                    return written
+                ready, batch = batch[:remaining], batch[remaining:]
+                accepted = await submit_batch(ready)
+                cursors.advance(source, key, ready[-1].end, accepted)
+                written += accepted
         cursors.advance(source, key, stop, 0)
     return written
 

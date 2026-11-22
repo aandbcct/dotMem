@@ -3746,6 +3746,87 @@ def test_excluded_hook_and_cli_are_silent_without_core(tmp_path: Path, monkeypat
     assert json.loads(cli.output) == {"skipped": "excluded", "memories": {}, "conversations": []}
 
 
+@pytest.mark.parametrize("entrypoint", ["hook", "recall"])
+async def test_core_can_exclude_original_subdir_from_cli_recall(
+    entrypoint: str, tmp_path: Path, fake_embed, fake_llm, fake_jev, monkeypatch,
+) -> None:
+    repo = tmp_path / "repo"
+    private = repo / "private"
+    private.mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    monkeypatch.setenv("MEMHUB_MEMHUB_EXCLUDED_PROJECTS", "")
+    hub = tmp_path / "hub"
+    core = _memory_client(hub, fake_embed, fake_llm, fake_jev)
+    monkeypatch.setattr(core.settings, "memhub_excluded_projects", f"{private}/**")
+    seen = []
+    async with _attached_core(hub, core) as (_app, remote):
+        core_loop = asyncio.get_running_loop()
+
+        async def recall(**request):
+            seen.append(request["workspace"])
+            result = asyncio.run_coroutine_threadsafe(remote.recall(**request), core_loop)
+            return await asyncio.wrap_future(result)
+
+        @asynccontextmanager
+        async def bridge(_hub):
+            yield SimpleNamespace(recall=recall)
+
+        monkeypatch.setattr(cli_hub, "make_client", bridge)
+        if entrypoint == "hook":
+            invocation = ["hook", "claude-code", "--hub-dir", str(hub)]
+            payload = json.dumps({"prompt": "recall profile", "cwd": str(private)})
+        else:
+            invocation = ["recall", "recall profile", "--workspace", str(private),
+                          "--json", "--hub-dir", str(hub)]
+            payload = None
+
+        result = await asyncio.to_thread(runner.invoke, cli_main.app, invocation, input=payload)
+        assert result.exit_code == 0, result.exception
+        assert len(seen) == 1
+        if entrypoint == "hook":
+            assert result.output == ""
+        else:
+            body = json.loads(result.output)
+            assert body["skipped"] == "excluded"
+            assert not any(body["memories"].values()) and body["conversations"] == []
+        assert seen == [str(private)]
+    await core.aclose()
+
+
+@pytest.mark.parametrize("visible", ["", "public question"])
+def test_trae_stop_uses_public_text_from_pre_upgrade_pending(
+    visible: str, tmp_path: Path, monkeypatch,
+) -> None:
+    pending = tmp_path / "pending" / "trae-legacy.json"
+    pending.parent.mkdir()
+    pending.write_text(json.dumps({
+        "prompt": f"{visible} <private>private prompt</private>",
+        "at": 1700000000,
+        "workspace": str(tmp_path),
+    }))
+    writes = []
+
+    class Writer:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_exc):
+            return None
+
+        async def write(self, **kwargs):
+            writes.append(kwargs["messages"])
+            return {"status": "pending"}
+
+    monkeypatch.setattr(cli_hub, "make_client", lambda _hub: Writer())
+    result = runner.invoke(cli_main.app, ["hook", "trae", "--hub-dir", str(tmp_path)],
+                           input=json.dumps({"hook_event_name": "Stop", "session_id": "legacy",
+                                             "last_assistant_message": "assistant answer"}))
+    assert result.exit_code == 0 and result.output == ""
+    assert not pending.exists()
+    assert writes == ([[{"role": "user", "content": visible},
+                        {"role": "assistant", "content": "assistant answer"}]] if visible else [])
+
+
 async def test_excluded_core_workspace_does_not_read_or_write(
     tmp_path: Path, fake_embed, fake_llm, fake_jev, monkeypatch,
 ) -> None:
@@ -3799,6 +3880,78 @@ async def test_scan_excluded_paths_advance_without_backfill(tmp_path: Path) -> N
     (call,) = writes
     assert call["workspace_id"] == str(tmp_path / "private-other")
     assert [m["content"] for m in call["messages"]] == ["public question", "public answer"]
+
+
+@pytest.mark.parametrize("exclusion_at", ["scanner", "core"])
+async def test_scan_limit_counts_writes_not_excluded_turns(tmp_path: Path, exclusion_at: str) -> None:
+    path = tmp_path / "limited.jsonl"
+    private = tmp_path / "private"
+    public = tmp_path / "public"
+    _jsonl(path, [
+        {"type": role, "sessionId": "s", "cwd": str(ws), "message": {"content": text}}
+        for ws, question, answer in ((private, "excluded", "hidden"),
+                                     (public, "first", "answer one"),
+                                     (public, "second", "answer two"))
+        for role, text in (("user", question), ("assistant", answer))
+    ])
+    first_public_end = sum(len(line) for line in path.read_bytes().splitlines(keepends=True)[:4])
+    attempted = []
+    stored = []
+
+    class Writer:
+        async def write(self, **payload):
+            contents = [m["content"] for m in payload["messages"]]
+            attempted.append(contents)
+            if payload["workspace_id"] == str(private):
+                assert exclusion_at == "core"
+                return {"status": "done", "result": {"skipped": "excluded"}}
+            stored.append(contents)
+            return {"status": "pending"}
+
+    with CursorStore(tmp_path) as cursors:
+        options = dict(source="claude-code", path=path, cursors=cursors, complete=True,
+                       max_turns=1, excluded_projects=str(private) if exclusion_at == "scanner" else "")
+        assert await scan_file(Writer(), **options) == 1
+        assert stored == [["first", "answer one"]]
+        first = cursors.get("claude-code", str(path.resolve()))
+        assert (first.position, first.turns) == (first_public_end, 1)
+        assert await scan_file(Writer(), **options) == 1
+        last = cursors.get("claude-code", str(path.resolve()))
+        assert (last.position, last.turns) == (path.stat().st_size, 2)
+        assert await scan_file(Writer(), **options) == 0
+    assert stored == [["first", "answer one"], ["second", "answer two"]]
+    assert attempted == (([["excluded", "hidden"]] if exclusion_at == "core" else []) + stored)
+
+
+async def test_scan_does_not_batch_excluded_and_public_subdirs_under_one_repo(
+    tmp_path: Path, fake_embed, fake_llm, fake_jev, monkeypatch,
+) -> None:
+    repo = tmp_path / "repo"
+    private, public = repo / "private", repo / "public"
+    private.mkdir(parents=True)
+    public.mkdir()
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    path = tmp_path / "mixed-subdirs.jsonl"
+    _jsonl(path, [
+        {"type": role, "sessionId": "s", "cwd": str(ws), "message": {"content": text}}
+        for ws, question, answer in ((private, "excluded question", "excluded answer"),
+                                     (public, "public question", "public answer"))
+        for role, text in (("user", question), ("assistant", answer))
+    ])
+    hub = tmp_path / "hub"
+    core = _memory_client(hub, fake_embed, fake_llm, fake_jev)
+    monkeypatch.setattr(core.settings, "memhub_excluded_projects", str(private))
+    async with _attached_core(hub, core) as (app, remote):
+        with CursorStore(hub) as cursors:
+            assert await scan_file(remote, source="claude-code", path=path, cursors=cursors,
+                                   complete=True, raw_only=True) == 1
+            cursor = cursors.get("claude-code", str(path.resolve()))
+            assert (cursor.position, cursor.turns) == (path.stat().st_size, 1)
+        await _drain(app)
+        (raw,) = await core.list(user_id=HUB_USER_ID, limit=50)
+        assert raw.layer == Layer.L0_RAW.value
+        assert raw.content == "[user]: public question\n[assistant]: public answer"
+    await core.aclose()
 
 
 def test_excluded_workspace_matches_subdir_worktree_and_remote(tmp_path: Path, monkeypatch) -> None:

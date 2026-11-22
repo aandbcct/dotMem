@@ -381,6 +381,7 @@ class ProjectViewCache:
     def get(
         self, client: MemoryClient, workspace: str
     ) -> tuple[list[str], dict[str, Any] | None]:
+        workspace = canonical_workspace(workspace)
         generation = client.factory.vector.generation
         hit = self._entries.get(workspace)
         now = time.monotonic()

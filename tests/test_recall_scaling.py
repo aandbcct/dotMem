@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import math
 import random
+import subprocess
 import time
 from pathlib import Path
 
@@ -86,7 +87,7 @@ async def test_lexical_recall_sees_a_new_memory_right_after_the_write(
     await core.aclose()
 
 
-def test_project_view_is_reused_until_the_store_changes(monkeypatch) -> None:
+def test_project_view_is_reused_until_the_store_changes(tmp_path: Path, monkeypatch) -> None:
     import memhub.hub.server as server
 
     calls: list[str] = []
@@ -101,14 +102,19 @@ def test_project_view_is_reused_until_the_store_changes(monkeypatch) -> None:
     class Client:
         factory = type("F", (), {"vector": Store})
 
+    repo = tmp_path / "repo"
+    src, tests = repo / "src", repo / "tests"
+    src.mkdir(parents=True)
+    tests.mkdir()
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
     monkeypatch.setattr(server, "project_sessions_and_view", build)
     cache = ProjectViewCache(max_age=60)
-    assert cache.get(Client, "/w") == (["s1"], None)
-    assert cache.get(Client, "/w") == (["s1"], None)
+    assert cache.get(Client, str(src)) == (["s1"], None)
+    assert cache.get(Client, str(tests)) == (["s1"], None)
     Store.generation = 2
-    assert cache.get(Client, "/w") == (["s2"], None)
+    assert cache.get(Client, str(repo)) == (["s2"], None)
     assert cache.get(Client, "/other") == (["s3"], None)
-    assert calls == ["/w", "/w", "/other"]
+    assert calls == [str(repo), str(repo), "/other"]
     expired = ProjectViewCache(max_age=0)
     expired.get(Client, "/w")
     expired.get(Client, "/w")
