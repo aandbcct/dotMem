@@ -34,6 +34,7 @@ from memhub.hub.browse import (
     canonical_workspace,
     current_rows,
     inspect_local_procedure_files,
+    is_excluded_workspace,
 )
 from memhub.hub.client import HubClient
 from memhub.hub.config import (
@@ -48,6 +49,7 @@ from memhub.hub.config import (
     runtime_status,
     save_sync_config,
 )
+from memhub.hub.redact import is_private_prompt, sanitize_messages, sanitize_text
 from memhub.hub.sources import SOURCES, locate_transcript, scan_file, scan_sources
 from memhub.retrieval.formatter import (
     covered_texts_by_source,
@@ -473,6 +475,7 @@ def hub_scan(
     limit: int = typer.Option(0, "--limit", help="最多写入轮数，0 = 不限"),
     batch: int = typer.Option(5, "--batch", help="同会话每次提交的轮数"),
     idle: int = typer.Option(300, "--idle", help="静默多少秒视为一轮结束"),
+    workspace: str | None = typer.Option(None, "--capture-workspace", hidden=True),
     hub_dir: str | None = HubDir,
 ) -> None:
     """按本机游标增量读取会话，并提交给唯一 Hub Core。"""
@@ -486,6 +489,7 @@ def hub_scan(
                 "raw_only": raw_only,
                 "batch_turns": batch,
                 "idle_seconds": idle,
+                "excluded_projects": hub_settings(hub_dir).hub_excluded_projects,
             }
             if file is None:
                 return await scan_sources(
@@ -504,6 +508,7 @@ def hub_scan(
                         cursors=cursors,
                         complete=complete,
                         max_turns=limit,
+                        fallback_workspace=workspace,
                         **options,
                     )
                 }
@@ -529,6 +534,9 @@ def _capture(source: str, payload: dict[str, Any], hub_dir: str | None) -> None:
     ]
     if hub_dir:
         argv += ["--hub-dir", hub_dir]
+    workspaces = _hook_workspaces(payload)
+    if workspaces:
+        argv += ["--capture-workspace", workspaces[0]]
     _spawn_detached(argv, hub_root(hub_dir) / "logs" / "capture.log")
 
 
@@ -536,16 +544,28 @@ def _pending_prompt(hub_dir: str | None, source: str, session_id: str) -> Path:
     return hub_root(hub_dir) / "pending" / f"{source}-{session_id}.json"
 
 
+def _hook_workspaces(payload: dict[str, Any]) -> list[str]:
+    return [ws for ws in [payload.get("cwd"), *(payload.get("workspace_roots") or [])] if ws]
+
+
+def _excluded_at_cwd(hub_dir: str | None, *workspaces: str) -> bool:
+    rules = hub_settings(hub_dir).hub_excluded_projects
+    return any(is_excluded_workspace(ws, rules) for ws in [str(Path.cwd()), *workspaces])
+
+
 def _stash_prompt(payload: dict[str, Any], hub_dir: str | None, source: str) -> None:
     """Keep the prompt until the host's ``Stop`` brings the answer."""
-    prompt = payload.get("prompt", "").strip()
     session_id = payload.get("session_id")
-    if not prompt or not session_id:
+    if not session_id:
         return
     path = _pending_prompt(hub_dir, source, session_id)
+    workspaces = _hook_workspaces(payload)
+    prompt = sanitize_text(payload.get("prompt", "")).strip()
+    if not prompt or _excluded_at_cwd(hub_dir, *workspaces):
+        path.unlink(missing_ok=True)
+        return
     path.parent.mkdir(parents=True, exist_ok=True)
-    raw_ws = payload.get("cwd") or next(iter(payload.get("workspace_roots") or []), None)
-    workspace = canonical_workspace(raw_ws) or None
+    workspace = next(iter(workspaces), None)
     path.write_text(
         json.dumps(
             {"prompt": prompt, "at": int(time.time()), "workspace": workspace},
@@ -563,10 +583,20 @@ def _capture_inline(source: str, payload: dict[str, Any], hub_dir: str | None) -
     if path is None or not path.is_file():
         return
     pending = json.loads(path.read_text(encoding="utf-8"))
-    answer = payload.get("last_assistant_message", "").strip()
+    workspaces = _hook_workspaces(payload)
+    if pending["workspace"]:
+        workspaces.append(pending["workspace"])
+    if is_private_prompt(pending["prompt"]) or _excluded_at_cwd(hub_dir, *workspaces):
+        path.unlink()
+        return
+    answer = sanitize_text(payload.get("last_assistant_message", "")).strip()
     messages = [{"role": "user", "content": pending["prompt"]}]
     if answer:
         messages.append({"role": "assistant", "content": answer})
+    messages = sanitize_messages(messages)
+    if not messages:
+        path.unlink()
+        return
     digest = hashlib.sha256(f"{pending['prompt']}\n{answer}".encode()).hexdigest()[:16]
 
     async def write() -> None:
@@ -812,12 +842,13 @@ def build_hub_prompt_context(
 
 def _recall(payload: dict[str, Any], limit: int, hub_dir: str | None, source: str) -> None:
     """Answer the host's prompt event with the memories relevant to this prompt."""
-    prompt = payload.get("prompt", "").strip()
-    if not prompt:
+    prompt = sanitize_text(payload.get("prompt", "")).strip()
+    workspaces = _hook_workspaces(payload)
+    settings = hub_settings(hub_dir)
+    if not prompt or any(is_excluded_workspace(ws, settings.hub_excluded_projects)
+                         for ws in [str(Path.cwd()), *workspaces]):
         return
-    # Cursor names the open folders instead of a working directory.
-    raw_ws = payload.get("cwd") or next(iter(payload.get("workspace_roots") or []), None)
-    workspace = canonical_workspace(raw_ws) or None
+    workspace = next(iter(workspaces), None)
 
     async def search() -> dict[str, Any]:
         async with make_client(hub_dir) as client:
@@ -826,28 +857,32 @@ def _recall(payload: dict[str, Any], limit: int, hub_dir: str | None, source: st
             )
 
     result = asyncio.run(search())
-    context = build_hub_prompt_context(result, prompt, workspace=workspace)
+    if result.get("skipped") == "excluded":
+        return
+    context = build_hub_prompt_context(result, prompt, workspace=canonical_workspace(workspace) or None)
+    output: dict[str, Any] = {}
+    if source == "claude-code" and settings.hub_privacy_hint:
+        output["systemMessage"] = "用 <private>…</private> 排除片段；包住整条提问则不记本轮。"
     if context:
         # Tagged so strip_memory_injection drops it if a host echoes it back.
         context = f"<relevant-memories>\n{context}\n</relevant-memories>"
         if source in PLAIN_CONTEXT_SOURCES:
             typer.echo(context)
             return
-        typer.echo(
-            json.dumps(
-                {"additional_context": context}
-                if source == "cursor"
-                else {"additionalContext": context}
-                if source == "copilot"
-                else {
-                    "hookSpecificOutput": {
-                        "hookEventName": "UserPromptSubmit",
-                        "additionalContext": context,
-                    }
-                },
-                ensure_ascii=False,
-            )
+        output.update(
+            {"additional_context": context}
+            if source == "cursor"
+            else {"additionalContext": context}
+            if source == "copilot"
+            else {
+                "hookSpecificOutput": {
+                    "hookEventName": "UserPromptSubmit",
+                    "additionalContext": context,
+                }
+            }
         )
+    if output:
+        typer.echo(json.dumps(output, ensure_ascii=False))
 
 
 def _is_prompt_event(payload: dict[str, Any]) -> bool:
@@ -903,6 +938,10 @@ def hub_recall(
     target_id = source_id.strip()
     if not target_id and not query.strip():
         raise typer.BadParameter("请提供 query 检索词或 --source-id")
+    if _excluded_at_cwd(hub_dir, workspace):
+        if json_out:
+            _echo({"skipped": "excluded", "memories": {}, "conversations": []})
+        return
 
     if target_id:
         async def fetch_source() -> dict[str, Any]:
@@ -929,13 +968,11 @@ def hub_recall(
         typer.echo("\n\n".join(lines) or "没有找到对应的原始对话。")
         return
 
-    canon_ws = canonical_workspace(workspace) or None
-
     async def search() -> dict[str, Any]:
         async with make_client(hub_dir) as client:
             kw: dict[str, Any] = {"query": query, "limit": limit, "raw_limit": raw_limit}
-            if canon_ws is not None:
-                kw["workspace"] = canon_ws
+            if workspace:
+                kw["workspace"] = workspace
             return await client.recall(**kw)
 
     result = asyncio.run(search())
@@ -968,6 +1005,10 @@ def hub_memory_get(
     hub_dir: str | None = HubDir,
 ) -> None:
     """按记忆 ID 精确展开单条记忆的完整内容（含 procedure 完整方案、适用边界与来源）。"""
+    if _excluded_at_cwd(hub_dir):
+        if json_out:
+            _echo({"skipped": "excluded"})
+        return
 
     async def remote() -> dict[str, Any]:
         async with make_client(hub_dir) as client:
@@ -1003,6 +1044,13 @@ def hub_remember(
     hub_dir: str | None = HubDir,
 ) -> None:
     """交给本机 Core 写入一条记忆（与 MCP 的 memory_add 相同，已绑定个人 scope）。"""
+    if _excluded_at_cwd(hub_dir):
+        _echo({"result": {"skipped": "excluded"}})
+        return
+    content = sanitize_text(content)
+    if not content.strip():
+        _echo({"result": {"skipped": "private"}})
+        return
 
     async def write() -> dict[str, Any]:
         async with make_client(hub_dir) as client:
@@ -1019,6 +1067,10 @@ def hub_memory_list(
     hub_dir: str | None = HubDir,
 ) -> None:
     """列出当前生效的记忆及 id，供 memory-update / memory-delete 使用。"""
+    if _excluded_at_cwd(hub_dir):
+        if json_out:
+            _echo([])
+        return
 
     async def remote() -> list[dict[str, Any]]:
         async with make_client(hub_dir) as client:
@@ -1044,6 +1096,9 @@ def hub_memory_update(
     hub_dir: str | None = HubDir,
 ) -> None:
     """更正一条记忆：追加新版本，旧版本保留为历史。"""
+    if _excluded_at_cwd(hub_dir):
+        _echo({"skipped": "excluded"})
+        return
 
     async def remote() -> dict[str, Any]:
         async with make_client(hub_dir) as client:
@@ -1058,6 +1113,9 @@ def hub_memory_delete(
     hub_dir: str | None = HubDir,
 ) -> None:
     """删除（归档）一条当前记忆。"""
+    if _excluded_at_cwd(hub_dir):
+        _echo({"skipped": "excluded"})
+        return
 
     async def remote() -> dict[str, Any]:
         async with make_client(hub_dir) as client:

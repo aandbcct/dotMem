@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 """Local stdio MCP proxy for one bearer-authenticated MemHub Core."""
 
-from __future__ import annotations
-
 import argparse
 import re
 import uuid
@@ -10,11 +8,15 @@ from collections.abc import AsyncIterator, Awaitable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
+from urllib.request import url2pathname
 
 import httpx
 
-from memhub.hub.browse import current_rows
+from memhub.hub.browse import current_rows, is_excluded_workspace
 from memhub.hub.client import HubClient
+from memhub.hub.config import hub_settings
+from memhub.hub.redact import sanitize_text
 from memhub.tool_output import (
     ANCHOR_CHARS,
     CONTEXT_MAX_TURNS,
@@ -199,7 +201,7 @@ def build_hub_mcp(
     """Build the MCP server. The Core is resolved per tool call, so a host that
     starts before ``memhub serve`` still gets working tools once the Core is up."""
     try:
-        from mcp.server.mcpserver import MCPServer
+        from mcp.server.mcpserver import Context, MCPServer
     except ImportError as exc:
         raise ImportError(
             "MemHub MCP requires: pip install memhub[mcp]"
@@ -217,6 +219,24 @@ def build_hub_mcp(
     # and an INFO line per request floods the host's MCP log (stderr).
     mcp = MCPServer("memhub-hub", log_level="WARNING")
 
+    async def excluded(workspace: str | None, ctx: Context) -> bool:
+        rules = hub_settings(hub_dir).hub_excluded_projects
+        if not rules:
+            return False
+        if any(is_excluded_workspace(ws, rules) for ws in (str(Path.cwd()), workspace)):
+            return True
+        try:
+            capabilities = ctx.client_capabilities
+        except ValueError:
+            # The SDK also supports calling a tool directly, without an MCP peer.
+            return False
+        if capabilities is None or capabilities.roots is None:
+            return False
+        roots = await ctx.session.list_roots()
+        paths = [urlsplit(str(root.uri)) for root in roots.roots]
+        return any(is_excluded_workspace(url2pathname(uri.path), rules) for uri in paths
+                   if uri.scheme == "file" and uri.netloc in ("", "localhost"))
+
     @mcp.tool(
         description=(
             "记住用户明确要求长期保留的一件事：偏好、约定、规矩、决策"
@@ -228,13 +248,21 @@ def build_hub_mcp(
             + _SCOPE_NOTE
         )
     )
-    async def memory_add(content: str) -> dict:
+    async def memory_add(ctx: Context, content: str, workspace: str | None = None) -> dict:
+        if await excluded(workspace, ctx):
+            return {"ok": False, "skipped": "excluded"}
+        content = sanitize_text(content)
+        if not content.strip():
+            return {"ok": False, "skipped": "private"}
+        scope = {"workspace_id": workspace} if workspace else {}
         async with core() as hub:
             receipt = await _call(
-                hub.write(content=content, request_id=f"hub-mcp:{uuid.uuid4()}")
+                hub.write(content=content, request_id=f"hub-mcp:{uuid.uuid4()}", **scope)
             )
         if not isinstance(receipt, dict) or receipt.get("ok") is False:
             return receipt
+        if skipped := (receipt.get("result") or {}).get("skipped"):
+            return {"ok": False, "skipped": skipped}
         return {
             "ok": True,
             "request_id": receipt.get("request_id", ""),
@@ -251,7 +279,9 @@ def build_hub_mcp(
             "要编辑记忆请用 memory_list。" + _SCOPE_NOTE
         )
     )
-    async def memory_search(query: str, limit: int = 10) -> dict:
+    async def memory_search(ctx: Context, query: str, limit: int = 10, workspace: str | None = None) -> dict:
+        if await excluded(workspace, ctx):
+            return {"ok": False, "skipped": "excluded"}
         limit = cap(limit, SEARCH_MAX_ROWS)
         async with core() as hub:
             result = await _call(hub.recall(query=query, limit=limit, raw_limit=0))
@@ -271,7 +301,9 @@ def build_hub_mcp(
             "当注入上下文仅展示目录标题索引且与当前任务相关时调用。" + _SCOPE_NOTE
         )
     )
-    async def memory_get(memory_id: str) -> dict:
+    async def memory_get(ctx: Context, memory_id: str, workspace: str | None = None) -> dict:
+        if await excluded(workspace, ctx):
+            return {"ok": False, "skipped": "excluded"}
         async with core() as hub:
             item = await _call(hub.get_memory(memory_id))
         if not isinstance(item, dict) or item.get("ok") is False:
@@ -287,7 +319,9 @@ def build_hub_mcp(
             "找不到匹配项时直接 memory_add 写新约定。" + _SCOPE_NOTE
         )
     )
-    async def memory_list(query: str = "", limit: int = 20) -> dict:
+    async def memory_list(ctx: Context, query: str = "", limit: int = 20, workspace: str | None = None) -> dict:
+        if await excluded(workspace, ctx):
+            return {"ok": False, "skipped": "excluded"}
         limit = cap(limit, LIST_MAX_ROWS)
         async with core() as hub:
             rows = await _call(hub.list_memories())
@@ -306,7 +340,9 @@ def build_hub_mcp(
             "404 表示 id 不存在或已不是当前版本。" + _SCOPE_NOTE
         )
     )
-    async def memory_update(memory_id: str, content: str) -> dict:
+    async def memory_update(ctx: Context, memory_id: str, content: str, workspace: str | None = None) -> dict:
+        if await excluded(workspace, ctx):
+            return {"ok": False, "skipped": "excluded"}
         async with core() as hub:
             result = await _call(hub.update_memory(memory_id, content))
         if not isinstance(result, dict) or result.get("ok") is False:
@@ -323,7 +359,9 @@ def build_hub_mcp(
             "仅在用户明确要求忘掉/删除时使用；给出新约定时优先用 memory_update。" + _SCOPE_NOTE
         )
     )
-    async def memory_delete(memory_id: str) -> dict:
+    async def memory_delete(ctx: Context, memory_id: str, workspace: str | None = None) -> dict:
+        if await excluded(workspace, ctx):
+            return {"ok": False, "skipped": "excluded"}
         async with core() as hub:
             result = await _call(hub.delete_memory(memory_id))
         if not isinstance(result, dict) or result.get("ok") is False:
@@ -347,11 +385,15 @@ def build_hub_mcp(
         )
     )
     async def conversation_search(
+        ctx: Context,
         query: str = "",
         limit: int = 10,
         source_id: str = "",
         context_turns: int = 1,
+        workspace: str | None = None,
     ) -> dict:
+        if await excluded(workspace, ctx):
+            return {"ok": False, "skipped": "excluded"}
         target_id = source_id.strip()
         if not target_id:
             target_id = _looks_like_l0_id(query)

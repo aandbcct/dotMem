@@ -159,6 +159,8 @@ class Settings(BaseSettings):
     # 密钥被长期保存，设 MEMHUB_REDACT_SECRETS=true。``<private>`` 标注与 Base64
     # 图片清洗始终生效，与本开关无关。
     redact_secrets: bool = False
+    hub_excluded_projects: str = ""
+    hub_privacy_hint: bool = True
     # Opt in to importing DSH conversations into the personal Hub Core.
     hub_capture_dsh: bool = False
 

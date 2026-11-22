@@ -184,6 +184,31 @@ async def test_remember_is_one_call_and_a_terminal_result() -> None:
     assert core.calls == [("write", "用户要求前端改动在真实页面验证")]
 
 
+async def test_excluded_workspace_tools_never_contact_core(tmp_path, monkeypatch) -> None:
+    private = tmp_path / "private"
+    private.mkdir()
+    monkeypatch.setenv("MEMHUB_HUB_EXCLUDED_PROJECTS", str(private))
+    core = StubCore()
+    server = build_hub_mcp(client=core)
+    for name, args in (
+        ("memory_add", {"content": "don't save"}),
+        ("memory_search", {"query": "don't search"}),
+        ("memory_list", {}),
+        ("memory_get", {"memory_id": "a1b2c3d4"}),
+        ("conversation_search", {"source_id": "37c85fe9"}),
+        ("memory_update", {"memory_id": "a1b2c3d4", "content": "don't change"}),
+        ("memory_delete", {"memory_id": "a1b2c3d4"}),
+    ):
+        assert _payload(await server.call_tool(name, args | {"workspace": str(private)})) == {
+            "ok": False, "skipped": "excluded",
+        }
+    monkeypatch.chdir(private)
+    assert _payload(await server.call_tool("memory_add", {"content": "don't save"})) == {
+        "ok": False, "skipped": "excluded",
+    }
+    assert core.calls == []
+
+
 async def test_search_returns_flat_rows_with_ids() -> None:
     server = build_hub_mcp(client=StubCore())
     body = _payload(await server.call_tool("memory_search", {"query": "住址"}))

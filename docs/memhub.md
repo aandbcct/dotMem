@@ -205,13 +205,28 @@ memhub connect git git@github.com:<你的用户名>/my-vibecoding-memory.git
 
 ## 隐私：什么会被记住，什么不会
 
-- **`<private>...</private>`**：包起来的内容不入库，**同一轮里标签外的内容照常保存**。这是你主动声明的排除范围，随时可用：
+- **片段**：`<private>...</private>` 包住的内容在自动采集发给 Core 前剥离。标签外的提问和回答照常保存：
 
   ```
   我的数据库密码是 <private>hunter2</private>，连接串是 postgres://db:5432/app
   ```
 
-  标签内的 `hunter2` 丢弃，标签外的连接串入库。未闭合的 `<private>` 会丢弃其后全部内容。
+  标签内的 `hunter2` 丢弃，标签外的连接串入库。未闭合的 `<private>` 会丢弃其后全部内容。**标签只保护包住的内容，不会自动擦除回答或工具输出里对它的复述。** 如果整轮都不应留下记录，请用下面的整轮模式。
+
+- **整轮（MemHub 扩展）**：把整条提问包成 `<private>不想被记录的提问</private>`，本轮不会写入 MemHub，包括回答、工具记录和派生的工程经验。有公开提问文本的同一轮仍按片段处理。该轮不会触发 MemHub 的提问 Hook 注入；已在会话中的上下文不变。Claude Code 的普通提问会在界面显示用法提示，可设 `hub_privacy_hint: false` 关闭。
+
+- **目录或项目**：在本机配置里列出不使用 MemHub 的目录，再重启 Core：
+
+  ```yaml
+  # ~/.memhub/config.yaml
+  hub_excluded_projects: "~/Documents/Private/**,/tmp/scratch,remote:example/client-acme"
+  ```
+
+  普通路径包含自身和子目录；glob 的 `*` 不跨目录，`**` 跨目录。匹配时也检查 Git 项目根及 `remote:组织/仓库`，便于覆盖同仓库的多个 checkout。命中后，Hook 不注入任何 MemHub 内容（含全局画像和用法提示），自动监听、手动扫描均跳过该目录的已完成轮次并推进游标，取消排除不会补录已经跳过的轮次。
+
+  `memhub recall`、`memhub remember` 及其他记忆 CLI 命令会检查当前目录；MCP 检查进程工作目录、宿主提供的 MCP roots 和工具可选的 `workspace`。宿主若既没提供项目路径也没从项目目录启动，MemHub 无法识别该目录；此时应显式提供 `workspace`，或不要在该宿主启用 MemHub。OpenCode 需重新运行 `memhub install-host opencode` 才会更新已有插件。
+
+  这些规则**不改宿主自己的会话日志、不删除既有记忆**，也不是对 SDK 直写、无来源目录的管理 API 或 `/ui` 设置权限。同步日志及快照不按目录过滤；如需避免其他设备采集该项目，每台设备都应配置排除。
 
 - **让 Agent 记住一个 API key**：直接说，不要加 `<private>`。默认配置下 key 原样保存，之后可以正常召回到。
 

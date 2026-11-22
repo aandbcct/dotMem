@@ -11,10 +11,7 @@ import json
 import re
 from typing import Any
 
-_PRIVATE_TAG_RE = re.compile(
-    r"<private\b[^>]*>.*?</private\s*>",
-    re.DOTALL | re.IGNORECASE,
-)
+_PRIVATE_TAG_RE = re.compile(r"<private(?=[\s>])[^>]*>|(</private\s*>)", re.IGNORECASE)
 
 # Inline data:image/*;base64,... payloads above this length are screenshots or
 # embedded images rather than tiny icons; replace the base64 body with a byte/char
@@ -130,11 +127,42 @@ def strip_private_tags(text: str) -> str:
     """
     if not text or "<private" not in text.lower():
         return text
-    cleaned = _PRIVATE_TAG_RE.sub("", text)
-    opened = re.search(r"<private\b[^>]*>", cleaned, re.IGNORECASE)
-    if opened is not None:
-        cleaned = cleaned[: opened.start()]
-    return re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    public: list[str] = []
+    depth = 0
+    start = 0
+    for tag in _PRIVATE_TAG_RE.finditer(text):
+        if tag[1]:
+            if depth:
+                depth -= 1
+                if not depth:
+                    start = tag.end()
+        else:
+            if not depth:
+                public.append(text[start:tag.start()])
+            depth += 1
+    if not depth:
+        public.append(text[start:])
+    return re.sub(r"\n{3,}", "\n\n", "".join(public)).strip()
+
+
+def is_private_prompt(text: str) -> bool:
+    return bool(text.strip()) and not strip_private_tags(text).strip()
+
+
+def is_private_turn(content: str, messages: list[dict] | None) -> bool:
+    if not messages:
+        return is_private_prompt(content)
+    prompts: list[str] = []
+    for message in messages:
+        if message.get("role") != "user":
+            continue
+        value = message.get("content")
+        blocks = value if isinstance(value, list) else [value]
+        for block in blocks:
+            text = block.get("text") if isinstance(block, dict) else block
+            if isinstance(text, str) and text.strip():
+                prompts.append(text)
+    return bool(prompts) and all(is_private_prompt(text) for text in prompts)
 
 
 def elide_data_image_urls(text: str) -> str:
@@ -324,6 +352,8 @@ def sanitize_messages(
 __all__ = [
     "BUILTIN_SECRET_PATTERNS",
     "elide_data_image_urls",
+    "is_private_prompt",
+    "is_private_turn",
     "redact_secrets",
     "sanitize_messages",
     "sanitize_text",

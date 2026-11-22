@@ -57,9 +57,9 @@ import zstandard
 
 from memhub.client import strip_memory_injection
 from memhub.coding.preproc import extract_tool_signals
-from memhub.hub.browse import canonical_workspace
-from memhub.hub.config import CursorStore
-from memhub.hub.redact import sanitize_text, strip_image_payloads
+from memhub.hub.browse import canonical_workspace, is_excluded_workspace
+from memhub.hub.config import CursorStore, hub_settings
+from memhub.hub.redact import sanitize_messages, sanitize_text, strip_image_payloads
 
 logger = logging.getLogger(__name__)
 _SIGNAL_EXIT_RE = re.compile(r"(?m)^(?:Exit code|exit_code):\s*(-?\d+)\s*$")
@@ -176,6 +176,7 @@ class Turn:
     branch: str | None = None
     signals: list[dict] = field(default_factory=list)
     assistant_model: str | None = None
+    workspace_path: str | None = None
 
     def messages(self) -> list[dict]:
         out: list[dict] = [{"role": "user", "content": self.user}, *self.steps]
@@ -220,8 +221,9 @@ def _strip_tags(text: str, tags: tuple[str, ...]) -> str:
 RecordParser = Callable[[dict, dict], "tuple[str, str, str, int | None] | None"]
 
 
-def _clean_text(text: str) -> str:
-    return sanitize_text(strip_memory_injection(text)).strip()
+def _clean_text(text: str, *, keep_private: bool = False) -> str:
+    text = strip_memory_injection(text, keep_private=True)
+    return str(strip_image_payloads(text)).strip() if keep_private else sanitize_text(text).strip()
 
 
 def _tool_call(call_id: str, name: str, arguments: Any) -> dict:
@@ -301,7 +303,7 @@ def _parse_agentica(record: dict, state: dict) -> tuple[str, str, str, int | Non
                 state["automated_turn"] = True
             return None
         text = _strip_agentica_markup(_blocks_text(record.get("content")))
-        if not _clean_text(text):
+        if not _clean_text(text, keep_private=True):
             return None
         state["automated_turn"] = False
         return "user", text, session_id, at
@@ -690,7 +692,7 @@ def _read_stream(
         if parsed is None:
             continue
         role, text, session_id, at = parsed
-        text = _clean_text(text)
+        text = _clean_text(text, keep_private=role == "user")
         steps = tuple(state["steps"])
         signals = tuple(state["signals"])
         model = state["answer_model"]
@@ -1029,7 +1031,7 @@ def _read_cline(path: Path, start: int) -> tuple[list[Message], int]:
                     if err:
                         sig["error"] = err
                     signals.append(sig)
-        text = _clean_text(_blocks_text(content))
+        text = _clean_text(_blocks_text(content), keep_private=role == "user")
         if text or steps or signals:
             messages.append(
                 Message(role, text, session_id, at, idx, idx + 1, tuple(steps), workspace, None, tuple(signals))
@@ -1139,15 +1141,17 @@ def _dsh_turns(messages: list[Message], reached: int) -> tuple[list[Turn], int]:
                 turns.append(current)
             open_at, current = None, None
         elif msg.role == "user":
+            public = sanitize_text(msg.text)
             if current is None:
                 # An older scanner may have stopped at the prompt, after turn/start.
                 open_at = msg.start if open_at is None else open_at
                 current = Turn(
-                    msg.session_id, msg.text, "", msg.at, open_at, msg.end,
+                    msg.session_id, public, "", msg.at, open_at, msg.end,
                     workspace=canonical_workspace(msg.workspace) or None,
+                    workspace_path=msg.workspace,
                 )
-            else:
-                current.user += f"\n{msg.text}"
+            elif public:
+                current.user = f"{current.user}\n{public}" if current.user else public
         elif current is not None:
             current.steps.extend(msg.steps)
             if msg.text:
@@ -1170,7 +1174,7 @@ def _read_hermes(path: Path, start: int) -> tuple[list[Message], int]:
     messages = [
         Message(role, text, session_id, int(ts), row_id - 1, row_id)
         for row_id, session_id, role, content, ts in rows
-        if (text := _clean_text(content or ""))
+        if (text := _clean_text(content or "", keep_private=role == "user"))
     ]
     return messages, rows[-1][0] if rows else start
 
@@ -1200,7 +1204,7 @@ def _read_opencode(path: Path, start: int) -> tuple[list[Message], int]:
         workspace = directory or (msg.get("path") or {}).get("cwd") or None
         kind = part.get("type")
         if kind == "text" and not part.get("synthetic"):
-            text = _clean_text(part.get("text") or "")
+            text = _clean_text(part.get("text") or "", keep_private=role == "user")
             if text:
                 messages.append(
                     Message(role, text, session_id, at, row_id - 1, row_id, (), workspace)
@@ -1451,6 +1455,9 @@ def build_turns(messages: list[Message]) -> tuple[list[Turn], Turn | None]:
             resolved[msg.workspace] = canonical_workspace(msg.workspace) or None
         workspace = resolved[msg.workspace]
         if msg.role == "user" and msg.text:
+            # Even a completely private request starts a turn. Its public text
+            # is empty, but the boundary must keep its answer off the prior turn.
+            public = sanitize_text(msg.text)
             if current and (
                 current.assistant or current.steps or current.session_id != msg.session_id
             ):
@@ -1458,13 +1465,15 @@ def build_turns(messages: list[Message]) -> tuple[list[Turn], Turn | None]:
                 current = None
             if current is None:
                 current = Turn(
-                    msg.session_id, msg.text, "", msg.at, msg.start, msg.end,
-                    workspace=workspace, branch=msg.branch,
+                    msg.session_id, public, "", msg.at, msg.start, msg.end,
+                    workspace=workspace, branch=msg.branch, workspace_path=msg.workspace,
                 )
             else:
-                current.user = f"{current.user}\n{msg.text}"
+                if public:
+                    current.user = f"{current.user}\n{public}" if current.user else public
                 current.end = msg.end
                 current.workspace = workspace or current.workspace
+                current.workspace_path = current.workspace_path or msg.workspace
         elif current is not None and current.session_id == msg.session_id:
             current.steps.extend(msg.steps)
             current.signals.extend(msg.signals)
@@ -1473,19 +1482,26 @@ def build_turns(messages: list[Message]) -> tuple[list[Turn], Turn | None]:
                 current.assistant_model = msg.assistant_model
             current.end = msg.end
             current.workspace = workspace or current.workspace
+            current.workspace_path = current.workspace_path or msg.workspace
             current.branch = msg.branch or current.branch
     return [t for t in turns if t.assistant], current
 
 
-def _batches(turns: list[Turn], size: int) -> Iterator[list[Turn]]:
+def _batches(
+    turns: list[Turn], size: int, skip: Callable[[Turn], bool],
+) -> Iterator[tuple[bool, list[Turn]]]:
     batch: list[Turn] = []
+    skipped = False
     for turn in turns:
-        if batch and (len(batch) >= size or batch[-1].session_id != turn.session_id):
-            yield batch
+        skip_turn = skip(turn)
+        if batch and (len(batch) >= size or batch[-1].session_id != turn.session_id
+                      or batch[-1].workspace != turn.workspace or skipped != skip_turn):
+            yield skipped, batch
             batch = []
         batch.append(turn)
+        skipped = skip_turn
     if batch:
-        yield batch
+        yield skipped, batch
 
 
 async def scan_file(
@@ -1499,6 +1515,8 @@ async def scan_file(
     batch_turns: int = 5,
     max_turns: int = 0,
     raw_only: bool = False,
+    excluded_projects: str = "",
+    fallback_workspace: str | None = None,
 ) -> int:
     """Ingest the turns appended to ``path`` since its cursor; returns turns written.
 
@@ -1518,6 +1536,15 @@ async def scan_file(
     if source == "workbuddy" and _is_workbuddy_automation_file(path):
         return 0
     key = str(path.resolve())
+    excluded: dict[str | None, bool] = {}
+
+    def skip(turn: Turn) -> bool:
+        ws = turn.workspace_path or turn.workspace or fallback_workspace
+        if ws not in excluded:
+            excluded[ws] = is_excluded_workspace(ws, excluded_projects)
+        return excluded[ws] or not turn.user
+
+    written = 0
     with cursors.lock(source, key):
         cursor = cursors.get(source, key)
         try:
@@ -1531,7 +1558,7 @@ async def scan_file(
         else:
             turns, open_turn = build_turns(messages)
             ended = complete or time.time() - path.stat().st_mtime >= idle_seconds
-            if open_turn and open_turn.assistant and ended:
+            if open_turn and ended and (open_turn.assistant or skip(open_turn)):
                 turns.append(open_turn)
                 open_turn = None
             stop = open_turn.start if open_turn else reached
@@ -1540,8 +1567,11 @@ async def scan_file(
             stop = turns[-1].end
         # Live capture and a manual DSH scan must replay the same request ID,
         # even if the Core committed the receipt before the cursor advanced.
-        for batch in _batches(turns, 1 if source == "dsh" else batch_turns):
-            messages_in = [m for turn in batch for m in turn.messages()]
+        for skipped, batch in _batches(turns, 1 if source == "dsh" else batch_turns, skip):
+            if skipped:
+                cursors.advance(source, key, batch[-1].end, 0)
+                continue
+            messages_in = sanitize_messages([m for turn in batch for m in turn.messages()])
             raw_signals = [s for turn in batch for s in turn.signals]
             resolved_signals = (
                 extract_tool_signals(messages_in, extra=raw_signals)
@@ -1567,19 +1597,21 @@ async def scan_file(
             ).hexdigest()[:32]
             # Returns once the Core holds the evidence (it retries model work
             # itself); an unreachable Core raises here and the cursor stays.
-            await client.write(
+            receipt = await client.write(
                 messages=messages_in,
                 session_id=session_id,
                 memory_at=batch[-1].at,
                 request_id=f"memhub:{request_id}",
                 raw_only=raw_only,
-                workspace_id=batch[-1].workspace,
+                workspace_id=batch[-1].workspace_path or batch[-1].workspace or fallback_workspace,
                 branch=batch[-1].branch,
                 **extra_kw,
             )
-            cursors.advance(source, key, batch[-1].end, len(batch))
+            accepted = 0 if (receipt.get("result") or {}).get("skipped") else len(batch)
+            cursors.advance(source, key, batch[-1].end, accepted)
+            written += accepted
         cursors.advance(source, key, stop, 0)
-    return len(turns)
+    return written
 
 
 async def scan_sources(
@@ -1597,6 +1629,8 @@ async def scan_sources(
     other files are still ingested. An unreachable Core still aborts the scan.
     """
     roots = roots or default_source_roots()
+    if "excluded_projects" not in scan_kwargs:
+        scan_kwargs["excluded_projects"] = hub_settings(hub_dir).hub_excluded_projects
     summary: dict[str, dict[str, int]] = {}
     remaining = max_turns
     with CursorStore(hub_dir) as cursors:

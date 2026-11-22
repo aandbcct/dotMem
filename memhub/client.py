@@ -60,11 +60,14 @@ _INJECTION_BLOCK_RE = re.compile(
 )
 
 
-def strip_memory_injection(text: str) -> str:
+def strip_memory_injection(text: str, *, keep_private: bool = False) -> str:
     """Remove host-injected memory blocks so they are not written back as L1."""
     if not text:
         return text
-    cleaned = _INJECTION_BLOCK_RE.sub("", text)
+    cleaned = _INJECTION_BLOCK_RE.sub(
+        lambda match: match[0] if keep_private and match[1].lower() == "private" else "",
+        text,
+    )
     return re.sub(r"\n{3,}", "\n\n", cleaned).strip()
 
 

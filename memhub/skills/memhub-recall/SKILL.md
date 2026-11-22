@@ -65,5 +65,6 @@ CLI 入口是 `python3 -m memhub.cli <子命令>`，安装后也可直接 `memhu
 我的数据库密码是 <private>hunter2</private>，连接串是 postgres://db:5432/app
 ```
 
-标签内的 `hunter2` 不会进库，标签外的连接串会。用户要求「记住我的 API key」时**不要**加标签——
-说「记住」就是要记住，写进 `memory_add` 原样保存即可。
+标签内的 `hunter2` 不会进库，标签外的连接串会；标签外的回答或工具输出若复述它，仍可能被采集。
+整条提问用 `<private>...</private>` 包住时，本轮提问、回答和工具记录都不写入 MemHub。
+本机的 `hub_excluded_projects` 可停用匹配目录的采集与召回；当宿主未提供项目根时，MCP 记忆工具可传 `workspace` 供排除检查。

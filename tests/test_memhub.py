@@ -44,6 +44,7 @@ from memhub.hub import (
     uninstall_host,
 )
 from memhub.hub.hosts import TRAE_MCP
+from memhub.hub.browse import is_excluded_workspace
 from memhub.hub.queue import HubWriteQueue
 from memhub.hub.server import (
     HUB_USER_ID,
@@ -1346,7 +1347,8 @@ def test_cli_capture_hook_and_status(tmp_path: Path, monkeypatch) -> None:
     )
     assert agentica.exit_code == 0
     reply = json.loads(agentica.output)
-    assert reply == json.loads(hook.output)
+    assert reply == {"hookSpecificOutput": json.loads(hook.output)["hookSpecificOutput"]}
+    assert json.loads(hook.output)["systemMessage"] == "用 <private>…</private> 排除片段；包住整条提问则不记本轮。"
     assert reply["hookSpecificOutput"]["hookEventName"] == "UserPromptSubmit"
     assert "PyTorch" in reply["hookSpecificOutput"]["additionalContext"]
     publish_runtime(base_url="http://127.0.0.1:8765", instance_id="core-1", pid=1, hub_dir=hub)
@@ -2633,7 +2635,7 @@ def test_opencode_plugin_bridges_events_onto_hub_hook(tmp_path, monkeypatch):
     driver = tmp_path / "drive.mjs"
     driver.write_text(
         f"import make from {json.dumps(plugin.as_uri())};\n"
-        "const hooks = await make();\n"
+        "const hooks = await make({ directory: '/test/opencode' });\n"
         "const output = { message: { system: 'base' }, parts: [\n"
         "  { type: 'text', text: '问题' }, { type: 'text', text: 'x', synthetic: true }] };\n"
         "await hooks['chat.message']({ sessionID: 's1' }, output);\n"
@@ -2645,8 +2647,8 @@ def test_opencode_plugin_bridges_events_onto_hub_hook(tmp_path, monkeypatch):
     assert proc.stdout.strip() == "base\n\nCTX:问题"
     calls = [json.loads(line) for line in log.read_text().splitlines()]
     assert calls == [
-        {"hook_event_name": "UserPromptSubmit", "session_id": "s1", "prompt": "问题"},
-        {"hook_event_name": "Stop", "session_id": "s1"},
+        {"hook_event_name": "UserPromptSubmit", "session_id": "s1", "prompt": "问题", "cwd": "/test/opencode"},
+        {"hook_event_name": "Stop", "session_id": "s1", "cwd": "/test/opencode"},
     ]
 
 
@@ -3618,6 +3620,7 @@ async def test_private_tags_secret_redaction_and_base64_image_elision(
     hub = tmp_path / "hub"
     core = _memory_client(hub, fake_embed, fake_llm, fake_jev)
     async with _attached_core(hub, core) as (_app, remote):
+        queue_before = _app.state.queue.counts()
         skipped = await remote.write(
             content="<private>only secret</private>",
             request_id="priv-only",
@@ -3625,8 +3628,7 @@ async def test_private_tags_secret_redaction_and_base64_image_elision(
         )
         assert skipped["status"] == "done"
         assert skipped["result"] == {"skipped": "private"}
-        # Only the tagged span is dropped: the assistant's answer is kept.
-        kept_turn = await remote.write(
+        skipped_turn = await remote.write(
             messages=[
                 {"role": "user", "content": "<private>整段私密提问</private>"},
                 {"role": "assistant", "content": "好的，我记住了"},
@@ -3635,7 +3637,15 @@ async def test_private_tags_secret_redaction_and_base64_image_elision(
             request_id="priv-turn",
             wait=True,
         )
-        assert kept_turn["result"]["memory_id"]
+        assert skipped_turn["result"] == {"skipped": "private"}
+        skipped_block = await remote.write(
+            messages=[
+                {"role": "user", "content": {"type": "text", "text": "<private>私密文本块</private>"}},
+                {"role": "assistant", "content": "不能保留的回答"},
+            ], session_id="codex:priv", request_id="priv-block", raw_only=True, wait=True,
+        )
+        assert skipped_block["result"] == {"skipped": "private"}
+        assert _app.state.queue.counts() == queue_before
         rows = [
             node
             for node in await core.list(
@@ -3643,10 +3653,167 @@ async def test_private_tags_secret_redaction_and_base64_image_elision(
             )
             if node.session_id == "codex:priv"
         ]
-        assert rows, "the answer outside <private> is kept"
-        assert not any("整段私密提问" in node.content for node in rows)
-        assert any("我记住了" in node.content for node in rows)
+        assert rows == []
+        await remote.write(
+            messages=[
+                {"role": "user", "content": "公开问题 <private>私密片段</private>"},
+                {"role": "assistant", "content": "公开回答"},
+            ], session_id="codex:public", request_id="public-turn", raw_only=True, wait=True,
+        )
+        await remote.write(
+            messages=[{"role": "assistant", "content": "没有提问记录的回答"}],
+            session_id="codex:no-user", request_id="no-user", raw_only=True, wait=True,
+        )
+        raws = {n.session_id: n.content for n in await core.list(user_id=HUB_USER_ID, limit=50)}
+        assert "公开问题" in raws["codex:public"] and "公开回答" in raws["codex:public"]
+        assert "私密片段" not in raws["codex:public"]
+        assert "没有提问记录的回答" in raws["codex:no-user"]
     await core.aclose()
+
+
+async def test_scan_discards_private_turn_before_transport(tmp_path: Path) -> None:
+    path = tmp_path / "session.jsonl"
+    _jsonl(path, [
+        {"type": role, "sessionId": "s", "cwd": str(tmp_path), "message": {"content": text}}
+        for role, text in (
+            ("user", "public question <private>hidden fragment</private>"),
+            ("assistant", "public answer"),
+            ("user", "<private>hidden question</private>"),
+            ("assistant", "hidden answer"),
+            ("user", "<private>unclosed secret"),
+            ("user", "next question"),
+            ("assistant", "next answer"),
+        )
+    ])
+    writes = []
+
+    class Writer:
+        async def write(self, **kwargs):
+            writes.append(kwargs)
+            return {"status": "pending"}
+
+    with CursorStore(tmp_path) as cursors:
+        assert await scan_file(Writer(), source="claude-code", path=path, cursors=cursors,
+                               complete=True) == 2
+        assert cursors.get("claude-code", str(path.resolve())).position == path.stat().st_size
+    assert [m["content"] for w in writes for m in w["messages"]] == [
+        "public question", "public answer", "next question", "next answer",
+    ]
+
+
+def test_private_prompt_hook_does_not_contact_core_or_stash(tmp_path: Path, monkeypatch) -> None:
+    def no_core(_hub):
+        pytest.fail("a private turn must not contact Core")
+
+    monkeypatch.setattr(cli_hub, "make_client", no_core)
+    hook_args = ["hook", "trae", "--hub-dir", str(tmp_path)]
+    base = {"session_id": "t-1", "cwd": str(tmp_path), "workspace_roots": [str(tmp_path)]}
+    for payload in (
+        {"hook_event_name": "UserPromptSubmit", "prompt": "<private>test secret</private>"},
+        {"hook_event_name": "Stop", "last_assistant_message": "test answer"},
+    ):
+        reply = runner.invoke(cli_main.app, hook_args, input=json.dumps(base | payload))
+        assert reply.exit_code == 0, reply.exception
+        assert reply.output == ""
+        assert not list(tmp_path.glob("pending/*.json"))
+
+
+def test_excluded_hook_and_cli_are_silent_without_core(tmp_path: Path, monkeypatch) -> None:
+    private = tmp_path / "private"
+    private.mkdir()
+    monkeypatch.setenv("MEMHUB_HUB_EXCLUDED_PROJECTS", str(private))
+
+    def no_core(_hub):
+        pytest.fail("an excluded workspace must not contact Core")
+
+    monkeypatch.setattr(cli_hub, "make_client", no_core)
+    hook = runner.invoke(cli_main.app, ["hook", "claude-code", "--hub-dir", str(tmp_path)],
+                         input=json.dumps({"prompt": "public prompt", "cwd": str(private)}))
+    assert hook.exit_code == 0 and hook.output == ""
+    monkeypatch.chdir(private)
+    cli = runner.invoke(cli_main.app, ["recall", "anything", "--json", "--hub-dir", str(tmp_path)])
+    assert cli.exit_code == 0
+    assert json.loads(cli.output) == {"skipped": "excluded", "memories": {}, "conversations": []}
+
+
+async def test_excluded_core_workspace_does_not_read_or_write(
+    tmp_path: Path, fake_embed, fake_llm, fake_jev, monkeypatch,
+) -> None:
+    private = tmp_path / "private"
+    core = _memory_client(tmp_path, fake_embed, fake_llm, fake_jev)
+    monkeypatch.setattr(core.settings, "hub_excluded_projects", f"{private}/**", raising=False)
+    async with _attached_core(tmp_path, core) as (app, remote):
+        before = app.state.queue.counts()
+        out = await remote.write(content="do not write", request_id="deny",
+                                 workspace_id=str(private / "sub"), wait=True)
+        assert out["result"] == {"skipped": "excluded"}
+        assert app.state.queue.counts() == before
+        assert await core.list(user_id=HUB_USER_ID, limit=50) == []
+
+        async def no_search(**_kw):
+            pytest.fail("excluded recall must not search any group, including profile")
+
+        monkeypatch.setattr(core, "search", no_search)
+        result = await remote.recall(query="do not send", workspace=str(private))
+        assert result["skipped"] == "excluded" and result["conversations"] == []
+        assert not any(result["memories"].values())
+    await core.aclose()
+
+
+async def test_scan_excluded_paths_advance_without_backfill(tmp_path: Path) -> None:
+    path = tmp_path / "mixed.jsonl"
+    private = tmp_path / "private"
+    _jsonl(path, [
+        {"type": role, "sessionId": "s", "cwd": str(workspace), "message": {"content": text}}
+        for role, workspace, text in (
+            ("user", private / "sub", "excluded question"),
+            ("assistant", private / "sub", "excluded answer"),
+            ("user", tmp_path / "private-other", "public question"),
+            ("assistant", tmp_path / "private-other", "public answer"),
+            ("user", private, "trailing excluded question"),
+            ("assistant", private, "trailing excluded answer"),
+        )
+    ])
+    writes = []
+
+    class Writer:
+        async def write(self, **kwargs):
+            writes.append(kwargs)
+            return {"status": "pending"}
+
+    with CursorStore(tmp_path) as cursors:
+        options = dict(source="claude-code", path=path, cursors=cursors, complete=True)
+        assert await scan_file(Writer(), excluded_projects=f"{private}/**", **options) == 1
+        assert cursors.get("claude-code", str(path.resolve())).position == path.stat().st_size
+        assert await scan_file(Writer(), **options) == 0
+    (call,) = writes
+    assert call["workspace_id"] == str(tmp_path / "private-other")
+    assert [m["content"] for m in call["messages"]] == ["public question", "public answer"]
+
+
+def test_excluded_workspace_matches_subdir_worktree_and_remote(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    primary = tmp_path / "project"
+    checkout = tmp_path / "checkout"
+    private = primary / "nested" / "private"
+    private.mkdir(parents=True)
+    for args in (
+        ("init", str(primary)),
+        ("-C", str(primary), "remote", "add", "origin", "https://example.com/team/project.git"),
+        ("-C", str(primary), "-c", "user.name=Test", "-c", "user.email=test@example.com",
+         "-c", "commit.gpgsign=false", "commit", "--allow-empty", "-m", "fixture"),
+        ("-C", str(primary), "worktree", "add", "--detach", str(checkout)),
+    ):
+        subprocess.run(["git", *args], check=True, capture_output=True)
+    assert is_excluded_workspace(str(private), "~/project/**/private")
+    assert not is_excluded_workspace(str(private), "~/project/*")
+    assert not is_excluded_workspace(str(primary), "~/project/nested/private")
+    assert is_excluded_workspace(str(checkout), "~/project/**")
+    assert is_excluded_workspace(str(checkout), "remote:team/project")
+    assert not is_excluded_workspace(str(checkout), "remote:other/project")
+    alias = tmp_path / "project-alias"
+    alias.symlink_to(primary, target_is_directory=True)
+    assert is_excluded_workspace(str(private), "~/project-alias/**/private")
 
 
 async def test_remembered_api_key_is_actually_stored(
@@ -3705,6 +3872,7 @@ def test_privacy_and_redaction_edge_cases() -> None:
     assert sanitize_text("a <private>secret tail") == "a"
     assert sanitize_text("a <private>tail</private> b") == "a  b"
     assert sanitize_text("a <PRIVATE>tail</PRIVATE> b") == "a  b"
+    assert sanitize_text("keep <private>outer <private>inner</private> tail</private> end") == "keep  end"
 
     # Only the tagged span goes; the assistant's answer survives.
     kept = sanitize_messages(

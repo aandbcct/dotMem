@@ -17,6 +17,11 @@ preset: default
 # 设为 true 可防止工具片段里的密钥被长期保存；<private> 标注始终有效。
 redact_secrets: false
 
+# 本机 Hub 按工作目录暂停采集与召回。逗号分隔的绝对路径、~ 路径、glob 或 remote:组织/仓库。
+hub_excluded_projects: ""
+# Claude Code 正常提问时的界面提示，不占记忆注入预算。
+hub_privacy_hint: true
+
 # 由本机 Core 监听 DSH 会话，首次启用会按游标补录已完成的历史轮次。
 hub_capture_dsh: false
 

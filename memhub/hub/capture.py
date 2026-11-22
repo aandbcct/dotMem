@@ -23,11 +23,13 @@ from memhub.hub.sources import (
 
 class DshCapture:
     def __init__(
-        self, hub_dir: Path, submit: Callable[..., Awaitable[dict[str, Any]]]
+        self, hub_dir: Path, submit: Callable[..., Awaitable[dict[str, Any]]],
+        *, excluded_projects: str = "",
     ) -> None:
         self._hub_dir = hub_dir
         self._source_root = default_source_roots()["dsh"].resolve()
         self._submit = submit
+        self._excluded_projects = excluded_projects
         self._stop = asyncio.Event()
         self._state = "starting"
         self._last_at: float | None = None
@@ -115,6 +117,7 @@ class DshCapture:
                     try:
                         written += await scan_file(
                             writer, source="dsh", path=path, cursors=cursors,
+                            excluded_projects=self._excluded_projects,
                         )
                     except (TranscriptError, OSError, sqlite3.Error, IdempotencyConflictError) as exc:
                         # Isolate one bad transcript and don't expose its payload in status.

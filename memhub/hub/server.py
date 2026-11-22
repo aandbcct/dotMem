@@ -33,6 +33,7 @@ from memhub.hub.browse import (
     browse_rows,
     canonical_workspace,
     git_remote_slug,
+    is_excluded_workspace,
     matching_workspace_nodes,
     node_matches_workspace,
     source_boundaries,
@@ -50,7 +51,7 @@ from memhub.hub.config import (
     unpublish_runtime,
 )
 from memhub.hub.queue import HubWriteQueue, evidence_fingerprint
-from memhub.hub.redact import sanitize_messages, sanitize_text
+from memhub.hub.redact import is_private_turn, sanitize_messages, sanitize_text
 from memhub.hub.sync import HubSyncer, SyncBackend, project_received
 from memhub.isolation import build_filter
 from memhub.retrieval.reader import Reader
@@ -585,7 +586,9 @@ def create_hub_app(
                 async def submit_capture(**payload: Any) -> dict[str, Any]:
                     return await submit_write(HubWriteRequest(**payload))
 
-                capture = DshCapture(root, submit_capture)
+                capture = DshCapture(
+                    root, submit_capture, excluded_projects=core_client.settings.hub_excluded_projects,
+                )
             app.state.dsh_capture = capture
             yield
         finally:
@@ -656,11 +659,16 @@ def create_hub_app(
         # Identity of the evidence as the client sent it, so a resend matches the
         # stored row whatever this Core's sanitizing settings are now.
         fingerprint = evidence_fingerprint(payload)
-        redact = app.state.client.settings.redact_secrets
+        settings = app.state.client.settings
+        redact = settings.redact_secrets
 
-        def prepare() -> None:
+        def prepare() -> str | None:
             # Regex sanitizing of a large batch and the workspace's walk up to
             # ``.git`` are blocking work; keep them off the Core's event loop.
+            if is_excluded_workspace(body.workspace_id, settings.hub_excluded_projects):
+                return "excluded"
+            if is_private_turn(body.content, body.messages):
+                return "private"
             payload["content"] = sanitize_text(payload["content"], redact=redact)
             payload["messages"] = sanitize_messages(payload["messages"], redact=redact)
             if body.assistant_models:
@@ -686,15 +694,15 @@ def create_hub_app(
                 payload["workspace_id"] = (
                     canonical_workspace(payload["workspace_id"]) or None
                 )
+            return None if payload["content"].strip() or payload["messages"] else "private"
 
-        await asyncio.to_thread(prepare)
-        if not payload["content"].strip() and not payload["messages"]:
+        if skipped := await asyncio.to_thread(prepare):
             return {
                 "request_id": body.request_id,
                 "status": "done",
                 "raw_only": body.raw_only,
                 "attempts": 0,
-                "result": {"skipped": "private"},
+                "result": {"skipped": skipped},
                 "error": None,
             }
         job = app.state.queue.submit(payload, fingerprint=fingerprint)
@@ -837,6 +845,10 @@ def create_hub_app(
 
     @app.post("/v1/hub/recall", dependencies=[Depends(verify)])
     async def recall(body: HubRecallRequest):
+        if await asyncio.to_thread(
+            is_excluded_workspace, body.workspace, app.state.client.settings.hub_excluded_projects,
+        ):
+            return {"skipped": "excluded", "memories": SearchMemories().to_dict(), "conversations": []}
         if max(body.limit, body.procedure_limit, body.raw_limit) <= 0:
             return await recall_payload(body)
         started = time.perf_counter()

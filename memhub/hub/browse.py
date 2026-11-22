@@ -15,6 +15,8 @@ import configparser
 import os
 import re
 import time
+from fnmatch import fnmatchcase
+from functools import cache
 from pathlib import Path
 from typing import Any
 
@@ -275,6 +277,43 @@ def workspace_keys(workspace: str) -> set[str]:
     if slug:
         keys.add(f"remote:{slug.lower()}")
     return keys
+
+
+def is_excluded_workspace(workspace: str | None, rules: str) -> bool:
+    """Match a local directory, its canonical Git aliases, or an explicit remote slug."""
+    if not workspace or not rules.strip():
+        return False
+    candidates = workspace_keys(workspace)
+    # Keep the selected subdirectory too; canonicalizing to a repo root alone
+    # would erase a rule such as /repo/confidential/**.
+    candidates.add(str(Path(workspace).expanduser().absolute()))
+
+    def matches(parts: tuple[str, ...], pattern: tuple[str, ...]) -> bool:
+        if not any(set(part) & {"*", "?", "["} for part in pattern):
+            return parts[:len(pattern)] == pattern
+
+        @cache
+        def glob(i: int, j: int) -> bool:
+            if j == len(pattern):
+                return i == len(parts)
+            if pattern[j] == "**":
+                return glob(i, j + 1) or (i < len(parts) and glob(i + 1, j))
+            return i < len(parts) and fnmatchcase(parts[i], pattern[j]) and glob(i + 1, j + 1)
+
+        return glob(0, 0)
+
+    for entry in rules.split(","):
+        rule = entry.strip()
+        if rule.startswith("remote:"):
+            if any(key.startswith("remote:") and fnmatchcase(key, rule.lower()) for key in candidates):
+                return True
+            continue
+        path = Path(rule).expanduser()
+        if path.is_absolute():
+            patterns = {path.parts, path.resolve().parts}
+            if any(matches(Path(key).parts, pattern) for key in candidates for pattern in patterns):
+                return True
+    return False
 
 
 def _workspaces_match(
