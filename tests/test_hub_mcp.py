@@ -198,6 +198,7 @@ async def test_excluded_workspace_tools_never_contact_core(tmp_path, monkeypatch
         ("conversation_search", {"source_id": "37c85fe9"}),
         ("memory_update", {"memory_id": "a1b2c3d4", "content": "don't change"}),
         ("memory_delete", {"memory_id": "a1b2c3d4"}),
+        ("memory_status", {}),
     ):
         assert _payload(await server.call_tool(name, args | {"workspace": str(private)})) == {
             "ok": False, "skipped": "excluded",
@@ -207,6 +208,68 @@ async def test_excluded_workspace_tools_never_contact_core(tmp_path, monkeypatch
         "ok": False, "skipped": "excluded",
     }
     assert core.calls == []
+
+
+async def test_mcp_roots_gate_excluded_workspaces(tmp_path) -> None:
+    from types import SimpleNamespace
+
+    from memhub.hub.mcp import roots_are_excluded
+
+    private = tmp_path / "private"
+    private.mkdir()
+    rules = f"{private}/**"
+
+    class Session:
+        def __init__(self, roots):
+            self.roots = roots
+
+        async def list_roots(self):
+            return SimpleNamespace(roots=[
+                SimpleNamespace(uri=f"file://{root}") for root in self.roots
+            ])
+
+    class Ctx:
+        def __init__(self, roots, *, capability=True):
+            self.client_capabilities = SimpleNamespace(roots=True) if capability else None
+            self.session = Session(roots)
+
+    class NoPeer:
+        @property
+        def client_capabilities(self):
+            raise ValueError("no MCP peer")
+
+    assert await roots_are_excluded(Ctx([str(private / "sub")]), rules)
+    assert not await roots_are_excluded(Ctx([str(tmp_path / "public")]), rules)
+    assert not await roots_are_excluded(Ctx([str(private / "sub")], capability=False), rules)
+    assert not await roots_are_excluded(Ctx([]), rules)
+    assert not await roots_are_excluded(NoPeer(), rules)
+
+
+def test_privacy_hint_can_be_disabled(tmp_path, monkeypatch) -> None:
+    class EmptyRemote:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return None
+
+        async def recall(self, **kwargs):
+            return {
+                "memories": {"normal": [], "profile": [], "proactive": [], "procedure": [],
+                             "raw": [], "schema": [], "catalog": []},
+                "conversations": [],
+                "project_view": None,
+            }
+
+    monkeypatch.setenv("MEMHUB_HUB_PRIVACY_HINT", "false")
+    monkeypatch.setattr(cli_hub, "make_client", lambda _hub: EmptyRemote())
+    reply = cli_runner.invoke(
+        cli_main.app,
+        ["hook", "claude-code", "--hub-dir", str(tmp_path)],
+        input=json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": "公开提问"}),
+    )
+    assert reply.exit_code == 0, reply.exception
+    assert "systemMessage" not in reply.output
 
 
 async def test_search_returns_flat_rows_with_ids() -> None:

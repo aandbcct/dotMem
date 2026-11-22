@@ -453,7 +453,9 @@ function run(payload) {{
   }});
 }}
 
-export default async ({{ directory }} = {{}}) => ({{
+export default async ({{ directory }} = {{}}) => {{
+  const cwd = directory || process.cwd();
+  return {{
   "chat.message": async (input, output) => {{
     const prompt = output.parts
       .filter((p) => p.type === "text" && !p.synthetic && p.text)
@@ -461,17 +463,18 @@ export default async ({{ directory }} = {{}}) => ({{
       .join("\\n")
       .trim();
     if (!prompt) return;
-    const raw = await run({{ hook_event_name: "UserPromptSubmit", session_id: input.sessionID, prompt, cwd: directory }});
+    const raw = await run({{ hook_event_name: "UserPromptSubmit", session_id: input.sessionID, prompt, cwd }});
     if (!raw) return;
     const ctx = JSON.parse(raw).hookSpecificOutput?.additionalContext;
     if (ctx) output.message.system = output.message.system ? `${{output.message.system}}\\n\\n${{ctx}}` : ctx;
   }},
   event: async ({{ event }}) => {{
     if (event.type === "session.idle") {{
-      await run({{ hook_event_name: "Stop", session_id: event.properties.sessionID, cwd: directory }});
+      await run({{ hook_event_name: "Stop", session_id: event.properties.sessionID, cwd }});
     }}
   }},
-}});
+  }};
+}};
 """
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(script, encoding="utf-8")

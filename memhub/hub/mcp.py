@@ -193,6 +193,21 @@ def _conversation_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
+async def roots_are_excluded(ctx: Any, rules: str) -> bool:
+    """Check the host's MCP roots when the caller named no workspace."""
+    try:
+        capabilities = ctx.client_capabilities
+    except ValueError:
+        # The SDK also supports calling a tool directly, without an MCP peer.
+        return False
+    if capabilities is None or capabilities.roots is None:
+        return False
+    roots = await ctx.session.list_roots()
+    paths = [urlsplit(str(root.uri)) for root in roots.roots]
+    return any(is_excluded_workspace(url2pathname(uri.path), rules) for uri in paths
+               if uri.scheme == "file" and uri.netloc in ("", "localhost"))
+
+
 def build_hub_mcp(
     *,
     hub_dir: str | Path | None = None,
@@ -225,17 +240,7 @@ def build_hub_mcp(
             return False
         if any(is_excluded_workspace(ws, rules) for ws in (str(Path.cwd()), workspace)):
             return True
-        try:
-            capabilities = ctx.client_capabilities
-        except ValueError:
-            # The SDK also supports calling a tool directly, without an MCP peer.
-            return False
-        if capabilities is None or capabilities.roots is None:
-            return False
-        roots = await ctx.session.list_roots()
-        paths = [urlsplit(str(root.uri)) for root in roots.roots]
-        return any(is_excluded_workspace(url2pathname(uri.path), rules) for uri in paths
-                   if uri.scheme == "file" and uri.netloc in ("", "localhost"))
+        return await roots_are_excluded(ctx, rules)
 
     @mcp.tool(
         description=(
@@ -420,7 +425,9 @@ def build_hub_mcp(
     @mcp.tool(
         description=("查看 Hub Core、记忆数量和写入队列状态，用于排查 memhub 自身故障。" + _SCOPE_NOTE)
     )
-    async def memory_status() -> dict:
+    async def memory_status(ctx: Context, workspace: str | None = None) -> dict:
+        if await excluded(workspace, ctx):
+            return {"ok": False, "skipped": "excluded"}
         async with core() as hub:
             status = await _call(hub.status())
         if not isinstance(status, dict) or status.get("ok") is False:

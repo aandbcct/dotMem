@@ -1520,6 +1520,9 @@ async def scan_file(
 ) -> int:
     """Ingest the turns appended to ``path`` since its cursor; returns turns written.
 
+    Private/excluded turns advance the cursor but count as 0, so ``--limit`` caps
+    stored turns rather than scanned turns and skipped history is never refilled.
+
     The open last turn is held back (cursor stays before it) unless the caller
     knows it ended (``complete``: a Stop / run.completed hook) or the transcript
     has been idle for ``idle_seconds``. Each batch of up to ``batch_turns`` turns of

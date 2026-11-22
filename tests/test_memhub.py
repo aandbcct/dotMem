@@ -2650,6 +2650,16 @@ def test_opencode_plugin_bridges_events_onto_hub_hook(tmp_path, monkeypatch):
         {"hook_event_name": "UserPromptSubmit", "session_id": "s1", "prompt": "问题", "cwd": "/test/opencode"},
         {"hook_event_name": "Stop", "session_id": "s1", "cwd": "/test/opencode"},
     ]
+    fallback = tmp_path / "drive-no-directory.mjs"
+    fallback.write_text(
+        f"import make from {json.dumps(plugin.as_uri())};\n"
+        "const hooks = await make();\n"
+        "const output = { message: { system: 'base' }, parts: [{ type: 'text', text: '问题' }] };\n"
+        "await hooks['chat.message']({ sessionID: 's2' }, output);\n"
+    )
+    subprocess.run(["node", str(fallback)], cwd=str(tmp_path),
+                   capture_output=True, text=True, check=True)
+    assert json.loads(log.read_text().splitlines()[-1])["cwd"] == str(tmp_path)
 
 
 def _cursor_transcript(root: Path, project: str, records: list[dict]) -> Path:

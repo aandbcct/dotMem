@@ -49,7 +49,7 @@ from memhub.hub.config import (
     runtime_status,
     save_sync_config,
 )
-from memhub.hub.redact import is_private_prompt, sanitize_messages, sanitize_text
+from memhub.hub.redact import sanitize_messages, sanitize_text
 from memhub.hub.sources import SOURCES, locate_transcript, scan_file, scan_sources
 from memhub.retrieval.formatter import (
     covered_texts_by_source,
@@ -586,8 +586,9 @@ def _capture_inline(source: str, payload: dict[str, Any], hub_dir: str | None) -
     workspaces = _hook_workspaces(payload)
     if pending["workspace"]:
         workspaces.append(pending["workspace"])
-    if is_private_prompt(pending["prompt"]) or _excluded_at_cwd(hub_dir, *workspaces):
-        path.unlink()
+    # A wholly private prompt never leaves a pending file (see _stash_prompt).
+    if _excluded_at_cwd(hub_dir, *workspaces):
+        path.unlink(missing_ok=True)
         return
     answer = sanitize_text(payload.get("last_assistant_message", "")).strip()
     messages = [{"role": "user", "content": pending["prompt"]}]
@@ -595,7 +596,7 @@ def _capture_inline(source: str, payload: dict[str, Any], hub_dir: str | None) -
         messages.append({"role": "assistant", "content": answer})
     messages = sanitize_messages(messages)
     if not messages:
-        path.unlink()
+        path.unlink(missing_ok=True)
         return
     digest = hashlib.sha256(f"{pending['prompt']}\n{answer}".encode()).hexdigest()[:16]
 
@@ -848,7 +849,7 @@ def _recall(payload: dict[str, Any], limit: int, hub_dir: str | None, source: st
     if not prompt or any(is_excluded_workspace(ws, settings.memhub_excluded_projects)
                          for ws in [str(Path.cwd()), *workspaces]):
         return
-    workspace = next(iter(workspaces), None)
+    workspace = canonical_workspace(next(iter(workspaces), None)) or None
 
     async def search() -> dict[str, Any]:
         async with make_client(hub_dir) as client:
@@ -859,7 +860,7 @@ def _recall(payload: dict[str, Any], limit: int, hub_dir: str | None, source: st
     result = asyncio.run(search())
     if result.get("skipped") == "excluded":
         return
-    context = build_hub_prompt_context(result, prompt, workspace=canonical_workspace(workspace) or None)
+    context = build_hub_prompt_context(result, prompt, workspace=workspace)
     output: dict[str, Any] = {}
     if source == "claude-code" and settings.hub_privacy_hint:
         output["systemMessage"] = "用 <private>…</private> 排除片段；包住整条提问则不记本轮。"
@@ -968,11 +969,13 @@ def hub_recall(
         typer.echo("\n\n".join(lines) or "没有找到对应的原始对话。")
         return
 
+    canon_ws = canonical_workspace(workspace) or None
+
     async def search() -> dict[str, Any]:
         async with make_client(hub_dir) as client:
             kw: dict[str, Any] = {"query": query, "limit": limit, "raw_limit": raw_limit}
-            if workspace:
-                kw["workspace"] = workspace
+            if canon_ws is not None:
+                kw["workspace"] = canon_ws
             return await client.recall(**kw)
 
     result = asyncio.run(search())
