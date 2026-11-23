@@ -275,7 +275,7 @@ def test_doctor_warns_only_on_repeated_slowness(
     checks = {
         c["name"]: c for c in json.loads(out.output)["checks"] if c["name"].startswith("Recall")
     }
-    assert set(checks) == set(labels.values())
+    assert set(checks) == {labels[key] for key, values in samples.items() if values}
     assert {name for name, check in checks.items() if check["status"] == "warn"} == (
         {expected_warning} if expected_warning else set()
     )

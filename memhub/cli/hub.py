@@ -1261,6 +1261,7 @@ def run_doctor(hub_dir: str | Path | None = None) -> dict[str, Any]:
     if remote_status is not None:
         recall = remote_status.get("recall") or {}
         sample_seconds = recall.get("sample_seconds", {})
+        emitted = False
         for key, label in (
             ("warm", "Recall warm"),
             ("after_write", "Recall after write"),
@@ -1268,19 +1269,20 @@ def run_doctor(hub_dir: str | Path | None = None) -> dict[str, Any]:
             ("embedding", "Recall embedding"),
         ):
             values = sample_seconds.get(key, [])
+            if not values:
+                continue
+            emitted = True
             recent = values[-RECALL_WARN_WINDOW:]
             slow = sum(seconds > RECALL_WARN_SECONDS for seconds in recent)
             warn = slow >= RECALL_WARN_COUNT
-            detail = "no recent samples"
-            if values:
-                detail = (
-                    f"last {values[-1]:.2f}s; median {median(values):.2f}s "
-                    f"({len(values)} in last {recall['window_seconds'] // 60}m)"
+            detail = (
+                f"last {values[-1]:.2f}s; median {median(values):.2f}s "
+                f"({len(values)} in last {recall['window_seconds'] // 60}m)"
+            )
+            if warn:
+                detail += (
+                    f"; {slow}/{len(recent)} recent samples > {RECALL_WARN_SECONDS:g}s"
                 )
-                if warn:
-                    detail += (
-                        f"; {slow}/{len(recent)} recent samples > {RECALL_WARN_SECONDS:g}s"
-                    )
             checks.append(
                 {
                     "name": label,
@@ -1289,18 +1291,23 @@ def run_doctor(hub_dir: str | Path | None = None) -> dict[str, Any]:
                     "required": False,
                 }
             )
+        if not emitted:
+            checks.append({
+                "name": "Recall latency", "status": "ok",
+                "detail": "no recent samples", "required": False,
+            })
 
-    dsh_capture = ((remote_status or {}).get("capture") or {}).get("dsh")
-    if dsh_capture is not None:
-        detail = f"{dsh_capture['mode']} ({dsh_capture['state']})"
-        if last_at := dsh_capture.get("last_at"):
-            detail += f"; last capture {last_at}"
-        error = dsh_capture.get("last_error")
-        if error:
-            detail += f"; {error}"
+    # Optional single-host capture is not a global health signal: a healthy or
+    # disabled watcher stays out of doctor; only a broken one earns a line.
+    dsh_capture = ((remote_status or {}).get("capture") or {}).get("dsh") or {}
+    dsh_error = dsh_capture.get("last_error")
+    if dsh_error or dsh_capture.get("state") == "failed":
         checks.append({
-            "name": "DSH capture", "status": "warn" if error else "ok",
-            "detail": detail, "required": False,
+            "name": "DSH capture", "status": "warn",
+            "detail": f"{dsh_capture.get('mode', 'watch')} "
+                      f"({dsh_capture.get('state', 'failed')})"
+                      + (f"; {dsh_error}" if dsh_error else ""),
+            "required": False,
         })
 
     # 4. Sync configuration and status.
@@ -1397,7 +1404,7 @@ def run_doctor(hub_dir: str | Path | None = None) -> dict[str, Any]:
             {
                 "name": "Detected hosts",
                 "status": "ok",
-                "detail": f"{len(wired)}/{len(detected)} wired ({', '.join(wired)})",
+                "detail": f"{len(wired)}/{len(detected)} wired",
                 "required": False,
             }
         )

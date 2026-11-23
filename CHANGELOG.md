@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **`memhub doctor` 输出精简**：`DSH capture` 只在监听失败时告警（健康或未启用不再占一行，状态仍可在 `memhub status` 查看）；健康时 `Detected hosts` 只显示接入数，不再列出全部宿主名，异常时仍列未接入名单；召回分桶只在有样本时分别报告，全无样本时收成一行 `Recall latency`。
+
 ## [0.2.5] — 2026-11-22
 
 - **Hub 支持整轮隐私和项目排除**：整条提问用 `<private>` 包住时，回答和工具记录也不会入库；部分包裹只去掉片段，标签外的复述不自动擦除。`memhub_excluded_projects` 在本机禁用匹配目录的采集与召回，跳过的已完成轮次推进游标。历史和跨设备同步协议不变。
@@ -13,7 +15,7 @@
 - **记忆规模不再触发清理告警**：`doctor` 只展示记忆总数，按实测召回延迟告警；移除会根据正文、年龄和全库去重物理删除记录的 `purge-noise`。正常编辑和逐条归档不变。抽取只丢弃明确标为 `durable=false` 的候选，分块判断冲突时保留；召回不再按句首过滤助手事实。
 - **记忆来源与管理界面**：新采集的 DeepSeek Harness、Agentica、Claude Code、Codex 对话保留宿主日志中的回答模型，仅作为原始对话的来源元数据展示（展示范围见上一条调整），不写入事实正文；没有模型元数据的记录不猜测。管理界面采用扁平布局，未展开的当前记忆也可通过图标编辑或归档删除，原始对话仍只支持删除。
 - **`/ui` 去掉与搜索框叉叉重复的「清除语义结果」按钮**：清空输入本来就会退出语义结果。现在语义模式在汇总行提示「Esc 退出」，按 Esc 清空输入和结果；回车检索失败也会提示原因，不再停留在「正在检索…」。
-- **DeepSeek Harness 支持自动采集**：设置 `hub_capture_dsh: true` 后，Core 通过系统文件通知读取变更的 DSH 会话，只在真人对话的成功 `turn/end` 落盘后入队，重启时从持久游标补录。不需要 DSH 插件或外部定时任务；`memhub doctor` 显示监听状态。
+- **DeepSeek Harness 支持自动采集**：设置 `hub_capture_dsh: true` 后，Core 通过系统文件通知读取变更的 DSH 会话，只在真人对话的成功 `turn/end` 落盘后入队，重启时从持久游标补录。不需要 DSH 插件或外部定时任务；监听状态在 `memhub status` 查看，`memhub doctor` 仅在监听失败时告警。
 - **WorkBuddy / CodeBuddy 的定时任务不再当作原始对话写入记忆**：产品把已触发的日程包在 `<automation_system_reminder>` 里，任务正文放在 `<user_query>`。采集时整轮跳过（含随后的工具调用和回答，避免串到上一条真人对话）。专用沙箱目录 `WorkBuddy-automation-*` 的会话文件整份不扫。DeepSeek Harness 的 `source.kind=schedule`（以及 `bot`、`tool-jobs`）本来就不是 `user`，不会入库；Agentica 的 `cron` / `workflow` 会话和 `cron_job` 轮次维持原样排除。本机 Claude Code、Codex、Cursor、Kimi、OpenClaw 的会话里没有另一套日程标记。
 - **文档与报错不再出现已经删除的 `memhub hub` 二级命令**：Hub 命令从 v0.2.2 起就是 `memhub serve`、`memhub install-service`、`memhub install-host`。`AGENTS.md` / `CLAUDE.md` 写明 `memhub/cli/hub.py` 只是源码模块，不是子命令；缺 token 的报错和 ssh 同步说明改为 `memhub serve` / `memhub relay`。下面 v0.2.2 升级说明里写过的 `memhub hub install-service`、`memhub hub install-host` 不存在。
 - **修复 memhub 工具把整段记忆原文返回给 agent、撑爆宿主上下文**：`memory_list` 每条返回完整 `content`（单条 `L0_RAW` 最长 8 万字），本机一次调用就到 5 万字符，被宿主截断；`conversation_search` 一次 4.1 万字，按 `source_id` 展开 20 轮上下文时 5.8 万字。新增 `memhub/tool_output.py` 统一上限，覆盖 Hub MCP（`memhub/hub/mcp.py`）、SDK MCP（`memhub/mcp/server.py`）、宿主集成 `_dispatch_tool` 和 `memhub recall` CLI 兜底命令：

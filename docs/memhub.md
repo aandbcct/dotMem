@@ -167,7 +167,7 @@ memhub connect git git@github.com:<你的用户名>/my-vibecoding-memory.git
 
 在 `~/.memhub/config.yaml` 设置 `hub_capture_dsh: true` 后重启 MemHub Core。Core 使用系统文件通知监听 `~/.dsh/sessions`，等真人对话的完成事件 `turn/end` 落盘后自动入队。正在思考、调用工具、取消或中断的轮次不会被记成已完成回答。
 
-该开关默认关闭；启用后会按已有游标补录尚未处理的历史轮次，包括 Core 关停期间结束的对话，不需要配置定时任务。`memhub doctor` 的 `DSH capture` 项显示监听状态；关闭开关并重启即可恢复仅手动导入。
+该开关默认关闭；启用后会按已有游标补录尚未处理的历史轮次，包括 Core 关停期间结束的对话，不需要配置定时任务。监听状态在 `memhub status` 查看，`memhub doctor` 仅在监听失败时告警；关闭开关并重启即可恢复仅手动导入。
 
 ### 从提问到在 UI 看到新记忆：各环节与耗时
 

@@ -3208,21 +3208,25 @@ def test_transcript_reader_keeps_structured_answer_model(tmp_path, source, recor
 
 
 @pytest.mark.parametrize(
-    ("capture", "level", "detail"),
+    ("capture", "visible", "detail"),
     [
-        ({"mode": "manual", "state": "disabled"}, "ok", "manual"),
+        ({"mode": "manual", "state": "disabled"}, False, ""),
         ({"mode": "watch", "state": "watching", "last_at": "2026-11-21 14:00:00"},
-         "ok", "2026-11-21 14:00:00"),
+         False, ""),
         ({"mode": "watch", "state": "failed", "last_error": "watch failed"},
-         "warn", "watch failed"),
+         True, "watch failed"),
     ],
 )
-def test_doctor_distinguishes_dsh_capture_modes(tmp_path: Path, monkeypatch, capture, level, detail):
+def test_doctor_only_reports_broken_dsh_capture(
+    tmp_path: Path, monkeypatch, capture, visible, detail
+):
     monkeypatch.setattr(cli_hub, "daemon_status", lambda _root: {"capture": {"dsh": capture}})
     report = cli_hub.run_doctor(tmp_path)
-    row = next(c for c in report["checks"] if c["name"] == "DSH capture")
-    assert row["status"] == level
-    assert detail in row["detail"]
+    rows = [c for c in report["checks"] if c["name"] == "DSH capture"]
+    assert bool(rows) is visible
+    if visible:
+        assert rows[0]["status"] == "warn"
+        assert detail in rows[0]["detail"]
 
 
 def test_trae_hook_recalls_then_captures_prompt_and_answer(tmp_path: Path, monkeypatch) -> None:
